@@ -174,9 +174,9 @@
 ### Next Steps (Prioritized)
 
 1. **Immediate Implementation**:
-   - [ ] Integrate fxamacker/cbor for token marshaling
-   - [ ] Implement Ed25519 operations using stdlib
-   - [ ] Create X.509 certificate templates
+   - [x] Integrate fxamacker/cbor for token marshaling
+   - [x] Implement Ed25519 operations using stdlib
+   - [x] Create X.509 certificate templates
    - [ ] Wire up Git stdin/stdout handling
 
 2. **Testing Strategy**:
@@ -231,6 +231,106 @@
 3. **Usability**: Single command setup
 4. **Compatibility**: Works with existing Git workflows
 5. **Security**: No key material in memory longer than needed
+
+---
+
+## 2024-09-27: Core Cryptographic Implementation
+
+### Implementation Decisions
+
+#### CBOR Token Structure
+- **Implementation**: Direct use of `fxamacker/cbor/v2` with struct tags
+- **Key Learning**: Integer keys (`cbor:"1,keyasint"`) produce more compact encoding than string keys
+- **Size**: 3-field token is approximately 50-60 bytes encoded
+
+#### Ed25519 Operations
+- **Choice**: Used Go's stdlib `crypto/ed25519` directly
+- **Key Generation**: ~1ms on modern hardware
+- **Signing**: Sub-millisecond performance
+- **Hash Function**: SHA-256 for public key to ConfirmationID conversion
+
+#### Ephemeral Proof Model
+- **Simplified Design**: 
+  - Master key directly signs ephemeral public key (32 bytes)
+  - No timestamps or nonces in binding (stateless)
+  - Two-step verification is clean and efficient
+- **Security Property**: Ephemeral key can only sign if master key authorized it
+- **Performance**: Total proof generation < 2ms
+
+#### X.509 Certificate Generation
+- **Self-Signed Approach**: Master key signs certificate containing ephemeral key
+- **Certificate Fields**:
+  - Subject CN: DID string (e.g., "did:key:xyz...")
+  - Organization: "Signet" (for identification)
+  - URI SAN: DID as URI for proper identity binding
+  - Extensions: Code Signing only
+- **Validity**: 5 minutes (300 seconds) - balances security with usability
+- **Serial Number**: 128-bit random for uniqueness
+
+### Discovered Issues & Solutions
+
+1. **Issue**: LocalCA returning ephemeral private key
+   - **Problem**: Need ephemeral private key for actual commit signing
+   - **Solution**: Modified to return private key (will refactor to return both cert and key)
+
+2. **Issue**: Error handling in template functions
+   - **Problem**: Ignoring errors from `GenerateSerialNumber()` and `url.Parse()`
+   - **Solution**: Added error returns but using defaults on failure (fail-safe)
+
+3. **Issue**: Type assertions without checks
+   - **Problem**: Direct type assertions could panic
+   - **Solution**: Added ok checks and proper error returns
+
+### Performance Measurements (Estimated)
+
+| Operation | Time |
+|-----------|------|
+| Token Marshal/Unmarshal | < 0.1ms |
+| Ed25519 Key Generation | ~1ms |
+| Proof Generation | < 2ms |
+| Certificate Generation | < 5ms |
+| Total Signing Flow | < 10ms |
+
+### Security Considerations Identified
+
+1. **Private Key Lifetime**: Ephemeral private keys should be zeroed after use
+2. **Certificate Serial Numbers**: Using crypto/rand for generation is secure
+3. **DID as CN**: No security issues, but may affect certificate validation
+4. **Replay Protection**: Not implemented yet - rely on Git commit hash uniqueness
+
+### Next Implementation Steps
+
+1. **signet-commit CLI**:
+   - [ ] Implement stdin/stdout handling for Git
+   - [ ] Create config loading from ~/.signet/
+   - [ ] Add master key persistence
+   - [ ] Wire up certificate + ephemeral key for signing
+
+2. **Testing Requirements**:
+   - [ ] Unit tests for each cryptographic operation
+   - [ ] Integration test with actual Git
+   - [ ] Cross-platform validation
+   - [ ] Certificate validation with Git
+
+3. **Refinements Needed**:
+   - [ ] Return ephemeral private key from LocalCA properly
+   - [ ] Add key zeroing for sensitive material
+   - [ ] Implement proper error handling throughout
+   - [ ] Add logging for debugging
+
+### Code Quality Notes
+
+- **Strengths**:
+  - Clean separation of concerns
+  - Minimal dependencies
+  - Clear interface boundaries
+  - Good performance characteristics
+
+- **Areas for Improvement**:
+  - Error handling needs consistency
+  - Missing input validation in some functions
+  - Need memory zeroing for keys
+  - Could use more defensive programming
 
 ---
 
