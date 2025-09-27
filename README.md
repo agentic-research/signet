@@ -1,71 +1,114 @@
-# Signet
+# Signet MVP
 
-A universal, offline-first protocol for Proof-of-Possession (PoP) built on a self-sovereign identity model.
+An offline-first alternative to gitsign for signing Git commits using self-sovereign identity.
 
-## Overview
+## 🎯 MVP Focus
 
-Signet creates a new foundation for authentication that is secure, private, and developer-friendly. It bridges the gap between traditional PKI and modern decentralized identity, providing practical offline-first solutions for authentication.
+This MVP implements a minimal, focused solution for offline Git commit signing:
+- ✅ Complete offline operation
+- ✅ Self-signed X.509 certificates
+- ✅ Ed25519 signatures only
+- ✅ Single device support
+- ❌ No multi-device sync (deferred)
+- ❌ No DID resolution (deferred)
+- ❌ No key recovery (deferred)
 
-## Core Principles
+## Quick Start
 
-- **Local-First Identity**: Your identity anchored to local cryptographic keys
-- **DID-as-Issuer**: Universal representation through Decentralized Identifiers
-- **Offline-First Cryptography**: All core operations work without internet
-- **Secure Claims Carrier**: Safely transport authorization claims from existing systems
+```bash
+# Build signet-commit
+go build -o signet-commit cmd/signet-commit/main.go
+
+# Configure Git to use signet-commit
+git config commit.gpg.program signet-commit
+git config commit.gpgsign true
+
+# Sign a commit (works completely offline!)
+git commit -S -m "My signed commit"
+```
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design documentation.
+The MVP consists of two main components:
+
+### libsignet (Core Library)
+- **pkg/signet**: Lightweight CBOR tokens
+- **pkg/crypto/epr**: Ephemeral proof of possession
+- **pkg/crypto/keys**: Ed25519 key operations
+- **pkg/attest/x509**: Local CA for self-signed certificates
+- **pkg/crypto/cose**: COSE message wrapper
+
+### signet-commit (CLI Tool)
+- Drop-in replacement for GPG/gitsign
+- Issues ephemeral certificates (5-minute validity)
+- Signs commits with ephemeral keys
+- Works completely offline
+
+## How It Works
+
+1. **Master Key**: Your identity is anchored to a local Ed25519 key pair
+2. **Local CA**: Acts as its own certificate authority
+3. **Ephemeral Certificates**: Issues short-lived certs for each signing operation
+4. **Offline-First**: No network required at any step
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/jamestexas/signet.git
+cd signet
+
+# Build the binary
+go build -o signet-commit cmd/signet-commit/*.go
+
+# Install to PATH
+sudo mv signet-commit /usr/local/bin/
+
+# Initialize Signet (creates ~/.signet/)
+signet-commit --init
+```
 
 ## Project Structure
 
 ```
 signet/
-├── pkg/                    # Core library (libsignet)
-│   ├── signet/            # Core CBOR token structures
+├── pkg/                    # libsignet core library
+│   ├── signet/            # Token structures
 │   ├── crypto/            # Cryptographic operations
-│   │   ├── epr/          # Ephemeral Proof Routines
-│   │   ├── cose/         # COSE wrapper
-│   │   └── keys/         # Key management
-│   ├── did/              # DID operations
-│   │   └── git/          # Git-based DID method
-│   └── attest/           # Attestation (X.509)
-├── cmd/                   # Command-line tools
-│   └── signet-commit/    # Git commit signing
-└── internal/             # Internal packages
-```
-
-## Quick Start
-
-```bash
-# Install dependencies
-go mod download
-
-# Build signet-commit tool
-go build -o signet-commit cmd/signet-commit/main.go
-
-# Sign a git commit (coming soon)
-./signet-commit -S -m "Your commit message"
+│   └── attest/            # X.509 certificate generation
+├── cmd/                   
+│   └── signet-commit/     # Git commit signing tool
+└── docs/                  # Documentation
 ```
 
 ## Development Status
 
-🚧 **Early Development** - This project is in active development. APIs and interfaces are subject to change.
-
-Current focus:
 - [x] Core architecture design
-- [x] Simplified crypto model
-- [ ] CBOR/COSE integration
-- [ ] Basic wallet implementation
-- [ ] signet-commit MVP
+- [x] Project scaffolding
+- [ ] CBOR token implementation
+- [ ] Ed25519 key operations
+- [ ] Local CA implementation
+- [ ] Git integration
+- [ ] Testing suite
+- [ ] Documentation
+
+## Security Model
+
+- **Trust Anchor**: Local master key (never leaves device)
+- **Ephemeral Keys**: Short-lived certificates (5 minutes)
+- **Offline Operation**: No network attack surface
+- **Simple**: Minimal complexity reduces bugs
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+This MVP is intentionally minimal. Features being deferred:
+- Multi-device synchronization
+- DID documents and resolution
+- Alternative signature algorithms
+- Hardware security modules
+- Recovery mechanisms
 
-## Investigation Log
-
-See [INVESTIGATION_LOG.md](INVESTIGATION_LOG.md) for ongoing research and design decisions.
+See [ARCHITECTURE_MVP.md](ARCHITECTURE_MVP.md) for design details.
 
 ## License
 
@@ -73,4 +116,4 @@ Apache 2.0 - See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-This project builds upon and integrates with the [Sigstore](https://sigstore.dev) ecosystem where beneficial, while maintaining its core offline-first principles.
+Built as an offline-first complement to the [Sigstore](https://sigstore.dev) ecosystem.

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "dfdd7216-bb18-428d-a65d-816190f83ed2",
+    "timestamp": "2025-09-27T18:11:52.150818",
+    "type": "insight",
+    "content": "Signet uses a simplified two-step ephemeral proof model: master key signs ephemeral key (BindingSignature), then ephemeral key signs requests. This eliminates complex timestamps and enables true offline operation while maintaining security through clear chain of trust.",
+    "evidence": [],
+    "confidence": 0.8,
+    "tags": [
+      "crypto,architecture,offline-first"
+    ]
+  }
+]
