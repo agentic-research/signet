@@ -4,8 +4,10 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"net/url"
 	"time"
@@ -40,8 +42,14 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 
 	// 2. Create certificate template
 	template := ca.CreateCertificateTemplate(validityDuration)
+	if template == nil {
+		return nil, nil, errors.New("failed to create certificate template")
+	}
 	
-	// 3. Self-sign the certificate with master key
+	// 3. Add Subject Key Identifier (required for Git)
+	template.SubjectKeyId = generateSubjectKeyID(ephemeralPub)
+	
+	// 4. Self-sign the certificate with master key
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
 		template,
@@ -53,7 +61,7 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 		return nil, nil, err
 	}
 
-	// 4. Parse the certificate to return
+	// 5. Parse the certificate to return
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
 		return nil, nil, err
@@ -70,6 +78,12 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 // with the given public key and validity duration
 func (ca *LocalCA) IssueEphemeralCertificate(publicKey crypto.PublicKey, validityDuration time.Duration) (*x509.Certificate, []byte, error) {
 	template := ca.CreateCertificateTemplate(validityDuration)
+	if template == nil {
+		return nil, nil, errors.New("failed to create certificate template")
+	}
+	
+	// Add Subject Key Identifier (required for Git)
+	template.SubjectKeyId = generateSubjectKeyID(publicKey)
 	
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
@@ -93,7 +107,12 @@ func (ca *LocalCA) IssueEphemeralCertificate(publicKey crypto.PublicKey, validit
 // CreateCertificateTemplate creates a basic X.509 certificate template
 // with the CA's DID as subject
 func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x509.Certificate {
-	serialNumber, _ := GenerateSerialNumber()
+	serialNumber, err := GenerateSerialNumber()
+	if err != nil {
+		// If we can't generate a serial number, we can't create a certificate
+		return nil
+	}
+	
 	now := time.Now()
 	
 	// Parse DID as URI for SAN
@@ -119,8 +138,31 @@ func GenerateSerialNumber() (*big.Int, error) {
 
 // EncodeDIDAsSubject encodes a DID as an X.509 subject
 func EncodeDIDAsSubject(did string) pkix.Name {
+	// Use short CN if DID is too long (> 64 bytes)
+	cn := did
+	if len(did) > 64 {
+		cn = "Signet Ephemeral"
+	}
 	return pkix.Name{
-		CommonName: did,
+		CommonName: cn,
 		Organization: []string{"Signet"},
 	}
+}
+
+// generateSubjectKeyID generates a Subject Key Identifier for a public key
+// Uses SHA-1 hash as per RFC 5280 (method 1)
+func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
+	var pubBytes []byte
+	
+	switch pub := publicKey.(type) {
+	case ed25519.PublicKey:
+		pubBytes = pub
+	default:
+		// For other key types, we'd need to marshal them appropriately
+		// For MVP, we only support Ed25519
+		return nil
+	}
+	
+	h := sha1.Sum(pubBytes)
+	return h[:]
 }

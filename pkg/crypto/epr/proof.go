@@ -52,6 +52,9 @@ func NewGenerator(masterSigner crypto.Signer) *Generator {
 	}
 }
 
+// DomainSeparator is the prefix for binding signatures to prevent cross-protocol attacks
+const DomainSeparator = "signet-ephemeral-binding-v1:"
+
 // GenerateProof creates an ephemeral proof of possession
 func (g *Generator) GenerateProof(request *ProofRequest) (*ProofResponse, error) {
 	// 1. Generate ephemeral key pair
@@ -60,8 +63,12 @@ func (g *Generator) GenerateProof(request *ProofRequest) (*ProofResponse, error)
 		return nil, err
 	}
 
-	// 2. Sign ephemeral public key with master key to create BindingSignature
-	bindingSignature, err := g.masterSigner.Sign(rand.Reader, ephemeralPub, nil)
+	// 2. Create domain-separated message with validity period
+	expiresAt := time.Now().Add(request.ValidityPeriod).Unix()
+	message := createBindingMessage(ephemeralPub, expiresAt, request.Purpose)
+
+	// 3. Sign the message with master key to create BindingSignature
+	bindingSignature, err := g.masterSigner.Sign(rand.Reader, message, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +84,26 @@ func (g *Generator) GenerateProof(request *ProofRequest) (*ProofResponse, error)
 	}, nil
 }
 
+// createBindingMessage creates the domain-separated message to sign
+func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) []byte {
+	pubBytes := ephemeralPub.(ed25519.PublicKey)
+	
+	// Domain separator + public key + expiry + purpose
+	message := append([]byte(DomainSeparator), pubBytes...)
+	
+	// Add expiry timestamp (8 bytes, big-endian)
+	expiryBytes := make([]byte, 8)
+	for i := 0; i < 8; i++ {
+		expiryBytes[7-i] = byte(expiresAt >> (i * 8))
+	}
+	message = append(message, expiryBytes...)
+	
+	// Add purpose string
+	message = append(message, []byte(purpose)...)
+	
+	return message
+}
+
 // Verifier verifies ephemeral proofs of possession
 type Verifier struct{}
 
@@ -85,14 +112,17 @@ func NewVerifier() *Verifier {
 	return &Verifier{}
 }
 
-// VerifyBinding verifies the binding signature on the ephemeral proof
+// VerifyBinding verifies the binding signature on the ephemeral proof with expiry
 // Step 1 of verification: Verify that the master key authorized the ephemeral key
-func (v *Verifier) VerifyBinding(proof *EphemeralProof, masterPublicKey crypto.PublicKey) error {
+func (v *Verifier) VerifyBinding(proof *EphemeralProof, masterPublicKey crypto.PublicKey, expiresAt int64, purpose string) error {
 	// Convert ephemeral public key to bytes for verification
 	ephemeralPubBytes, ok := proof.EphemeralPublicKey.(ed25519.PublicKey)
 	if !ok {
 		return errors.New("invalid ephemeral public key type")
 	}
+
+	// Recreate the domain-separated message
+	message := createBindingMessage(proof.EphemeralPublicKey, expiresAt, purpose)
 
 	// Verify the binding signature
 	masterPub, ok := masterPublicKey.(ed25519.PublicKey)
@@ -100,8 +130,13 @@ func (v *Verifier) VerifyBinding(proof *EphemeralProof, masterPublicKey crypto.P
 		return errors.New("invalid master public key type")
 	}
 
-	if !ed25519.Verify(masterPub, ephemeralPubBytes, proof.BindingSignature) {
+	if !ed25519.Verify(masterPub, message, proof.BindingSignature) {
 		return errors.New("invalid binding signature")
+	}
+
+	// Check if the proof has expired
+	if time.Now().Unix() > expiresAt {
+		return errors.New("ephemeral proof has expired")
 	}
 
 	return nil
@@ -123,9 +158,9 @@ func (v *Verifier) VerifyRequestSignature(proof *EphemeralProof, message []byte,
 }
 
 // VerifyProof performs complete two-step verification
-func (v *Verifier) VerifyProof(proof *EphemeralProof, masterPublicKey crypto.PublicKey, message []byte, signature []byte) error {
+func (v *Verifier) VerifyProof(proof *EphemeralProof, masterPublicKey crypto.PublicKey, expiresAt int64, purpose string, message []byte, signature []byte) error {
 	// Step 1: Verify the binding
-	if err := v.VerifyBinding(proof, masterPublicKey); err != nil {
+	if err := v.VerifyBinding(proof, masterPublicKey, expiresAt, purpose); err != nil {
 		return err
 	}
 

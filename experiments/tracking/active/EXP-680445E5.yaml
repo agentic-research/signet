@@ -1,0 +1,102 @@
+id: EXP-680445E5
+created: '2025-09-27T18:47:30.599600'
+status: active
+type: bugfix
+title: Nope Some More To
+description: "nope some more to fix first me thinks! But we are very close. :) \n\
+  feedback! Ultrathink - it's important.\nBelow is a security-oriented line-by-line\
+  \ review of the four packages you supplied.  \nI concentrate on the questions you\
+  \ asked, plus anything that would block a production deployment.  \n\u201CMUST\u201D\
+  \ = will break security or Git compatibility, \u201CSHOULD\u201D = strong recommendation,\
+  \ \u201CCONSIDER\u201D = nice to have.\n\n--------------------------------------------------------------------\n\
+  pkg/signet/token.go\n--------------------------------------------------------------------\n\
+  1. Token reuse / replay  \n   MUST: There is no nonce, audience, or key identifier.\
+  \  \n   An attacker can record one 5-min CBOR token and replay it for any repository\
+  \ until it expires.  \n   Add at least:  \n   - 16-byte random nonce (generated\
+  \ by the ephemeral key)  \n   - intended ephemeral public key (or its hash) so the\
+  \ token can\u2019t be re-used with a different ephemeral key.\n\n2. Expiry check\
+  \ race  \n   SHOULD: `IsExpired` uses the machine\u2019s wall clock; a malicious\
+  \ Git client can move its clock back.  \n   Either:  \n   - add a \u201Cnot-before\u201D\
+  \ field and enforce monotonic clock in the verifier, or  \n   - document that Signet\
+  \ requires an NTP-synced machine (defeats \u201Coffline\u201D goal).\n\n3. CBOR\
+  \ decoding DoS  \n   CONSIDER: fxamacker/cbor is safe, but set `DecMode` with `MaxNestedLevels(32)`\
+  \ and `MaxArrayElements(32)` to avoid huge allocations.\n\n--------------------------------------------------------------------\n\
+  pkg/crypto/keys/signer.go\n--------------------------------------------------------------------\n\
+  1. Seed stretching missing  \n   SHOULD: `GenerateEd25519KeyPairFromSeed` uses the\
+  \ raw 32-byte seed as a private key.  \n   If the seed is user input (passphrase)\
+  \ it has far < 256-bit entropy.  \n   Run the seed through `crypto/sha256` **with\
+  \ a 256-bit salt** or, better, Argon2id before `ed25519.NewKeyFromSeed`.\n\n2. Sensitive\
+  \ memory not cleared  \n   MUST: `Ed25519Signer` keeps the private key in a `[]byte`.\
+  \  \n   Add  \n   ```go\n   func (s *Ed25519Signer) Destroy() {\n       for i :=\
+  \ range s.privateKey {\n           s.privateKey[i] = 0\n       }\n   }\n   ``` \
+  \ \n   and call it as soon as the key is no longer needed (after signing the binding\
+  \ signature).\n\n3. Interface embedding  \n   CONSIDER: embedding `crypto.Signer`\
+  \ makes the whole `ed25519.PrivateKey` accessible via type-assertion.  \n   Wrap\
+  \ the key in a small struct that only exposes `Sign` and `Public`.\n\n--------------------------------------------------------------------\n\
+  pkg/crypto/epr/proof.go\n--------------------------------------------------------------------\n\
+  1. Missing domain separation  \n   MUST: The binding signature is computed over\
+  \ raw `ephemeralPub`.  \n   If any other part of the system ever signs a raw public\
+  \ key an attacker can cross-swap signatures.  \n   Prefix the message with a fixed\
+  \ string:  \n   ```go\n   msg := append([]byte(\"signet-ephemeral-binding-v1\"),\
+  \ ephemeralPub...)\n   ```\n\n2. Ephemeral private key zeroisation  \n   MUST: Caller\
+  \ receives the private key but no API tells him to destroy it.  \n   Return a `EphemeralKey`\
+  \ struct that implements `io.Closer` and overwrites memory on `Close()`.\n\n3. No\
+  \ validity period inside the proof  \n   SHOULD: The verifier has no idea how old\
+  \ the proof is; the token is checked elsewhere but the two are not cryptographically\
+  \ linked.  \n   Include `ExpiresAt` inside the signed payload of the binding signature\
+  \ (see #1).\n\n4. Algorithm hard-coding  \n   CONSIDER: `ed25519.Verify` is used\
+  \ directly; if you ever add a second algorithm you will forget to update one of\
+  \ the two calls.  \n   Use the generic `crypto.Signer`/`crypto.Verifier` interfaces\
+  \ everywhere.\n\n--------------------------------------------------------------------\n\
+  pkg/attest/x509/localca.go\n--------------------------------------------------------------------\n\
+  1. Git compatibility \u2013 missing SKID / AKID  \n   MUST: Git (and most OpenSSL\
+  \ builds) reject EE certs that do not contain a Subject Key Identifier.  \n   Add\
+  \  \n   ```go\n   template.SubjectKeyId, _ = generateSubjectKeyID(publicKey)\n \
+  \  ```  \n   (simple SHA-1 of the public key is accepted by Git).\n\n2. Serial-number\
+  \ entropy  \n   SHOULD: `GenerateSerialNumber` draws 128 bits \u2013 adequate \u2013\
+  \ but the error is ignored.  \n   Bubble the error up; on `rand.Int` failure you\
+  \ must stop.\n\n3. Self-signed vs. delegated  \n   CONSIDER: You call `x509.CreateCertificate`\
+  \ with the same template for issuer & subject.  \n   That makes the **master key**\
+  \ the CA key.  \n   If you ever want the master key to be offline you need an intermediate\
+  \ CA.  \n   For the MVP this is fine, but document that the master key **is** the\
+  \ CA.\n\n4. DID in CommonName  \n   CONSIDER: DIDs can be longer than 64 bytes,\
+  \ the PKIX upper limit for CN.  \n   Put the DID in SAN (you already do) and use\
+  \ a short CN such as \u201CSignet Ephemeral\u201D.\n\n5. Code-signing EKU is correct\
+  \  \n   \u2713 `ExtKeyUsageCodeSigning` is what Git checks via `gpgsm --list-external-keys`.\n\
+  \n6. Certificate validity  \n   5 min is aggressive but acceptable; Git\u2019s own\
+  \ timestamping is coarse (1 s), so you will not hit skew problems in practice. \
+  \ \n   Document that the user\u2019s clock must be accurate to \xB11 min.\n\n7.\
+  \ Private-key comment  \n   The comment \u201CStore the private key in the certificate's\
+  \ extensions\u201D is scary; remove it or implement a secure out-of-band return\
+  \ path.\n\n--------------------------------------------------------------------\n\
+  Cross-package issues\n--------------------------------------------------------------------\n\
+  1. No integrity link between token and proof  \n   The token and the proof are two\
+  \ separate objects.  \n   Add the CBOR-token hash inside the signed binding message\
+  \ so the verifier knows the same ephemeral key is bound to the exact token presented.\n\
+  \n2. Git invocation  \n   You still need to call  \n   ```\n   git config gpg.x509.program\
+  \ signet-git\n   ```  \n   and implement a small `signet-git` binary that:  \n \
+  \  - receives the to-be-signed text on stdin,  \n   - produces a detached CMS (PKCS#7)\
+  \ signature containing the ephemeral cert chain,  \n   - exits 0.  \n   Without\
+  \ this Git will not even call your code.\n\n--------------------------------------------------------------------\n\
+  Quick answers to the five explicit questions\n--------------------------------------------------------------------\n\
+  1. Ephemeral private keys zeroised?  \n   MUST do it \u2013 add `Close()` method\
+  \ as described.\n\n2. Serial-number generation sound?  \n   Yes, 128-bit random\
+  \ is sufficient; just handle the error.\n\n3. Certificate pinning needed?  \n  \
+  \ Not for the MVP; the one-off self-signed cert is pinned implicitly by the binding\
+  \ signature.\n\n4. 5-minute validity appropriate?  \n   Yes for an offline tool;\
+  \ document the clock-sync requirement.\n\n5. DID as Common Name?  \n   Acceptable\
+  \ for MVP, but move to SAN only if DID length > 64 bytes.\n\n--------------------------------------------------------------------\n\
+  Minimal patch set to land safely\n--------------------------------------------------------------------\n\
+  - Add nonce + ephemeral-pub-hash to Token.  \n- Add domain separator to binding\
+  \ signature.  \n- Zeroise ephemeral private keys.  \n- Add SKID to certificate template.\
+  \  \n- Handle `rand.Int` error in `GenerateSerialNumber`.  \n\nAfter these changes\
+  \ the design is sound for an MVP and will be accepted by Git 2.34+ with `gpgsm`\
+  \ backend."
+children: []
+tags:
+- testing
+- ai
+directory: 2025-09-27_nope-some-more-to
+outcomes: []
+next_steps: []
+completion_state: "\U0001F4CB"

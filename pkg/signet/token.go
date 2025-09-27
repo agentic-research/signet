@@ -18,16 +18,34 @@ type Token struct {
 
 	// ExpiresAt is the Unix timestamp for token expiration
 	ExpiresAt int64 `cbor:"3,keyasint"`
+
+	// Nonce prevents replay attacks (16 bytes)
+	Nonce []byte `cbor:"4,keyasint"`
+
+	// EphemeralKeyID binds this token to a specific ephemeral key (hash of ephemeral public key)
+	EphemeralKeyID []byte `cbor:"5,keyasint"`
+
+	// NotBefore is the earliest time this token is valid (Unix timestamp)
+	NotBefore int64 `cbor:"6,keyasint"`
 }
 
 // NewToken creates a new token with the given parameters
-func NewToken(issuerID string, confirmationID []byte, validityDuration time.Duration) *Token {
+func NewToken(issuerID string, confirmationID []byte, ephemeralKeyID []byte, nonce []byte, validityDuration time.Duration) *Token {
 	now := time.Now()
 	return &Token{
 		IssuerID:       issuerID,
 		ConfirmationID: confirmationID,
+		EphemeralKeyID: ephemeralKeyID,
+		Nonce:          nonce,
+		NotBefore:      now.Unix(),
 		ExpiresAt:      now.Add(validityDuration).Unix(),
 	}
+}
+
+// IsValid checks if the token is within its validity period
+func (t *Token) IsValid() bool {
+	now := time.Now().Unix()
+	return now >= t.NotBefore && now <= t.ExpiresAt
 }
 
 // IsExpired checks if the token has expired
