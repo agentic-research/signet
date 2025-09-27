@@ -3,6 +3,8 @@ package signet
 import (
 	"errors"
 	"time"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 // Token is a simple, lightweight CBOR token for the MVP.
@@ -20,28 +22,32 @@ type Token struct {
 
 // NewToken creates a new token with the given parameters
 func NewToken(issuerID string, confirmationID []byte, validityDuration time.Duration) *Token {
-	// Implementation will follow
-	return nil
+	now := time.Now()
+	return &Token{
+		IssuerID:       issuerID,
+		ConfirmationID: confirmationID,
+		ExpiresAt:      now.Add(validityDuration).Unix(),
+	}
 }
 
 // IsExpired checks if the token has expired
 func (t *Token) IsExpired() bool {
-	// Implementation will follow
-	return false
+	return time.Now().Unix() > t.ExpiresAt
 }
 
 // Marshal serializes the token to CBOR bytes
 func (t *Token) Marshal() ([]byte, error) {
-	// Implementation will use cbor library
-	// Implementation will follow
-	return nil, nil
+	return cbor.Marshal(t)
 }
 
 // Unmarshal deserializes a token from CBOR bytes
 func Unmarshal(data []byte) (*Token, error) {
-	// Implementation will use cbor library
-	// Implementation will follow
-	return nil, nil
+	var token Token
+	err := cbor.Unmarshal(data, &token)
+	if err != nil {
+		return nil, err
+	}
+	return &token, nil
 }
 
 // Common errors

@@ -109,4 +109,129 @@
 
 ---
 
+## 2024-09-27: MVP Refactoring - Focus on Achievable Goals
+
+### Key Decisions
+
+#### Scope Reduction for MVP
+- **Finding**: Initial architecture was too ambitious with DID resolution, multi-device sync, and recovery
+- **Solution**: Focus solely on offline git commit signing as proof of concept
+- **Removed**:
+  - DID packages (pkg/did/*) - defer resolution complexity
+  - Wallet abstraction - use simple file-based key storage
+  - Complex keystore - just Ed25519 operations
+  - Multiple attestation types - focus on X.509 only
+- **Impact**: Can deliver working solution in weeks vs months
+
+#### Simplified Token Structure
+- **Before**: Complex token with audiences, nonces, external claims
+- **After**: Just three fields: IssuerID, ConfirmationID, ExpiresAt
+- **Rationale**: MVP doesn't need claims carrier functionality
+- **Future**: Can extend token structure without breaking compatibility
+
+#### Single Algorithm Choice
+- **Decision**: Ed25519 only for MVP
+- **Benefits**:
+  - No algorithm negotiation
+  - Consistent 64-byte signatures
+  - Fast key generation
+  - Wide ecosystem support
+- **Trade-off**: No HSM support initially (most require ECDSA/RSA)
+
+#### Local CA Design
+- **Approach**: Master key acts as its own CA
+- **Certificate Lifetime**: 5 minutes default
+- **Subject**: Simple string identifier (future DID)
+- **Extensions**: Minimal - just code signing
+- **Result**: Fully offline X.509 generation
+
+### Implementation Insights
+
+1. **Git Integration Points**:
+   - `commit.gpg.program`: Path to signing binary
+   - `commit.gpgsign`: Enable signing
+   - Input: Commit data on stdin
+   - Output: PEM-encoded signature on stdout
+
+2. **File Layout for MVP**:
+   ```
+   ~/.signet/
+   ├── master.key    # Ed25519 private key
+   └── config        # Optional configuration
+   ```
+
+3. **Certificate Generation Flow**:
+   ```
+   Master Key → Local CA → Ephemeral Cert → Sign Commit
+   ```
+
+4. **Performance Targets**:
+   - Key generation: < 1ms
+   - Certificate generation: < 10ms
+   - Commit signing: < 100ms total
+   - Fully achievable with Ed25519
+
+### Next Steps (Prioritized)
+
+1. **Immediate Implementation**:
+   - [ ] Integrate fxamacker/cbor for token marshaling
+   - [ ] Implement Ed25519 operations using stdlib
+   - [ ] Create X.509 certificate templates
+   - [ ] Wire up Git stdin/stdout handling
+
+2. **Testing Strategy**:
+   - Unit tests for each package
+   - Integration test with real Git repos
+   - Benchmark performance targets
+   - Cross-platform validation
+
+3. **Documentation Needs**:
+   - Installation guide
+   - Git configuration examples
+   - Troubleshooting guide
+   - Migration from GPG/gitsign
+
+### Deferred Complexity
+
+**Post-MVP Features** (documented for future reference):
+1. **Phase 2**: DID integration
+   - did:key for self-sovereign identity
+   - did:web for organizational identity
+   - did:git for decentralized resolution
+
+2. **Phase 3**: Multi-device support
+   - Key synchronization protocol
+   - Device authorization flow
+   - Secure backup mechanisms
+
+3. **Phase 4**: Sigstore integration
+   - Rekor transparency log submission
+   - Fulcio certificate co-signing
+   - Cosign compatibility layer
+
+### Architecture Principles Refined
+
+1. **MVP First**: Prove core value before adding complexity
+2. **Offline Primary**: Network enhancement is optional
+3. **Single Responsibility**: Each package does one thing well
+4. **Standard Interfaces**: Use crypto.Signer throughout
+5. **Explicit Over Implicit**: Clear configuration, no magic
+
+### Risk Mitigation
+
+1. **Key Loss**: Document backup procedures
+2. **Algorithm Agility**: Design interfaces for future algorithms
+3. **Git Breaking Changes**: Abstract Git interaction layer
+4. **Platform Differences**: Test on Linux/macOS/Windows early
+
+### Success Metrics for MVP
+
+1. **Functional**: Signs commits offline
+2. **Performance**: Sub-100ms signing
+3. **Usability**: Single command setup
+4. **Compatibility**: Works with existing Git workflows
+5. **Security**: No key material in memory longer than needed
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*

@@ -2,7 +2,9 @@ package epr
 
 import (
 	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"time"
 )
 
@@ -45,19 +47,34 @@ type Generator struct {
 
 // NewGenerator creates a new ephemeral proof generator
 func NewGenerator(masterSigner crypto.Signer) *Generator {
-	// Implementation will follow
-	return nil
+	return &Generator{
+		masterSigner: masterSigner,
+	}
 }
 
 // GenerateProof creates an ephemeral proof of possession
 func (g *Generator) GenerateProof(request *ProofRequest) (*ProofResponse, error) {
-	// Steps:
 	// 1. Generate ephemeral key pair
-	// 2. Serialize ephemeral public key
-	// 3. Sign serialized key with master key to create BindingSignature
-	// 4. Return proof and ephemeral private key
-	// Implementation will follow
-	return nil, nil
+	ephemeralPub, ephemeralPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Sign ephemeral public key with master key to create BindingSignature
+	bindingSignature, err := g.masterSigner.Sign(rand.Reader, ephemeralPub, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	proof := &EphemeralProof{
+		EphemeralPublicKey: ephemeralPub,
+		BindingSignature:   bindingSignature,
+	}
+
+	return &ProofResponse{
+		Proof:               proof,
+		EphemeralPrivateKey: ephemeralPriv,
+	}, nil
 }
 
 // Verifier verifies ephemeral proofs of possession
@@ -65,30 +82,57 @@ type Verifier struct{}
 
 // NewVerifier creates a new ephemeral proof verifier
 func NewVerifier() *Verifier {
-	// Implementation will follow
-	return nil
+	return &Verifier{}
 }
 
 // VerifyBinding verifies the binding signature on the ephemeral proof
 // Step 1 of verification: Verify that the master key authorized the ephemeral key
 func (v *Verifier) VerifyBinding(proof *EphemeralProof, masterPublicKey crypto.PublicKey) error {
-	// Verify BindingSignature using masterPublicKey over EphemeralPublicKey
-	// Implementation will follow
+	// Convert ephemeral public key to bytes for verification
+	ephemeralPubBytes, ok := proof.EphemeralPublicKey.(ed25519.PublicKey)
+	if !ok {
+		return errors.New("invalid ephemeral public key type")
+	}
+
+	// Verify the binding signature
+	masterPub, ok := masterPublicKey.(ed25519.PublicKey)
+	if !ok {
+		return errors.New("invalid master public key type")
+	}
+
+	if !ed25519.Verify(masterPub, ephemeralPubBytes, proof.BindingSignature) {
+		return errors.New("invalid binding signature")
+	}
+
 	return nil
 }
 
 // VerifyRequestSignature verifies a signature created by the ephemeral key
 // Step 2 of verification: Verify the per-request signature
 func (v *Verifier) VerifyRequestSignature(proof *EphemeralProof, message []byte, signature []byte) error {
-	// Verify signature using EphemeralPublicKey from the proof
-	// Implementation will follow
+	ephemeralPub, ok := proof.EphemeralPublicKey.(ed25519.PublicKey)
+	if !ok {
+		return errors.New("invalid ephemeral public key type")
+	}
+
+	if !ed25519.Verify(ephemeralPub, message, signature) {
+		return errors.New("invalid request signature")
+	}
+
 	return nil
 }
 
 // VerifyProof performs complete two-step verification
 func (v *Verifier) VerifyProof(proof *EphemeralProof, masterPublicKey crypto.PublicKey, message []byte, signature []byte) error {
 	// Step 1: Verify the binding
+	if err := v.VerifyBinding(proof, masterPublicKey); err != nil {
+		return err
+	}
+
 	// Step 2: Verify the request signature
-	// Implementation will follow
+	if err := v.VerifyRequestSignature(proof, message, signature); err != nil {
+		return err
+	}
+
 	return nil
 }
