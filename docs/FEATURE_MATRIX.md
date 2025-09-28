@@ -61,20 +61,16 @@ The foundational Go library implementing the Signet protocol.
 
 ## 2. SDK Layer
 
-Client libraries for different programming languages.
+Go SDK and library packages for integration.
 
-| SDK | Language Version | Core Protocol | PoP | Key Storage | Caching | Error Handling | HTTP Client | Status |
-|-----|-----------------|---------------|-----|-------------|---------|----------------|-------------|---------|
-| **Go SDK** | Go 1.21+ | ✅ Complete | ✅ Complete | ✅ Complete | ✅ Complete | ✅ Complete | ✅ Complete | **Production** |
-| Platform Support | | Linux, macOS, Windows | | Keychain, libsecret, DPAPI | LRU + TTL | Typed errors | net/http | |
-| **Python SDK** | Python 3.8+ | ✅ Complete | 🚧 Beta | 🚧 Beta | ⏳ Planned | 🚧 Beta | ✅ Complete | **Beta** |
-| Platform Support | | Linux, macOS, Windows | | keyring lib | | Custom exceptions | requests/httpx | |
-| **JavaScript/TypeScript SDK** | Node 18+, ES2020 | 🚧 Alpha | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | 🚧 Alpha | **Alpha** |
-| Platform Support | | Node.js, Browsers | | node-keytar, IndexedDB | | | fetch/axios | |
-| **Rust SDK** | Rust 1.70+ | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | **Planned** |
-| Platform Support | | All platforms | | OS native | | Result<T,E> | reqwest | Q1 2025 |
-| **WASM SDK** | WASM | 🔮 Experimental | 🔮 Experimental | N/A | ⏳ Planned | ⏳ Planned | 🔮 Experimental | **Experimental** |
-| Platform Support | | Browsers only | | IndexedDB | | | fetch | Research |
+| Package | Purpose | Core Protocol | PoP | Key Storage | Caching | Error Handling | Status |
+|---------|---------|---------------|-----|-------------|---------|----------------|--------|
+| **pkg/signet** | Core library | ✅ Complete | ✅ Complete | ✅ Complete | ⏳ Planned | ✅ Complete | **Production** |
+| **pkg/crypto/epr** | Ephemeral proofs | ✅ Complete | ✅ Complete | - | - | ✅ Complete | **Production** |
+| **pkg/cms** | CMS/PKCS#7 signatures | ✅ Complete | - | - | - | ✅ Complete | **Production** |
+| **pkg/errors** | Structured errors | - | - | - | - | ✅ Complete | **Production** |
+| **pkg/http** | HTTP middleware | 🚧 In Progress | 🚧 In Progress | ⏳ Planned | ⏳ Planned | 🚧 In Progress | **Development** |
+| Platform Support | Linux, macOS, Windows | Go 1.21+ | | Keychain integration | LRU + TTL | Typed errors | |
 
 ## 3. Applications Layer
 

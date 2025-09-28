@@ -258,9 +258,9 @@ Core Infrastructure
  Key rotation automation with grace periods
 Client Tooling
  Smart CLI for Mac/Linux/Windows with signed binaries
- SDKs: Go, Python, Node, Java
- Browser JavaScript library
- Mobile SDKs: Swift, Kotlin
+ Go SDK with comprehensive packages
+ HTTP middleware for standard net/http
+ gRPC interceptors for service integration
 Integration Components
  OAuth/OIDC wrapper service
  Envoy/nginx auth modules
@@ -318,10 +318,10 @@ Current state of implementation vs specification:
 |-----------|--------|-------|
 | Go Library (libsignet) | ✅ Production | Reference implementation |
 | Go SDK | ✅ Production | Full feature parity |
-| Python SDK | 🚧 Beta | Core features complete |
-| JavaScript SDK | 🚧 Alpha | Under development |
+| pkg/crypto/epr | ✅ Production | Ephemeral proof library |
+| pkg/cms | ✅ Production | Ed25519 CMS/PKCS#7 (first in Go!) |
 | signet-commit | ✅ Production | Git signing application |
-| HTTP Middleware | ⏳ Planned | Q4 2024 |
+| HTTP Middleware | 🚧 Development | In progress |
 
 See [Feature Matrix](../FEATURE_MATRIX.md) for detailed component status.
 
