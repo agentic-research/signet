@@ -1632,3 +1632,197 @@ This implementation proves our roadmap milestones are achievable:
 ---
 
 *This log will be updated as the investigation progresses and new discoveries are made.*
+## 2025-09-28: Implementing Golden Rules from Cosign/Fulcio/Rekor
+
+### Objective
+Implement three golden rules learned from the Sigstore projects (cosign, fulcio, rekor):
+1. Context and Cancellation support
+2. Structured Logging  
+3. Enhanced Error Handling
+
+### Discoveries
+
+#### 1. Custom Error Package Implementation
+- Created centralized `pkg/errors/errors.go` with:
+  - Common error variables for programmatic checking (using `errors.Is()`)
+  - Custom error types with wrapping support (SignatureError, KeyError, ValidationError)
+  - Follows Go 1.13+ error wrapping patterns with `Unwrap()` methods
+
+#### 2. Context Support in EPR Package
+Key findings:
+- All public functions now accept `context.Context` as first parameter
+- Context cancellation checks at entry points for early exit
+- Error wrapping preserves context (e.g., `fmt.Errorf("operation: %w", ctx.Err())`)
+
+#### 3. Ed25519 Signing Quirks
+**Critical Discovery**: Ed25519's `Sign` method requires `crypto.Hash(0)` instead of `nil` for the opts parameter:
+```go
+// Wrong - causes nil pointer dereference
+signature, err := privateKey.Sign(rand.Reader, message, nil)
+
+// Correct
+signature, err := privateKey.Sign(rand.Reader, message, crypto.Hash(0))
+```
+
+This is because ed25519.PrivateKey is a slice type that directly implements crypto.Signer, not an interface.
+
+#### 4. Test Timing Coordination
+The `TestProofExpirationBoundary` test revealed important timing considerations:
+- The `expiresAt` value used in verification must match what was used during signing
+- Moving expiry check before signature verification improves performance (fail fast)
+- Time-based tests need careful handling of clock drift
+
+### Implementation Status
+
+#### Completed:
+- ✅ Custom error types and variables defined (pkg/errors)
+- ✅ Context support added to pkg/crypto/epr
+- ✅ Error wrapping implemented in EPR package
+- ✅ Comprehensive unit tests for EPR package (11/12 passing)
+
+#### In Progress:
+- 🔄 Debugging timing-based test for proof expiration
+- 🔄 Need to complete context support for other packages
+
+### Architecture Decisions
+
+1. **Error Package Location**: Created `pkg/errors` as a central location for all custom errors, making them easily importable by all packages.
+
+2. **Context Cancellation Pattern**: Check context at function entry for immediate cancellation response, rather than deep in the execution path.
+
+3. **Error Wrapping Strategy**: Use `fmt.Errorf` with `%w` verb for maintaining error chains, combined with custom error types for specific failure modes.
+
+4. **Test Structure**: Table-driven tests with sub-tests for comprehensive coverage and clear failure reporting.
+
+### Next Steps
+
+1. ~~Fix the remaining test failure in `TestProofExpirationBoundary`~~ ✅ Complete
+2. ~~Continue adding context support to remaining packages (x509, cms, signet)~~ ✅ Context already added
+3. Implement structured logging with slog in main packages
+4. ~~Complete comprehensive test coverage for all packages~~ ✅ All tests passing
+5. ~~Update existing code to use new error types consistently~~ ✅ Complete
+
+---
+
+## 2025-09-28: API Simplification and Enhanced Error Handling
+
+### Summary
+Following excellent external feedback, implemented two major improvements to the codebase to make it more professional and maintainable.
+
+### Key Changes
+
+#### 1. Simplified Generator API
+**Problem**: The `ProofRequest` struct contained a `MasterKey` field even though `NewGenerator` already took a master signer. This created redundancy and potential for inconsistency.
+
+**Solution**:
+- Removed `MasterKey` from `ProofRequest` struct
+- Generator now uses its stored `masterSigner` internally
+- API is cleaner and prevents mismatched keys
+
+**Impact**: The API is now more intuitive and follows the principle of single responsibility. A Generator instance is always tied to one master key.
+
+#### 2. Enhanced Error Handling with Custom Types
+**Problem**: Generic `fmt.Errorf` and `errors.New` calls throughout the codebase made programmatic error handling difficult.
+
+**Solution**:
+- Integrated custom error types (`SignatureError`, `KeyError`, `ValidationError`)
+- Updated EPR package to use structured errors
+- Updated CMS package to use structured errors
+- Removed unnecessary `fmt` import from CMS package
+
+**Benefits**:
+- Callers can now use `errors.Is()` to check for specific error conditions
+- Error messages provide better context about what failed and why
+- Consistent error handling patterns across the codebase
+
+### Test Results
+All tests passing across all packages:
+- EPR package: 7 test suites ✅
+- CMS package: 10 test suites ✅
+- Error package: 4 test suites ✅
+- Integration tests: All passing ✅
+
+### Lessons Learned
+
+1. **API Design**: Removing redundancy makes APIs more intuitive and less error-prone
+2. **Error Handling**: Structured errors are essential for library code - they enable programmatic error handling
+3. **Incremental Refactoring**: Making focused improvements (API, then errors) is more manageable than wholesale changes
+4. **Test Coverage**: Comprehensive tests give confidence when refactoring
+5. **External Feedback**: Fresh eyes catch design issues that become invisible after working in the code
+
+### Architecture Insights
+
+The refactoring revealed good separation of concerns in the codebase:
+- The Generator/Verifier pattern in EPR is clean and extensible
+- Custom error types in a central package promote consistency
+- The CMS package's error handling is now more specific about what failed
+
+### Next Immediate Steps
+
+1. **Structured Logging**: Implement slog for better observability
+2. ~~**Documentation Update**: Update package documentation to reflect API changes~~ ✅ Complete
+3. **Performance Profiling**: Now that the code is clean, profile for optimization opportunities
+
+---
+
+## 2025-09-28: PR Feedback Implementation - Final Polish
+
+### Context
+Received excellent PR feedback with minor suggestions to improve error messages and documentation.
+
+### Changes Implemented
+
+#### 1. Enhanced Error Messages with Size Information
+**Before**: Generic "certificate too large" and "content too large" errors
+**After**: Specific error messages showing actual size vs maximum allowed
+
+```go
+// Now includes actual size for debugging
+return nil, signetErrors.NewValidationError("certificate size",
+    fmt.Sprintf("%d bytes", certLen),
+    "exceeds maximum size of 65535 bytes", nil)
+```
+
+**Impact**: Developers can now immediately see why their data was rejected and by how much they exceeded limits.
+
+#### 2. Comprehensive Package Documentation
+Added extensive documentation to `pkg/errors` package covering:
+- **Decision Framework**: When to use sentinel errors vs custom error types
+- **Practical Examples**: Real code showing `errors.Is()` and `errors.As()` usage
+- **Best Practices**: Error wrapping guidelines and chain preservation
+- **Thread Safety**: Explicit guarantees about immutability
+
+**Key Learning**: Good library documentation should answer "when" and "why", not just "how".
+
+### Architecture Validation
+
+The PR feedback validated several architectural decisions:
+1. **Early Expiry Check**: Recognized as a good performance optimization (fail-fast)
+2. **Domain Separation**: Approved security practice for preventing cross-protocol attacks
+3. **Error Information Balance**: No sensitive data exposed while providing useful context
+4. **Code Organization**: Clean separation of concerns noted positively
+
+### Development Process Insights
+
+1. **Incremental Refinement**: Small, focused improvements (like adding sizes to errors) significantly improve developer experience
+2. **Documentation as Code**: Package-level documentation is as important as implementation
+3. **Feedback Value**: External review catches usability issues that are invisible to the implementer
+4. **Test-Driven Confidence**: Comprehensive tests enabled quick iteration on feedback
+
+### Final State
+
+PR #5 now includes:
+- ✅ Simplified API (Generator pattern)
+- ✅ Structured error handling with custom types
+- ✅ Informative error messages with context
+- ✅ Comprehensive package documentation
+- ✅ All tests passing (100% of existing test suites)
+- ✅ Following Go idioms and Sigstore patterns
+
+### Next Steps (Post-PR)
+
+1. **Merge PR #5**: Once approved, merge the improvements
+2. **Structured Logging**: Add slog for production observability
+3. **Performance Profiling**: Benchmark critical paths now that code is clean
+4. **API Documentation**: Generate godoc and ensure all public APIs are documented
+5. **Integration Examples**: Create example code showing real-world usage
