@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"fmt"
 	"math/big"
 	"sort"
 	"time"
@@ -312,7 +313,8 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 		} else if certLen < 65536 {
 			certHeader = append(certHeader, 0x82, byte(certLen>>8), byte(certLen))
 		} else {
-			return nil, signetErrors.NewValidationError("certificate size", "", "certificate too large", nil)
+			// Certificate is too large (>= 65536 bytes)
+			return nil, signetErrors.NewValidationError("certificate size", fmt.Sprintf("%d bytes", certLen), "exceeds maximum size of 65535 bytes", nil)
 		}
 	}
 	sdBuf.Write(certHeader)
@@ -346,7 +348,8 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 		} else if contentLen < 65536 {
 			contentHeader = append(contentHeader, 0x82, byte(contentLen>>8), byte(contentLen))
 		} else {
-			return nil, signetErrors.NewValidationError("content size", "", "content too large", nil)
+			// Content is too large (>= 65536 bytes)
+			return nil, signetErrors.NewValidationError("content size", fmt.Sprintf("%d bytes", contentLen), "exceeds maximum size of 65535 bytes", nil)
 		}
 	}
 	ciBuf.Write(contentHeader)

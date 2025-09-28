@@ -1,3 +1,52 @@
+// Package errors provides structured error types for the Signet library.
+//
+// This package defines both sentinel errors and custom error types to enable
+// robust error handling throughout the codebase. Consumers can use errors.Is()
+// for programmatic error checking and custom error types for detailed context.
+//
+// # Sentinel Errors vs Custom Error Types
+//
+// Use sentinel errors when:
+//   - The error condition is well-defined and doesn't need additional context
+//   - Callers need to check for specific error conditions programmatically
+//   - The error is a common condition that occurs across multiple packages
+//
+// Use custom error types when:
+//   - You need to provide additional context about the failure
+//   - The error needs to wrap another error while preserving the chain
+//   - You want to provide structured information for debugging
+//
+// # Examples
+//
+// Checking for sentinel errors:
+//
+//	if errors.Is(err, errors.ErrKeyNotFound) {
+//	    // Handle missing key
+//	}
+//
+// Working with custom error types:
+//
+//	var sigErr *errors.SignatureError
+//	if errors.As(err, &sigErr) {
+//	    log.Printf("Signature error in %s: %s", sigErr.Type, sigErr.Reason)
+//	}
+//
+// Creating wrapped errors:
+//
+//	if err := someOperation(); err != nil {
+//	    return errors.NewSignatureError("binding", "verification failed", err)
+//	}
+//
+// # Error Wrapping Guidelines
+//
+//   - Always wrap errors with context when passing them up the stack
+//   - Use fmt.Errorf with %w when you don't need a custom error type
+//   - Use custom error types when the caller might need to inspect the error
+//   - Preserve the error chain to enable errors.Is() and errors.As() checks
+//
+// # Thread Safety
+//
+// All error types in this package are immutable and thread-safe.
 package errors
 
 import (
