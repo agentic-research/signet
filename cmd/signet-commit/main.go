@@ -152,8 +152,9 @@ func main() {
 	}
 
 	// Output PEM-encoded signature to stdout
+	// Use "CMS" as the PEM type for OpenSSL compatibility
 	pemBlock := &pem.Block{
-		Type:  "SIGNED MESSAGE",
+		Type:  "CMS",
 		Bytes: signature,
 	}
 

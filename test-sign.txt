@@ -1,1 +1,0 @@
-test signing with GPG status output

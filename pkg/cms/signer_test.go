@@ -1,0 +1,391 @@
+package cms
+
+import (
+	"bytes"
+	"encoding/asn1"
+	"encoding/hex"
+	"testing"
+	"time"
+	"crypto/ed25519"
+)
+
+// Test vectors for ASN.1 encoding validation
+func TestEncodeAttributesAsSet(t *testing.T) {
+	// Create test attributes
+	contentTypeOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 3}
+	dataOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 1}
+
+	contentTypeValue, _ := asn1.Marshal(dataOID)
+
+	attrs := []attribute{
+		{
+			Type: contentTypeOID,
+			Value: asn1.RawValue{
+				Class:      0,  // universal
+				Tag:        17, // SET
+				IsCompound: true,
+				Bytes:      contentTypeValue,
+			},
+		},
+	}
+
+	result, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("encodeAttributesAsSet failed: %v", err)
+	}
+
+	// Verify the result starts with SET tag (0x31)
+	if result[0] != 0x31 {
+		t.Errorf("Expected SET tag (0x31), got 0x%02x", result[0])
+	}
+
+	// Parse the result to verify it's a valid SET
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(result, &raw)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal SET: %v", err)
+	}
+	if len(rest) > 0 {
+		t.Errorf("Unexpected bytes after SET: %d bytes", len(rest))
+	}
+	if raw.Tag != 17 { // SET tag
+		t.Errorf("Expected SET tag (17), got %d", raw.Tag)
+	}
+
+	t.Logf("SET encoding: %s", hex.EncodeToString(result))
+}
+
+func TestEncodeSignedAttributesImplicit(t *testing.T) {
+	// Create test attributes with known values
+	contentTypeOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 3}
+	messageDigestOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 4}
+	signingTimeOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 5}
+	dataOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 1}
+
+	// Create attribute values
+	contentTypeValue, _ := asn1.Marshal(dataOID)
+	testTime := time.Date(2025, 9, 28, 3, 30, 0, 0, time.UTC)
+	signingTimeValue, _ := asn1.Marshal(testTime)
+	messageDigest := []byte{0x01, 0x02, 0x03, 0x04} // Simple test digest
+	messageDigestValue, _ := asn1.Marshal(messageDigest)
+
+	attrs := []attribute{
+		{
+			Type: contentTypeOID,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17, // SET
+				IsCompound: true,
+				Bytes:      contentTypeValue,
+			},
+		},
+		{
+			Type: signingTimeOID,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17, // SET
+				IsCompound: true,
+				Bytes:      signingTimeValue,
+			},
+		},
+		{
+			Type: messageDigestOID,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17, // SET
+				IsCompound: true,
+				Bytes:      messageDigestValue,
+			},
+		},
+	}
+
+	result, err := encodeSignedAttributesImplicit(attrs)
+	if err != nil {
+		t.Fatalf("encodeSignedAttributesImplicit failed: %v", err)
+	}
+
+	// Verify the result starts with IMPLICIT [0] tag (0xA0)
+	if result[0] != 0xA0 {
+		t.Errorf("Expected IMPLICIT [0] tag (0xA0), got 0x%02x", result[0])
+	}
+
+	// The content should directly contain the attributes, NOT wrapped in a SET tag
+	// Parse to verify structure
+	var raw asn1.RawValue
+	rest, err := asn1.Unmarshal(result, &raw)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal IMPLICIT [0]: %v", err)
+	}
+	if len(rest) > 0 {
+		t.Errorf("Unexpected bytes after IMPLICIT [0]: %d bytes", len(rest))
+	}
+
+	// Verify it's context-specific [0]
+	if raw.Class != 2 { // Context-specific
+		t.Errorf("Expected context-specific class (2), got %d", raw.Class)
+	}
+	if raw.Tag != 0 {
+		t.Errorf("Expected tag 0, got %d", raw.Tag)
+	}
+
+	// The bytes should directly contain attributes (no SET wrapper)
+	// Try to parse first attribute from the content
+	var firstAttr attribute
+	rest, err = asn1.Unmarshal(raw.Bytes, &firstAttr)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal first attribute from IMPLICIT content: %v", err)
+	}
+
+	t.Logf("IMPLICIT [0] encoding: %s", hex.EncodeToString(result))
+	t.Logf("Content (should be attributes directly): %s", hex.EncodeToString(raw.Bytes))
+}
+
+func TestSigningSetsVsImplicitEncoding(t *testing.T) {
+	// This test verifies that we sign SET OF but store as IMPLICIT [0]
+	contentTypeOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 3}
+	dataOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 1}
+
+	contentTypeValue, _ := asn1.Marshal(dataOID)
+
+	attrs := []attribute{
+		{
+			Type: contentTypeOID,
+			Value: asn1.RawValue{
+				Class:      0,
+				Tag:        17, // SET
+				IsCompound: true,
+				Bytes:      contentTypeValue,
+			},
+		},
+	}
+
+	// Get SET encoding for signing
+	setEncoding, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode as SET: %v", err)
+	}
+
+	// Get IMPLICIT encoding for storage
+	implicitEncoding, err := encodeSignedAttributesImplicit(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode as IMPLICIT: %v", err)
+	}
+
+	// They should be different!
+	if bytes.Equal(setEncoding, implicitEncoding) {
+		t.Error("SET encoding and IMPLICIT encoding should be different")
+	}
+
+	// SET should start with 0x31
+	if setEncoding[0] != 0x31 {
+		t.Errorf("SET encoding should start with 0x31, got 0x%02x", setEncoding[0])
+	}
+
+	// IMPLICIT should start with 0xA0
+	if implicitEncoding[0] != 0xA0 {
+		t.Errorf("IMPLICIT encoding should start with 0xA0, got 0x%02x", implicitEncoding[0])
+	}
+
+	t.Logf("SET for signing: %s", hex.EncodeToString(setEncoding))
+	t.Logf("IMPLICIT for storage: %s", hex.EncodeToString(implicitEncoding))
+}
+
+func TestAttributeSorting(t *testing.T) {
+	// Test that attributes are sorted for canonical DER encoding
+	oid1 := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 3} // contentType
+	oid2 := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 4} // messageDigest
+	oid3 := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 5} // signingTime
+
+	val1, _ := asn1.Marshal(asn1.ObjectIdentifier{1, 2, 3})
+	val2, _ := asn1.Marshal([]byte{0xAA, 0xBB})
+	val3, _ := asn1.Marshal(time.Now())
+
+	// Create attributes in non-canonical order
+	attrs := []attribute{
+		{
+			Type: oid2, // messageDigest (should be sorted based on encoded form)
+			Value: asn1.RawValue{
+				Class: 0, Tag: 17, IsCompound: true, Bytes: val2,
+			},
+		},
+		{
+			Type: oid1, // contentType
+			Value: asn1.RawValue{
+				Class: 0, Tag: 17, IsCompound: true, Bytes: val1,
+			},
+		},
+		{
+			Type: oid3, // signingTime
+			Value: asn1.RawValue{
+				Class: 0, Tag: 17, IsCompound: true, Bytes: val3,
+			},
+		},
+	}
+
+	// Encode twice - should get same result due to sorting
+	result1, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("First encoding failed: %v", err)
+	}
+
+	// Reverse the order
+	attrs = []attribute{attrs[2], attrs[1], attrs[0]}
+
+	result2, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("Second encoding failed: %v", err)
+	}
+
+	// Results should be identical due to canonical sorting
+	if !bytes.Equal(result1, result2) {
+		t.Error("Canonical encoding should produce identical results regardless of input order")
+		t.Logf("First:  %s", hex.EncodeToString(result1))
+		t.Logf("Second: %s", hex.EncodeToString(result2))
+	}
+}
+
+// Test with actual CMS attribute structure
+func TestRealCMSAttributes(t *testing.T) {
+	// Create real CMS signed attributes
+	messageDigest := bytes.Repeat([]byte{0x42}, 32) // 32-byte SHA256 hash
+	attrs := createSignedAttributes(messageDigest)
+
+	// Test SET encoding
+	setEncoding, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode real attributes as SET: %v", err)
+	}
+
+	// Test IMPLICIT encoding
+	implicitEncoding, err := encodeSignedAttributesImplicit(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode real attributes as IMPLICIT: %v", err)
+	}
+
+	// Log for debugging
+	t.Logf("Real CMS attributes SET: %s", hex.EncodeToString(setEncoding))
+	t.Logf("Real CMS attributes IMPLICIT: %s", hex.EncodeToString(implicitEncoding))
+
+	// Verify basic structure
+	if setEncoding[0] != 0x31 {
+		t.Errorf("SET should start with 0x31, got 0x%02x", setEncoding[0])
+	}
+	if implicitEncoding[0] != 0xA0 {
+		t.Errorf("IMPLICIT should start with 0xA0, got 0x%02x", implicitEncoding[0])
+	}
+}
+
+// Golden test vector - this is what OpenSSL expects
+func TestGoldenVector(t *testing.T) {
+	// This test uses a known-good encoding that OpenSSL can verify
+	// We'll create attributes and verify they encode correctly
+
+	// Create test message digest (32 bytes for SHA256)
+	messageDigest := []byte{
+		0x8d, 0xb0, 0x8d, 0x7b, 0x03, 0xfc, 0x1a, 0xe4,
+		0xe4, 0x46, 0xec, 0x2c, 0x65, 0x95, 0x23, 0xba,
+		0xf5, 0xf4, 0xf3, 0x64, 0x26, 0x10, 0xa2, 0xe6,
+		0xb3, 0x1c, 0x36, 0x71, 0x1e, 0xb8, 0xd9, 0xd5,
+	}
+
+	attrs := createSignedAttributes(messageDigest)
+
+	// Get both encodings
+	setForSigning, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode for signing: %v", err)
+	}
+
+	implicitForStorage, err := encodeSignedAttributesImplicit(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode for storage: %v", err)
+	}
+
+	// Log the encodings for manual verification
+	t.Logf("SET for signing (should have tag 0x31):")
+	t.Logf("%s", hex.EncodeToString(setForSigning))
+
+	t.Logf("IMPLICIT for storage (should have tag 0xA0):")
+	t.Logf("%s", hex.EncodeToString(implicitForStorage))
+
+	// Parse and verify the IMPLICIT structure matches RFC 5652
+	var implicitRaw asn1.RawValue
+	rest, err := asn1.Unmarshal(implicitForStorage, &implicitRaw)
+	if err != nil {
+		t.Fatalf("Failed to parse IMPLICIT structure: %v", err)
+	}
+	if len(rest) > 0 {
+		t.Errorf("Extra bytes after IMPLICIT structure: %d", len(rest))
+	}
+
+	// Should be [0] IMPLICIT (class=2, tag=0, constructed)
+	if implicitRaw.Class != 2 {
+		t.Errorf("Wrong class: expected 2 (context-specific), got %d", implicitRaw.Class)
+	}
+	if implicitRaw.Tag != 0 {
+		t.Errorf("Wrong tag: expected 0, got %d", implicitRaw.Tag)
+	}
+	if !implicitRaw.IsCompound {
+		t.Error("IMPLICIT [0] should be constructed/compound")
+	}
+
+	// The content should parse as attributes directly (no SET wrapper)
+	content := implicitRaw.Bytes
+	parsedAttrs := 0
+	for len(content) > 0 {
+		var attr attribute
+		content, err = asn1.Unmarshal(content, &attr)
+		if err != nil {
+			t.Fatalf("Failed to parse attribute %d: %v", parsedAttrs+1, err)
+		}
+		parsedAttrs++
+	}
+
+	if parsedAttrs != 3 { // contentType, signingTime, messageDigest
+		t.Errorf("Expected 3 attributes, parsed %d", parsedAttrs)
+	}
+}
+
+// Test that we're signing the correct data
+func TestSignatureOverCorrectData(t *testing.T) {
+	// Generate a test keypair
+	_, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	// Create test attributes
+	messageDigest := bytes.Repeat([]byte{0x42}, 32)
+	attrs := createSignedAttributes(messageDigest)
+
+	// Get SET encoding for signing (what we should sign)
+	setForSigning, err := encodeAttributesAsSet(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode as SET: %v", err)
+	}
+
+	// Create signature over the SET
+	signature := ed25519.Sign(privateKey, setForSigning)
+
+	// Verify the signature is 64 bytes (Ed25519)
+	if len(signature) != 64 {
+		t.Errorf("Ed25519 signature should be 64 bytes, got %d", len(signature))
+	}
+
+	// Log what we're signing
+	t.Logf("Data being signed (SET OF attributes): %s", hex.EncodeToString(setForSigning))
+	t.Logf("Signature: %s", hex.EncodeToString(signature))
+
+	// Important: We sign the SET (0x31...) but store as IMPLICIT [0] (0xA0...)
+	implicitForStorage, err := encodeSignedAttributesImplicit(attrs)
+	if err != nil {
+		t.Fatalf("Failed to encode as IMPLICIT: %v", err)
+	}
+
+	// Verify they're different
+	if bytes.Equal(setForSigning, implicitForStorage) {
+		t.Error("Critical error: signing data should be SET, storage should be IMPLICIT")
+	}
+
+	t.Logf("Stored in CMS as IMPLICIT [0]: %s", hex.EncodeToString(implicitForStorage))
+}

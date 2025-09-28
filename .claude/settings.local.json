@@ -8,7 +8,13 @@
       "Read(/private/tmp/verify-test2/**)",
       "Read(/private/tmp/verify-test2/**)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(./test_cms_headers.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(./test_pem_header.sh:*)",
+      "Bash(openssl asn1parse:*)",
+      "Bash(./test_openssl_verify.sh:*)",
+      "Bash(go test:*)"
     ],
     "deny": [],
     "ask": [],
