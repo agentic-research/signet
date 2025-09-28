@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -105,4 +106,44 @@ func loadMasterKey(signetPath string) (*keys.Ed25519Signer, error) {
 	}
 
 	return keys.NewEd25519Signer(privateKey), nil
+}
+
+// getKeyID returns the key ID for Git configuration
+func getKeyID(signetPath string) (string, error) {
+	keyPath := filepath.Join(signetPath, masterKeyFile)
+
+	// Read key file
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", errors.New("master key not found")
+		}
+		return "", fmt.Errorf("failed to read key file: %w", err)
+	}
+
+	// Decode PEM to get seed
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return "", errors.New("failed to decode PEM block")
+	}
+
+	if block.Type != "ED25519 PRIVATE KEY" {
+		return "", fmt.Errorf("unexpected PEM type: %s", block.Type)
+	}
+
+	if len(block.Bytes) != ed25519.SeedSize {
+		return "", errors.New("invalid seed size")
+	}
+
+	// Generate public key from seed
+	privateKey := ed25519.NewKeyFromSeed(block.Bytes)
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+
+	// Zero the seed after use
+	for i := range block.Bytes {
+		block.Bytes[i] = 0
+	}
+
+	// Return hex-encoded public key as ID
+	return hex.EncodeToString(publicKey), nil
 }
