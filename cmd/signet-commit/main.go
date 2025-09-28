@@ -26,7 +26,7 @@ func main() {
 		helpFlag      = flag.Bool("help", false, "Show help")
 		homeFlag      = flag.String("home", "", "Signet home directory (default: ~/.signet)")
 		_             = flag.String("bsau", "", "GPG compatibility flag (ignored)")
-		_             = flag.Int("status-fd", 0, "GPG compatibility flag (ignored)")
+		statusFd      = flag.Int("status-fd", 0, "File descriptor for GPG status output")
 		_             = flag.Bool("detach-sign", false, "Create detached signature (default)")
 	)
 
@@ -116,6 +116,27 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to sign commit: %v\n", err)
 		os.Exit(1)
+	}
+
+	// If Git requested status output, emit the required status line
+	if *statusFd > 0 {
+		// Get the key ID (fingerprint) from arguments after flags
+		keyFpr := ""
+		if flag.NArg() > 0 {
+			keyFpr = flag.Arg(0)
+		}
+		
+		// Create status file from descriptor
+		statusFile := os.NewFile(uintptr(*statusFd), "status")
+		if statusFile != nil {
+			// Format: [GNUPG:] SIG_CREATED <type> <pk_algo> <hash_algo> <class> <timestamp> <fingerprint>
+			// type: D (detached)
+			// pk_algo: 22 (EdDSA)  
+			// hash_algo: 8 (SHA256)
+			// class: 00 (standard)
+			timestamp := time.Now().Unix()
+			fmt.Fprintf(statusFile, "[GNUPG:] SIG_CREATED D 22 8 00 %d %s\n", timestamp, keyFpr)
+		}
 	}
 
 	// Output PEM-encoded signature to stdout
