@@ -541,4 +541,58 @@ Well below the 100ms target!
 
 ---
 
+## 2024-09-28: Integration Test Development - Git X.509 Configuration Issue
+
+### Problem Statement for External Help
+
+**Issue**: Git fails to invoke custom X.509 signing program despite correct configuration
+
+**Context**: 
+- Built working signet-commit binary that creates valid CMS/PKCS#7 signatures
+- Created comprehensive integration test with proper isolation
+- All Git configuration appears correct (gpg.format=x509, gpg.x509.program set)
+- gpgsm installed and available via brew install gnupg
+
+**Evidence**:
+```bash
+# Our program works perfectly when called directly:
+$ echo "test data" | ./signet-commit --home /path/to/.signet --detach-sign
+-----BEGIN SIGNED MESSAGE-----
+[valid CMS/PKCS#7 signature output]
+-----END SIGNED MESSAGE-----
+
+# Git configuration is correct:
+$ git config --local --list | grep -E "(gpg|sign)"
+user.signingkey=a875537ba6f65f24e75119a5271c92c95cc818acc4cd1ccf401b1c3dab7dbcff
+gpg.format=x509
+gpg.x509.program=/path/to/wrapper-script.sh
+
+# But Git commit fails:
+$ git commit -S -m "test"
+error: gpg failed to sign the data
+fatal: failed to write commit object
+```
+
+**Key Observations**:
+- No debug output from wrapper script during `git commit -S` (wrapper never called)
+- Direct wrapper script execution works perfectly
+- Git 2.39.5 (Apple Git-154) should support X.509 custom programs
+- Error suggests Git falls back to looking for `gpg` instead of using configured X.509 program
+
+**Dependencies**:
+- macOS with Homebrew
+- Git 2.39.5 (Apple Git-154) 
+- gpgsm available at /opt/homebrew/bin/gpgsm
+- Custom signing program that outputs CMS/PKCS#7 in PEM format
+
+**Question**: Why isn't Git calling our configured `gpg.x509.program` during `git commit -S`?
+
+### Current Status
+- ✅ signet-commit MVP functionally complete
+- ✅ Creates cryptographically valid signatures  
+- ✅ Integration test infrastructure solid
+- ❓ Git integration configuration issue blocking validation
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*
