@@ -41,3 +41,4 @@ Thumbs.db
 
 # Signet user data (never commit master keys!)
 ~/.signet/
+experiments/
