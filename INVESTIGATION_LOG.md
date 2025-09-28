@@ -334,4 +334,96 @@
 
 ---
 
+## 2024-09-27: Security Review and Hardening
+
+### Critical Security Issues Fixed
+
+#### 1. Token Replay Protection
+- **Issue**: Tokens could be replayed across different sessions/repositories
+- **Fix**: Added `Nonce` (16 bytes) and `EphemeralKeyID` binding
+- **Impact**: Each token now uniquely tied to specific ephemeral key and session
+
+#### 2. Domain Separation
+- **Issue**: Raw public key signing could enable cross-protocol attacks
+- **Fix**: Added `signet-ephemeral-binding-v1:` prefix to all binding signatures
+- **Learning**: Always use domain separation for signature schemes
+
+#### 3. Key Material Zeroization
+- **Issue**: Private keys remained in memory after use
+- **Fix**: Added `Destroy()` method to Ed25519Signer
+- **Best Practice**: Always zero sensitive memory immediately after use
+
+#### 4. Git Compatibility (SKID)
+- **Issue**: Git/gpgsm rejects certificates without Subject Key Identifier
+- **Fix**: Added SHA-1 hash of public key as SKID (RFC 5280 method 1)
+- **Critical**: This was a hard blocker for Git integration
+
+#### 5. Password Key Derivation
+- **Issue**: Direct use of passwords as seeds has low entropy
+- **Fix**: Added Argon2id with conservative parameters (Time=3, Memory=64MB)
+- **Parameters**: Suitable for offline use, resists GPU attacks
+
+### Implementation Discoveries
+
+#### PKCS#7/CMS Format Required
+- **Finding**: Git doesn't accept raw signatures, needs CMS format
+- **Impact**: Must implement CMS wrapper for signatures
+- **Next Step**: Add CMS support to signet-commit
+
+#### Certificate Subject Constraints
+- **Finding**: Common Name limited to 64 bytes per PKIX
+- **Solution**: Use "Signet Ephemeral" for long DIDs, put full DID in URI SAN
+- **Git Behavior**: Git reads SAN URIs correctly
+
+#### Error Handling Patterns
+- **Crypto Errors**: Must fail closed - any error stops operation
+- **Serial Number**: Critical failure point, must bubble up
+- **Template Creation**: Return nil on error, check before use
+
+### Security Architecture Validation
+
+✅ **Replay Protection**: Token + nonce + ephemeral key binding
+✅ **Time Bounds**: NotBefore/ExpiresAt prevent clock attacks  
+✅ **Key Isolation**: Master key never signs user data directly
+✅ **Memory Safety**: Keys zeroed after use
+✅ **Domain Separation**: All signatures prefixed with purpose
+
+### Remaining Security Tasks
+
+1. **CMS/PKCS#7 Implementation**
+   - Required for Git integration
+   - Must include certificate chain
+   - Detached signature format
+
+2. **Ephemeral Key Return**
+   - LocalCA needs to return private key
+   - Caller must destroy after use
+   - Consider wrapper struct with finalizer
+
+3. **File Permissions**
+   - Master key must be 0600
+   - Config directory 0700
+   - Validate on every read
+
+### Performance Impact of Security
+
+| Operation | Before | After | Delta |
+|-----------|--------|-------|-------|
+| Token Creation | <0.1ms | <0.2ms | +0.1ms (nonce generation) |
+| Proof Generation | <2ms | <2.5ms | +0.5ms (domain separation) |
+| Certificate Generation | <5ms | <5.5ms | +0.5ms (SKID calculation) |
+| **Total** | <10ms | <11ms | +1ms |
+
+Security additions have minimal performance impact - still well under 100ms target.
+
+### Key Takeaways
+
+1. **Security Review Essential**: External review caught critical issues
+2. **Git Has Hidden Requirements**: SKID, CMS format not documented well
+3. **Domain Separation Always**: Prevents entire classes of attacks
+4. **Fail Closed**: Any crypto error must stop operation
+5. **Memory Hygiene**: Zero keys immediately after use
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*

@@ -2,45 +2,52 @@
 
 ## Immediate Actions (Week 1)
 
-### 1. Core Library Implementation
-- [ ] **CBOR Integration**
-  - Add `fxamacker/cbor/v2` to go.mod
-  - Implement Token.Marshal() and Unmarshal()
-  - Add unit tests for token serialization
+### 1. Core Library Implementation ✅
+- [x] **CBOR Integration**
+  - Added `fxamacker/cbor/v2` to go.mod
+  - Implemented Token.Marshal() and Unmarshal()
+  - Added nonce and ephemeral key binding for replay protection
 
-- [ ] **Ed25519 Operations**
-  - Implement key generation functions
-  - Complete Ed25519Signer implementation
-  - Add key serialization/deserialization
-  - Create HashPublicKey for ConfirmationID
+- [x] **Ed25519 Operations**
+  - Implemented key generation functions
+  - Completed Ed25519Signer with Destroy() for zeroization
+  - Added Argon2id key stretching for passwords
+  - Created HashPublicKey for ConfirmationID
 
-- [ ] **Ephemeral Proof**
-  - Implement proof generation in pkg/crypto/epr
-  - Add two-step verification logic
-  - Create test vectors for verification
+- [x] **Ephemeral Proof**
+  - Implemented proof generation with domain separation
+  - Added two-step verification with expiry checking
+  - Included purpose and timestamp in binding
 
-### 2. Local CA Implementation
-- [ ] **X.509 Certificate Generation**
-  - Implement LocalCA.IssueCodeSigningCertificate()
-  - Add proper certificate templates
-  - Set code signing extensions
-  - Handle serial number generation
+### 2. Local CA Implementation ✅
+- [x] **X.509 Certificate Generation**
+  - Implemented LocalCA.IssueCodeSigningCertificate()
+  - Added Subject Key Identifier for Git compatibility
+  - Set code signing extensions correctly
+  - Fixed serial number generation error handling
 
 - [ ] **Certificate Validation**
-  - Ensure certificates work with Git
-  - Test with different Git versions
-  - Validate certificate chain
+  - Test certificates with actual Git
+  - Verify gpgsm acceptance
+  - Test on different platforms
 
-### 3. CLI Tool (signet-commit)
+### 3. CLI Tool (signet-commit) 🚧
 - [ ] **Git Integration**
   - Read commit data from stdin
-  - Output PEM-encoded signature to stdout
-  - Handle Git's expected format
+  - Output CMS/PKCS#7 signature (not just PEM)
+  - Implement gpgsm-compatible format
+  - Handle Git's expected exit codes
 
 - [ ] **Configuration**
   - Implement config file loading
   - Add --init command for setup
   - Create ~/.signet directory structure
+  - Store master key with 0600 permissions
+
+- [ ] **Critical: Return Ephemeral Private Key**
+  - Modify LocalCA to return private key with certificate
+  - Use ephemeral key to sign commits
+  - Destroy ephemeral key after use
 
 ## Testing Phase (Week 2)
 
