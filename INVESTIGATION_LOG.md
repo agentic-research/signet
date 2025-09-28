@@ -1219,4 +1219,128 @@ Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; ...
 
 ---
 
+## 2024-09-28: ADR Cleanup and Documentation Restructure
+
+### Context
+Received comprehensive external feedback on ADRs highlighting several critical issues that needed addressing for project credibility.
+
+### Major Issues Identified
+
+1. **Terminology Drift**: "ZK proof" claims were technically incorrect
+2. **Maturity Confusion**: Specification vs implementation unclear
+3. **Documentation Sprawl**: Temporary files scattered throughout repo
+4. **Missing Context**: No clear feature status across ecosystem
+
+### Actions Taken
+
+#### 1. Terminology Correction
+- **Replaced**: All "ZK proof" references
+- **With**: "ephemeral key IDs" and "privacy-preserving PoP"
+- **Added**: Explicit disclaimers about not being true zero-knowledge
+- **Impact**: Maintains technical credibility with security reviewers
+
+#### 2. Created Feature Matrix (docs/FEATURE_MATRIX.md)
+Comprehensive 7-section matrix covering:
+- libsignet (core protocol) - 20+ features tracked
+- SDK implementations - 5 languages with maturity levels
+- Applications - 4 tools (signet-commit ✅, others planned)
+- Edge integration - 10+ platforms
+- Infrastructure - Key management, observability, storage
+- Security features - Cross-cutting capabilities
+- Protocol features - Token types, capabilities, revocation
+
+**Key Innovation**: Clear status indicators
+- ✅ Complete (production ready)
+- 🚧 In Progress (actively developed)
+- ⏳ Planned (roadmapped)
+- 🔮 Experimental (research phase)
+
+#### 3. Documentation Consolidation
+- **Removed**: README_CMS.md, BREAKTHROUGH_SOLUTION.md, CMS_ASN1_SOLUTION.md
+- **Created**: CMS_IMPLEMENTATION.md with proper technical documentation
+- **Result**: Clean, navigable documentation structure
+
+#### 4. README Reality Check
+Updated README to accurately reflect:
+- **Current Status**: Table showing what's actually production-ready
+- **What Works Today**: signet-commit and libsignet are production quality
+- **Vision vs Reality**: Clear separation between implemented and planned
+- **Honest Maturity**: Beta/alpha/planned clearly labeled
+
+### Technical Documentation Improvements
+
+#### Added Real HTTP Example
+```http
+GET /api/users/me HTTP/1.1
+Host: api.example.com
+Authorization: Bearer SIG1.eyJpc3Mi...
+Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; proof=...
+```
+
+This grounds the abstract protocol in concrete headers developers will recognize.
+
+#### Cross-Linked All ADRs
+- ADR-001 → ADR-002, ADR-003, Feature Matrix
+- ADR-003 → ADR-001, ADR-002, Feature Matrix
+- All docs → Related documents
+
+### Key Learnings
+
+1. **Precision in Security Claims**: Never overstate cryptographic properties
+2. **Transparency Builds Trust**: Show exactly what's built vs planned
+3. **Examples Over Abstractions**: Concrete HTTP/code examples essential
+4. **Documentation as Product**: Clean, accurate docs are as important as code
+5. **Continuous Cleanup**: Don't let temporary docs accumulate
+
+### Metrics of Success
+
+Before cleanup:
+- Confusion about implementation status
+- Misleading cryptographic claims
+- Scattered temporary documentation
+- No clear ecosystem overview
+
+After cleanup:
+- ✅ Clear production/beta/planned status for all components
+- ✅ Accurate technical terminology throughout
+- ✅ Single source of truth (Feature Matrix)
+- ✅ Professional documentation structure
+
+### Impact on Project Credibility
+
+The documentation now:
+- **Accurately represents** implementation state
+- **Uses precise terminology** expected by security professionals
+- **Provides clear roadmap** for contributors
+- **Shows professional maturity** in acknowledging limitations
+
+### Next Steps
+
+1. **Immediate** (This week):
+   - Merge to main branch
+   - Create GitHub issues from Feature Matrix ⏳ items
+   - Set up CI badges for implementation status
+
+2. **Short-term** (Q4 2024):
+   - Complete Python SDK to production
+   - Implement HTTP middleware proof-of-concept
+   - Add integration test suite
+
+3. **Long-term** (2025):
+   - Research true ZK proofs (ring signatures)
+   - Post-quantum algorithm integration
+   - Service mesh integration
+
+### Conclusion
+
+This documentation restructure transforms Signet from appearing as an experimental project to a professional protocol implementation with:
+- Production-ready components (signet-commit works today!)
+- Clear implementation roadmap
+- Honest assessment of current capabilities
+- Compelling vision for future development
+
+The feedback was invaluable in identifying gaps between how we described the project and what was actually built. The documentation now tells the true story.
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*
