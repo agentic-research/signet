@@ -147,9 +147,132 @@
 
 ### Implementation Insights
 
+---
+
+## 2024-09-28: Documentation Architecture & GitHub PR Management
+
+### Key Activities
+
+#### Documentation Restructure
+- **Task**: Consolidated scattered documentation into organized structure
+- **Changes Made**:
+  - Moved ADRs to `/docs/adrs/` directory with proper numbering (ADR-001, ADR-002, ADR-003)
+  - Created comprehensive `FEATURE_MATRIX.md` comparing Signet with existing solutions
+  - Simplified README to focus on core value proposition
+  - Removed outdated files (`BREAKTHROUGH_SOLUTION.md`, `README_CMS.md`)
+- **Impact**: Clearer navigation for contributors and users
+
+#### GitHub PR Workflow Discovery
+- **Tool Used**: `gh pr edit` command for updating PR metadata
+- **Syntax Learned**:
+  ```bash
+  gh pr edit <number> --title "title" --body "description"
+  ```
+- **Best Practice**: Use HEREDOC for multi-line PR descriptions to ensure proper formatting
+- **Result**: PR #2 updated with descriptive title and comprehensive change summary
+
+### Technical Learnings
+
+1. **Git Diff Analysis**: `git diff --name-status main...HEAD` provides clear view of changes in PR
+2. **GitHub CLI Capabilities**:
+   - Can update PR title/description without web interface
+   - Supports markdown in PR body
+   - Can target specific PR by number or URL
+3. **Documentation Organization**:
+   - ADRs should be numbered sequentially
+   - Feature matrices help position project in ecosystem
+   - Problem statements should be separate from implementation details
+
+### Process Improvements
+
+1. **PR Description Strategy**: Include summary, detailed changes, and impact sections
+2. **File Organization**: Group related documentation by type (ADRs, features, implementation)
+3. **Cleanup Discipline**: Remove outdated files when restructuring to avoid confusion
+
+### Next Steps Identified
+
+1. **Immediate**: Review and merge PR #2 to establish new documentation baseline
+2. **Short-term**: Begin implementation based on consolidated ADRs
+3. **Documentation**: Keep investigation log updated with implementation discoveries
+
+### Git Tracking Issue Discovered
+
+1. **Problem**: `.claude/settings.local.json` was accidentally tracked in git despite `.claude/` being in `.gitignore`
+2. **Cause**: File was likely added before `.gitignore` entry was created
+3. **Solution**: Used `git rm --cached` to remove from tracking while preserving local file
+4. **Learning**: Always verify new directories are properly ignored before initial commit
+5. **Best Practice**: Check tracked files with `git ls-files | grep <pattern>` when adding gitignore entries
+
+### Implementation Insights
+
 1. **Git Integration Points**:
    - `commit.gpg.program`: Path to signing binary
    - `commit.gpgsign`: Enable signing
+
+---
+
+## 2024-09-28: Claude Code Repository Configuration
+
+### Key Activities
+
+#### CLAUDE.md Creation
+- **Task**: Created repository guidance file for future Claude Code instances
+- **Purpose**: Accelerate onboarding and maintain consistency across sessions
+- **Structure**:
+  - Build and test commands with Make targets
+  - Architecture overview focusing on offline-first design
+  - Core component mapping (libsignet, signet-commit)
+  - Implementation notes on unique features
+
+#### Git Configuration Cleanup
+- **Issue Discovered**: `.claude/settings.local.json` was incorrectly tracked in git
+- **Resolution**: Removed from tracking while preserving local file
+- **Learning**: Always verify `.gitignore` patterns are working as expected
+
+### Technical Discoveries
+
+1. **Repository Structure**:
+   - Clean separation between `pkg/` (library) and `cmd/` (applications)
+   - Integration tests in `scripts/testing/` for end-to-end validation
+   - Docker-based testing environment for consistent CI/CD
+
+2. **Unique Implementation Features**:
+   - **Ed25519 CMS/PKCS#7**: First Go implementation supporting this combination
+   - **CBOR with Integer Keys**: Deterministic serialization strategy
+   - **Two-Step Verification**: Simple but secure PoP model
+   - **5-Minute Certificates**: Balance between security and usability
+
+3. **Development Workflow**:
+   - Make-based build system with clear targets
+   - Docker containers for integration testing
+   - Local and containerized testing options
+
+### Documentation Strategy Insights
+
+1. **CLAUDE.md Best Practices**:
+   - Focus on non-obvious architecture decisions
+   - Document unique implementation details
+   - Provide concrete command examples
+   - Avoid generic development advice
+
+2. **Repository Documentation Layers**:
+   - `README.md`: User-facing project overview
+   - `CLAUDE.md`: AI assistant guidance
+   - `ARCHITECTURE.md`: Deep technical design
+   - `INVESTIGATION_LOG.md`: Development history and learnings
+   - `/docs/adrs/`: Formal decision records
+
+### Process Improvements Identified
+
+1. **Git Hygiene**: Regular checks for accidentally tracked files
+2. **Documentation Updates**: Keep CLAUDE.md synchronized with architecture changes
+3. **Testing Commands**: Document all test variations in CLAUDE.md
+
+### Next Steps
+
+1. **Immediate**: Push all commits to update PR #2
+2. **Short-term**: Begin implementation based on CLAUDE.md structure
+3. **Long-term**: Update CLAUDE.md as architecture evolves
    - Input: Commit data on stdin
    - Output: PEM-encoded signature on stdout
 
@@ -1099,6 +1222,247 @@ Created `TestCMSEd25519GoldenVector` that:
 
 ### Conclusion
 Our implementation passes all feasible tests. The suggested RFC 8410 test vector appears to be a misunderstanding, as no such vector exists in the RFC. Our code correctly implements the critical aspects of CMS/Ed25519 signatures.
+
+---
+
+## 2024-09-28: ADR Cleanup and Documentation Architecture
+
+### Context
+Received comprehensive feedback on ADRs highlighting terminology issues, maturity transparency gaps, and need for better documentation structure.
+
+### Key Issues Addressed
+
+#### 1. Terminology Precision
+- **Problem**: "ZK proof" terminology was misleading - we use ephemeral key IDs, not true zero-knowledge proofs
+- **Solution**: Replaced all instances with accurate terms:
+  - "ephemeral key IDs"
+  - "privacy-preserving proof of possession"
+  - Added explicit clarification: "not true ZK"
+- **Impact**: Builds credibility with security reviewers
+
+#### 2. Implementation Maturity Transparency
+- **Problem**: ADRs read as if everything was implemented
+- **Solution**: Created comprehensive FEATURE_MATRIX.md with:
+  - Status indicators: ✅ Complete, 🚧 In Progress, ⏳ Planned, 🔮 Experimental
+  - Component-by-component breakdown
+  - Clear dependencies and timelines
+- **Learning**: Always distinguish specification from implementation
+
+#### 3. Documentation Architecture
+- **Before**: Scattered temporary files (README_CMS, BREAKTHROUGH_SOLUTION, etc.)
+- **After**:
+  ```
+  docs/
+  ├── FEATURE_MATRIX.md         # Comprehensive ecosystem status
+  ├── CMS_IMPLEMENTATION.md     # Technical deep-dive
+  ├── adrs/                     # Architecture decisions
+  └── problem-statement.md      # Original vision
+  ```
+- **Benefit**: Clear navigation, no redundancy
+
+### Feature Matrix Design
+
+Created comprehensive matrix covering:
+
+1. **libsignet** (Core Protocol Library)
+   - Token structure, cryptographic operations
+   - Proof of possession, certificate management
+   - Future features (DID, ZK, post-quantum)
+
+2. **SDK Layer**
+   - Language support (Go, Python, JS/TS, Rust, WASM)
+   - Platform-specific key storage
+   - Implementation maturity per SDK
+
+3. **Applications Layer**
+   - signet-commit (✅ Production)
+   - signet-auth (🚧 Alpha)
+   - signet-proxy (⏳ Planned)
+   - signet-bridge (⏳ Planned)
+
+4. **Edge Layer**
+   - API gateways (Kong, AWS, Cloudflare)
+   - Service mesh (Istio, Linkerd, Consul)
+   - Load balancers (HAProxy, Traefik, Caddy)
+
+5. **Infrastructure Layer**
+   - Key management (HSM, Cloud KMS, Vault)
+   - Observability (Metrics, Tracing, Audit)
+   - Storage (Cache, Revocation, Logs)
+
+### Technical Improvements
+
+#### Real HTTP Example Added
+```http
+GET /api/users/me HTTP/1.1
+Host: api.example.com
+Authorization: Bearer SIG1.eyJpc3Mi...
+Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; ...
+```
+- Shows concrete headers developers will see
+- Demonstrates SDK abstraction value
+
+#### CMS Implementation Documented
+- Consolidated temporary files into CMS_IMPLEMENTATION.md
+- Explains IMPLICIT vs EXPLICIT ASN.1 encoding
+- Documents OpenSSL verification process
+- Highlights Go ecosystem contribution (first Ed25519 CMS library)
+
+### Lessons Learned
+
+1. **Precision Matters**: Security reviewers will scrutinize cryptographic claims
+2. **Maturity Matrices Build Trust**: Clear about what's ready vs planned
+3. **Examples Ground Abstractions**: HTTP headers make protocol tangible
+4. **Cross-Linking Aids Discovery**: ADRs should reference each other
+5. **Clean as You Go**: Temporary docs should be consolidated promptly
+
+### Next Steps
+
+1. **Immediate**:
+   - Push to main after review
+   - Update README with new doc structure
+   - Create GitHub issues from ⏳ Planned items
+
+2. **Short-term**:
+   - Implement HTTP middleware (Q4 2024)
+   - Complete Python SDK to beta
+   - Add CI badges for test coverage
+
+3. **Long-term**:
+   - True ZK proof research (ring signatures)
+   - Post-quantum readiness (Dilithium)
+   - Full ecosystem integration
+
+### Metrics of Success
+
+- Documentation clarity: No more "what is actually implemented?" questions
+- Developer confidence: Clear migration path from bearer tokens
+- Security credibility: Accurate cryptographic terminology
+- Ecosystem visibility: Feature matrix shows full vision
+
+---
+
+## 2024-09-28: ADR Cleanup and Documentation Restructure
+
+### Context
+Received comprehensive external feedback on ADRs highlighting several critical issues that needed addressing for project credibility.
+
+### Major Issues Identified
+
+1. **Terminology Drift**: "ZK proof" claims were technically incorrect
+2. **Maturity Confusion**: Specification vs implementation unclear
+3. **Documentation Sprawl**: Temporary files scattered throughout repo
+4. **Missing Context**: No clear feature status across ecosystem
+
+### Actions Taken
+
+#### 1. Terminology Correction
+- **Replaced**: All "ZK proof" references
+- **With**: "ephemeral key IDs" and "privacy-preserving PoP"
+- **Added**: Explicit disclaimers about not being true zero-knowledge
+- **Impact**: Maintains technical credibility with security reviewers
+
+#### 2. Created Feature Matrix (docs/FEATURE_MATRIX.md)
+Comprehensive 7-section matrix covering:
+- libsignet (core protocol) - 20+ features tracked
+- SDK implementations - 5 languages with maturity levels
+- Applications - 4 tools (signet-commit ✅, others planned)
+- Edge integration - 10+ platforms
+- Infrastructure - Key management, observability, storage
+- Security features - Cross-cutting capabilities
+- Protocol features - Token types, capabilities, revocation
+
+**Key Innovation**: Clear status indicators
+- ✅ Complete (production ready)
+- 🚧 In Progress (actively developed)
+- ⏳ Planned (roadmapped)
+- 🔮 Experimental (research phase)
+
+#### 3. Documentation Consolidation
+- **Removed**: README_CMS.md, BREAKTHROUGH_SOLUTION.md, CMS_ASN1_SOLUTION.md
+- **Created**: CMS_IMPLEMENTATION.md with proper technical documentation
+- **Result**: Clean, navigable documentation structure
+
+#### 4. README Reality Check
+Updated README to accurately reflect:
+- **Current Status**: Table showing what's actually production-ready
+- **What Works Today**: signet-commit and libsignet are production quality
+- **Vision vs Reality**: Clear separation between implemented and planned
+- **Honest Maturity**: Beta/alpha/planned clearly labeled
+
+### Technical Documentation Improvements
+
+#### Added Real HTTP Example
+```http
+GET /api/users/me HTTP/1.1
+Host: api.example.com
+Authorization: Bearer SIG1.eyJpc3Mi...
+Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; proof=...
+```
+
+This grounds the abstract protocol in concrete headers developers will recognize.
+
+#### Cross-Linked All ADRs
+- ADR-001 → ADR-002, ADR-003, Feature Matrix
+- ADR-003 → ADR-001, ADR-002, Feature Matrix
+- All docs → Related documents
+
+### Key Learnings
+
+1. **Precision in Security Claims**: Never overstate cryptographic properties
+2. **Transparency Builds Trust**: Show exactly what's built vs planned
+3. **Examples Over Abstractions**: Concrete HTTP/code examples essential
+4. **Documentation as Product**: Clean, accurate docs are as important as code
+5. **Continuous Cleanup**: Don't let temporary docs accumulate
+
+### Metrics of Success
+
+Before cleanup:
+- Confusion about implementation status
+- Misleading cryptographic claims
+- Scattered temporary documentation
+- No clear ecosystem overview
+
+After cleanup:
+- ✅ Clear production/beta/planned status for all components
+- ✅ Accurate technical terminology throughout
+- ✅ Single source of truth (Feature Matrix)
+- ✅ Professional documentation structure
+
+### Impact on Project Credibility
+
+The documentation now:
+- **Accurately represents** implementation state
+- **Uses precise terminology** expected by security professionals
+- **Provides clear roadmap** for contributors
+- **Shows professional maturity** in acknowledging limitations
+
+### Next Steps
+
+1. **Immediate** (This week):
+   - Merge to main branch
+   - Create GitHub issues from Feature Matrix ⏳ items
+   - Set up CI badges for implementation status
+
+2. **Short-term** (Q4 2024):
+   - Complete Python SDK to production
+   - Implement HTTP middleware proof-of-concept
+   - Add integration test suite
+
+3. **Long-term** (2025):
+   - Research true ZK proofs (ring signatures)
+   - Post-quantum algorithm integration
+   - Service mesh integration
+
+### Conclusion
+
+This documentation restructure transforms Signet from appearing as an experimental project to a professional protocol implementation with:
+- Production-ready components (signet-commit works today!)
+- Clear implementation roadmap
+- Honest assessment of current capabilities
+- Compelling vision for future development
+
+The feedback was invaluable in identifying gaps between how we described the project and what was actually built. The documentation now tells the true story.
 
 ---
 
