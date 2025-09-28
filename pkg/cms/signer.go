@@ -11,11 +11,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"errors"
-	"fmt"
 	"math/big"
 	"sort"
 	"time"
+
+	signetErrors "github.com/jamestexas/signet/pkg/errors"
 )
 
 // OID definitions for CMS/PKCS#7
@@ -53,19 +53,19 @@ func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey
 	// 3. Encode attributes as SET for signing (with SET tag)
 	setForSigning, err := encodeAttributesAsSet(signedAttrs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode attributes as SET: %w", err)
+		return nil, signetErrors.NewSignatureError("cms", "failed to encode attributes as SET", err)
 	}
 
 	// 4. Sign the SET OF attributes
 	signature := ed25519.Sign(privateKey, setForSigning)
 	if signature == nil {
-		return nil, errors.New("failed to create signature")
+		return nil, signetErrors.NewSignatureError("cms", "failed to create signature", nil)
 	}
 
 	// 5. Encode attributes as [0] IMPLICIT for storage in SignerInfo
 	implicitAttrs, err := encodeSignedAttributesImplicit(signedAttrs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode attributes as IMPLICIT: %w", err)
+		return nil, signetErrors.NewSignatureError("cms", "failed to encode attributes as IMPLICIT", err)
 	}
 
 	// 6. Build SignerInfo with the IMPLICIT encoded attributes
@@ -312,7 +312,7 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 		} else if certLen < 65536 {
 			certHeader = append(certHeader, 0x82, byte(certLen>>8), byte(certLen))
 		} else {
-			return nil, fmt.Errorf("certificate too large")
+			return nil, signetErrors.NewValidationError("certificate size", "", "certificate too large", nil)
 		}
 	}
 	sdBuf.Write(certHeader)
@@ -346,7 +346,7 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 		} else if contentLen < 65536 {
 			contentHeader = append(contentHeader, 0x82, byte(contentLen>>8), byte(contentLen))
 		} else {
-			return nil, fmt.Errorf("content too large")
+			return nil, signetErrors.NewValidationError("content size", "", "content too large", nil)
 		}
 	}
 	ciBuf.Write(contentHeader)

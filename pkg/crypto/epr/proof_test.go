@@ -22,32 +22,33 @@ func TestGenerator_GenerateProof(t *testing.T) {
 	generator := NewGenerator(masterPriv.(ed25519.PrivateKey))
 
 	tests := []struct {
-		name    string
-		ctx     context.Context
-		request *ProofRequest
-		wantErr bool
-		errType error
+		name      string
+		ctx       context.Context
+		request   *ProofRequest
+		generator *Generator
+		wantErr   bool
+		errType   error
 	}{
 		{
 			name: "successful proof generation",
 			ctx:  context.Background(),
 			request: &ProofRequest{
-				MasterKey:      masterPriv.(ed25519.PrivateKey),
 				ValidityPeriod: 5 * time.Minute,
 				Purpose:        "test-purpose",
 			},
-			wantErr: false,
+			generator: generator,
+			wantErr:   false,
 		},
 		{
-			name: "nil master key",
+			name: "nil master key in generator",
 			ctx:  context.Background(),
 			request: &ProofRequest{
-				MasterKey:      nil,
 				ValidityPeriod: 5 * time.Minute,
 				Purpose:        "test-purpose",
 			},
-			wantErr: true,
-			errType: signetErrors.ErrMasterKeyRequired,
+			generator: NewGenerator(nil),
+			wantErr:   true,
+			errType:   signetErrors.ErrMasterKeyRequired,
 		},
 		{
 			name: "context cancelled",
@@ -57,18 +58,18 @@ func TestGenerator_GenerateProof(t *testing.T) {
 				return ctx
 			}(),
 			request: &ProofRequest{
-				MasterKey:      masterPriv.(ed25519.PrivateKey),
 				ValidityPeriod: 5 * time.Minute,
 				Purpose:        "test-purpose",
 			},
-			wantErr: true,
-			errType: context.Canceled,
+			generator: generator,
+			wantErr:   true,
+			errType:   context.Canceled,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			response, err := generator.GenerateProof(tt.ctx, tt.request)
+			response, err := tt.generator.GenerateProof(tt.ctx, tt.request)
 
 			if tt.wantErr {
 				if err == nil {
@@ -125,7 +126,6 @@ func TestVerifier_VerifyBinding(t *testing.T) {
 	// Generate a valid proof
 	ctx := context.Background()
 	validRequest := &ProofRequest{
-		MasterKey:      masterPriv.(ed25519.PrivateKey),
 		ValidityPeriod: 5 * time.Minute,
 		Purpose:        "test-purpose",
 	}
@@ -332,7 +332,6 @@ func TestVerifier_VerifyProof(t *testing.T) {
 	// Generate a valid proof
 	ctx := context.Background()
 	validRequest := &ProofRequest{
-		MasterKey:      masterPriv.(ed25519.PrivateKey),
 		ValidityPeriod: 5 * time.Minute,
 		Purpose:        "test-purpose",
 	}
@@ -466,7 +465,6 @@ func TestProofExpirationBoundary(t *testing.T) {
 	// This tests the expiration check without timing races
 	t.Run("already expired", func(t *testing.T) {
 		request := &ProofRequest{
-			MasterKey:      masterPriv.(ed25519.PrivateKey),
 			ValidityPeriod: 5 * time.Minute,
 			Purpose:        "test-expired",
 		}
@@ -490,7 +488,6 @@ func TestProofExpirationBoundary(t *testing.T) {
 	// This tests that non-expired proofs work correctly
 	t.Run("valid proof", func(t *testing.T) {
 		request := &ProofRequest{
-			MasterKey:      masterPriv.(ed25519.PrivateKey),
 			ValidityPeriod: 5 * time.Minute,
 			Purpose:        "test-valid",
 		}
@@ -521,7 +518,6 @@ func TestProofExpirationBoundary(t *testing.T) {
 	t.Run("expiration boundary", func(t *testing.T) {
 		// Generate a proof
 		request := &ProofRequest{
-			MasterKey:      masterPriv.(ed25519.PrivateKey),
 			ValidityPeriod: 1 * time.Hour, // Long validity to avoid actual expiration
 			Purpose:        "test-boundary",
 		}
@@ -556,7 +552,6 @@ func TestConcurrentProofGeneration(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			request := &ProofRequest{
-				MasterKey:      masterPriv.(ed25519.PrivateKey),
 				ValidityPeriod: 5 * time.Minute,
 				Purpose:        "concurrent-test",
 			}
