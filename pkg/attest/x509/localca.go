@@ -18,7 +18,7 @@ import (
 type LocalCA struct {
 	// masterKey is the master signing key
 	masterKey crypto.Signer
-	
+
 	// issuerDID is the DID that will be used as the certificate subject
 	issuerDID string
 }
@@ -33,22 +33,23 @@ func NewLocalCA(masterKey crypto.Signer, issuerDID string) *LocalCA {
 
 // IssueCodeSigningCertificate creates a self-signed X.509 certificate
 // for code signing with the specified validity duration
-func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (*x509.Certificate, []byte, error) {
+// Returns the certificate, DER bytes, and the ephemeral private key
+func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (*x509.Certificate, []byte, ed25519.PrivateKey, error) {
 	// 1. Generate ephemeral key pair for the certificate
 	ephemeralPub, ephemeralPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// 2. Create certificate template
 	template := ca.CreateCertificateTemplate(validityDuration)
 	if template == nil {
-		return nil, nil, errors.New("failed to create certificate template")
+		return nil, nil, nil, errors.New("failed to create certificate template")
 	}
-	
+
 	// 3. Add Subject Key Identifier (required for Git)
 	template.SubjectKeyId = generateSubjectKeyID(ephemeralPub)
-	
+
 	// 4. Self-sign the certificate with master key
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
@@ -58,20 +59,16 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 		ca.masterKey,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// 5. Parse the certificate to return
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	// Store the private key in the certificate's extensions (for signing)
-	// Note: In production, return the private key separately
-	_ = ephemeralPriv // We'll need to return this for actual signing
-
-	return cert, certDER, nil
+	return cert, certDER, ephemeralPriv, nil
 }
 
 // IssueEphemeralCertificate creates a self-signed ephemeral certificate
@@ -81,10 +78,10 @@ func (ca *LocalCA) IssueEphemeralCertificate(publicKey crypto.PublicKey, validit
 	if template == nil {
 		return nil, nil, errors.New("failed to create certificate template")
 	}
-	
+
 	// Add Subject Key Identifier (required for Git)
 	template.SubjectKeyId = generateSubjectKeyID(publicKey)
-	
+
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
 		template,
@@ -112,12 +109,12 @@ func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x5
 		// If we can't generate a serial number, we can't create a certificate
 		return nil
 	}
-	
+
 	now := time.Now()
-	
+
 	// Parse DID as URI for SAN
 	didURI, _ := url.Parse(ca.issuerDID)
-	
+
 	return &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject:      EncodeDIDAsSubject(ca.issuerDID),
@@ -144,7 +141,7 @@ func EncodeDIDAsSubject(did string) pkix.Name {
 		cn = "Signet Ephemeral"
 	}
 	return pkix.Name{
-		CommonName: cn,
+		CommonName:   cn,
 		Organization: []string{"Signet"},
 	}
 }
@@ -153,7 +150,7 @@ func EncodeDIDAsSubject(did string) pkix.Name {
 // Uses SHA-1 hash as per RFC 5280 (method 1)
 func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	var pubBytes []byte
-	
+
 	switch pub := publicKey.(type) {
 	case ed25519.PublicKey:
 		pubBytes = pub
@@ -162,7 +159,7 @@ func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 		// For MVP, we only support Ed25519
 		return nil
 	}
-	
+
 	h := sha1.Sum(pubBytes)
 	return h[:]
 }

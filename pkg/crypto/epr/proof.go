@@ -87,20 +87,20 @@ func (g *Generator) GenerateProof(request *ProofRequest) (*ProofResponse, error)
 // createBindingMessage creates the domain-separated message to sign
 func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) []byte {
 	pubBytes := ephemeralPub.(ed25519.PublicKey)
-	
+
 	// Domain separator + public key + expiry + purpose
 	message := append([]byte(DomainSeparator), pubBytes...)
-	
+
 	// Add expiry timestamp (8 bytes, big-endian)
 	expiryBytes := make([]byte, 8)
 	for i := 0; i < 8; i++ {
 		expiryBytes[7-i] = byte(expiresAt >> (i * 8))
 	}
 	message = append(message, expiryBytes...)
-	
+
 	// Add purpose string
 	message = append(message, []byte(purpose)...)
-	
+
 	return message
 }
 

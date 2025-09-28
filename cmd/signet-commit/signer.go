@@ -1,12 +1,10 @@
 package main
 
 import (
-	"crypto"
 	"crypto/ed25519"
-	"crypto/x509"
-	"io"
+	stdx509 "crypto/x509"
 
-	"github.com/jamestexas/signet/pkg/attest/x509"
+	localx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
 
@@ -14,10 +12,10 @@ import (
 type CommitSigner struct {
 	// masterKey is the long-lived master key
 	masterKey keys.Signer
-	
+
 	// localCA issues ephemeral certificates
-	localCA *x509.LocalCA
-	
+	localCA *localx509.LocalCA
+
 	// issuerDID identifies the signer
 	issuerDID string
 }
@@ -42,10 +40,10 @@ func (cs *CommitSigner) SignCommit(commitData []byte) (*SignatureBundle, error) 
 type SignatureBundle struct {
 	// Signature is the commit signature
 	Signature []byte
-	
+
 	// Certificate is the ephemeral certificate used for signing
-	Certificate *x509.Certificate
-	
+	Certificate *stdx509.Certificate
+
 	// CertificateBytes is the DER-encoded certificate
 	CertificateBytes []byte
 }

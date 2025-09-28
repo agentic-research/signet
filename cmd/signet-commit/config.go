@@ -9,10 +9,10 @@ import (
 type Config struct {
 	// KeyPath is the path to the master key file
 	KeyPath string
-	
+
 	// IssuerDID is the DID of the signer
 	IssuerDID string
-	
+
 	// CertificateValidity is the duration for ephemeral certificates
 	CertificateValidityMinutes int
 }
