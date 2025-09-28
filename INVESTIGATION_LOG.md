@@ -195,6 +195,14 @@
 2. **Short-term**: Begin implementation based on consolidated ADRs
 3. **Documentation**: Keep investigation log updated with implementation discoveries
 
+### Git Tracking Issue Discovered
+
+1. **Problem**: `.claude/settings.local.json` was accidentally tracked in git despite `.claude/` being in `.gitignore`
+2. **Cause**: File was likely added before `.gitignore` entry was created
+3. **Solution**: Used `git rm --cached` to remove from tracking while preserving local file
+4. **Learning**: Always verify new directories are properly ignored before initial commit
+5. **Best Practice**: Check tracked files with `git ls-files | grep <pattern>` when adding gitignore entries
+
 ### Implementation Insights
 
 1. **Git Integration Points**:
