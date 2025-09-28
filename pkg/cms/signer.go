@@ -36,49 +36,63 @@ func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey
 		return nil, err
 	}
 
-	// 3. Build the CMS structure
-	cms := contentInfo{
-		ContentType: oidSignedData,
-		Content: signedData{
-			Version: 1,
-			DigestAlgorithms: []pkix.AlgorithmIdentifier{
-				{Algorithm: oidSHA256},
-			},
-			EncapContentInfo: encapsulatedContentInfo{
-				ContentType: oidData,
-				// Content is omitted for detached signature
-			},
-			Certificates: []asn1.RawValue{
-				{FullBytes: cert.Raw},
-			},
-			SignerInfos: []signerInfo{
-				{
-					Version: 1,
-					Sid: issuerAndSerialNumber{
-						Issuer:       cert.Issuer.ToRDNSequence(),
-						SerialNumber: cert.SerialNumber,
-					},
-					DigestAlgorithm: pkix.AlgorithmIdentifier{
-						Algorithm: oidSHA256,
-					},
-					SignedAttrs: signedAttrs,
-					SignatureAlgorithm: pkix.AlgorithmIdentifier{
-						Algorithm: oidEd25519,
-					},
-					Signature: signature,
+	// 3. Build the SignedData structure
+	sd := signedData{
+		Version: 1,
+		DigestAlgorithms: []pkix.AlgorithmIdentifier{
+			{Algorithm: oidSHA256},
+		},
+		EncapContentInfo: encapsulatedContentInfo{
+			ContentType: oidData,
+			// Content is omitted for detached signature
+		},
+		Certificates: []asn1.RawValue{
+			{FullBytes: cert.Raw},
+		},
+		SignerInfos: []signerInfo{
+			{
+				Version: 1,
+				Sid: issuerAndSerialNumber{
+					Issuer:       cert.Issuer.ToRDNSequence(),
+					SerialNumber: cert.SerialNumber,
 				},
+				DigestAlgorithm: pkix.AlgorithmIdentifier{
+					Algorithm: oidSHA256,
+				},
+				SignedAttrs: signedAttrs,
+				SignatureAlgorithm: pkix.AlgorithmIdentifier{
+					Algorithm: oidEd25519,
+				},
+				Signature: signature,
 			},
 		},
 	}
 
-	// 4. Encode to DER
+	// 4. Marshal the SignedData
+	signedDataBytes, err := asn1.Marshal(sd)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Build the ContentInfo wrapper
+	cms := contentInfo{
+		ContentType: oidSignedData,
+		Content: asn1.RawValue{
+			Class:      2, // context-specific
+			Tag:        0,
+			IsCompound: true,
+			Bytes:      signedDataBytes,
+		},
+	}
+
+	// 6. Encode to DER
 	return asn1.Marshal(cms)
 }
 
 // ASN.1 structures for CMS/PKCS#7
 type contentInfo struct {
 	ContentType asn1.ObjectIdentifier
-	Content     signedData `asn1:"explicit,optional,tag:0"`
+	Content     asn1.RawValue `asn1:"explicit,optional,tag:0"`
 }
 
 type signedData struct {
@@ -98,7 +112,7 @@ type signerInfo struct {
 	Version            int
 	Sid                issuerAndSerialNumber
 	DigestAlgorithm    pkix.AlgorithmIdentifier
-	SignedAttrs        []attribute `asn1:"optional,tag:0"`
+	SignedAttrs        []attribute `asn1:"optional,implicit,tag:0"`
 	SignatureAlgorithm pkix.AlgorithmIdentifier
 	Signature          []byte
 }
