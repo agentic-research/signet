@@ -20,6 +20,7 @@ go.work.sum
 
 # Build artifacts
 /signet-commit
+/sigsign
 /dist/
 /build/
 
@@ -42,3 +43,11 @@ Thumbs.db
 # Signet user data (never commit master keys!)
 ~/.signet/
 experiments/
+
+# Test files and temporary data
+test.txt
+*.sig
+*.pem
+
+# Crumb tracking
+.crumb/
