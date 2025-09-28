@@ -147,6 +147,56 @@
 
 ### Implementation Insights
 
+---
+
+## 2024-09-28: Documentation Architecture & GitHub PR Management
+
+### Key Activities
+
+#### Documentation Restructure
+- **Task**: Consolidated scattered documentation into organized structure
+- **Changes Made**:
+  - Moved ADRs to `/docs/adrs/` directory with proper numbering (ADR-001, ADR-002, ADR-003)
+  - Created comprehensive `FEATURE_MATRIX.md` comparing Signet with existing solutions
+  - Simplified README to focus on core value proposition
+  - Removed outdated files (`BREAKTHROUGH_SOLUTION.md`, `README_CMS.md`)
+- **Impact**: Clearer navigation for contributors and users
+
+#### GitHub PR Workflow Discovery
+- **Tool Used**: `gh pr edit` command for updating PR metadata
+- **Syntax Learned**:
+  ```bash
+  gh pr edit <number> --title "title" --body "description"
+  ```
+- **Best Practice**: Use HEREDOC for multi-line PR descriptions to ensure proper formatting
+- **Result**: PR #2 updated with descriptive title and comprehensive change summary
+
+### Technical Learnings
+
+1. **Git Diff Analysis**: `git diff --name-status main...HEAD` provides clear view of changes in PR
+2. **GitHub CLI Capabilities**:
+   - Can update PR title/description without web interface
+   - Supports markdown in PR body
+   - Can target specific PR by number or URL
+3. **Documentation Organization**:
+   - ADRs should be numbered sequentially
+   - Feature matrices help position project in ecosystem
+   - Problem statements should be separate from implementation details
+
+### Process Improvements
+
+1. **PR Description Strategy**: Include summary, detailed changes, and impact sections
+2. **File Organization**: Group related documentation by type (ADRs, features, implementation)
+3. **Cleanup Discipline**: Remove outdated files when restructuring to avoid confusion
+
+### Next Steps Identified
+
+1. **Immediate**: Review and merge PR #2 to establish new documentation baseline
+2. **Short-term**: Begin implementation based on consolidated ADRs
+3. **Documentation**: Keep investigation log updated with implementation discoveries
+
+### Implementation Insights
+
 1. **Git Integration Points**:
    - `commit.gpg.program`: Path to signing binary
    - `commit.gpgsign`: Enable signing
