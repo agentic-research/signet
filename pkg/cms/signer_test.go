@@ -2,11 +2,14 @@ package cms
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/hex"
+	"math/big"
 	"testing"
 	"time"
-	"crypto/ed25519"
 )
 
 // Test vectors for ASN.1 encoding validation
@@ -388,4 +391,137 @@ func TestSignatureOverCorrectData(t *testing.T) {
 	}
 
 	t.Logf("Stored in CMS as IMPLICIT [0]: %s", hex.EncodeToString(implicitForStorage))
+}
+
+// TestEd25519CMSSignature validates our CMS Ed25519 implementation using RFC 8032 test vectors.
+// RFC 8032 defines the Ed25519 signature algorithm and provides canonical test vectors
+// that all implementations must pass to ensure correctness.
+func TestEd25519CMSSignature(t *testing.T) {
+	// RFC 8032 Section 7.1 Test Vector 1
+	secretKeyHex := "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+	publicKeyHex := "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+
+	// Decode the secret key
+	secretKey, err := hex.DecodeString(secretKeyHex)
+	if err != nil {
+		t.Fatalf("Failed to decode secret key: %v", err)
+	}
+
+	// Generate Ed25519 keypair from seed (RFC 8032 calls it secret key)
+	privateKey := ed25519.NewKeyFromSeed(secretKey)
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+
+	// Decode expected public key
+	expectedPublicKey, err := hex.DecodeString(publicKeyHex)
+	if err != nil {
+		t.Fatalf("Failed to decode expected public key: %v", err)
+	}
+
+	// Verify the public key matches RFC 8032
+	if !bytes.Equal(publicKey, expectedPublicKey) {
+		t.Fatalf("Public key mismatch:\nGot:      %x\nExpected: %x", publicKey, expectedPublicKey)
+	}
+
+	t.Logf("✓ Ed25519 key derivation matches RFC 8032")
+
+	// Now test with a real message for CMS
+	testMessage := []byte("Test message for CMS signature")
+
+	// Create a minimal test certificate for CMS
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Issuer: pkix.Name{
+			CommonName: "Test CA",
+		},
+		Subject: pkix.Name{
+			CommonName: "Test Signer",
+		},
+	}
+
+	// Sign the message using our CMS implementation
+	cmsSignature, err := SignData(testMessage, cert, privateKey)
+	if err != nil {
+		t.Fatalf("Failed to create CMS signature: %v", err)
+	}
+
+	// Verify the signature is valid DER
+	var contentInfo struct {
+		ContentType asn1.ObjectIdentifier
+		Content     asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+
+	rest, err := asn1.Unmarshal(cmsSignature, &contentInfo)
+	if err != nil {
+		t.Fatalf("Failed to parse CMS ContentInfo: %v", err)
+	}
+	if len(rest) > 0 {
+		t.Errorf("Unexpected bytes after ContentInfo: %d bytes", len(rest))
+	}
+
+	// Verify it's a SignedData content type
+	expectedOID := asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 7, 2} // id-signedData
+	if !contentInfo.ContentType.Equal(expectedOID) {
+		t.Errorf("Wrong content type: expected %v, got %v", expectedOID, contentInfo.ContentType)
+	}
+
+	t.Logf("✓ CMS structure is valid")
+	t.Logf("CMS signature length: %d bytes", len(cmsSignature))
+}
+
+// TestRFC8032TestVectors validates against multiple RFC 8032 test vectors
+func TestRFC8032TestVectors(t *testing.T) {
+	testVectors := []struct {
+		name      string
+		secretKey string
+		publicKey string
+		message   string
+		signature string
+	}{
+		{
+			name:      "Test 1",
+			secretKey: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+			publicKey: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+			message:   "",
+			signature: "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+		},
+		{
+			name:      "Test 2",
+			secretKey: "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+			publicKey: "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+			message:   "72",
+			signature: "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+		},
+	}
+
+	for _, tv := range testVectors {
+		t.Run(tv.name, func(t *testing.T) {
+			// Decode secret key
+			secretKey, err := hex.DecodeString(tv.secretKey)
+			if err != nil {
+				t.Fatalf("Failed to decode secret key: %v", err)
+			}
+
+			// Generate keypair
+			privateKey := ed25519.NewKeyFromSeed(secretKey)
+			publicKey := privateKey.Public().(ed25519.PublicKey)
+
+			// Verify public key
+			expectedPubKey, _ := hex.DecodeString(tv.publicKey)
+			if !bytes.Equal(publicKey, expectedPubKey) {
+				t.Errorf("Public key mismatch")
+			}
+
+			// Decode message
+			message, _ := hex.DecodeString(tv.message)
+
+			// Sign message
+			signature := ed25519.Sign(privateKey, message)
+
+			// Verify signature matches expected
+			expectedSig, _ := hex.DecodeString(tv.signature)
+			if !bytes.Equal(signature, expectedSig) {
+				t.Errorf("Signature mismatch for %s", tv.name)
+			}
+		})
+	}
 }

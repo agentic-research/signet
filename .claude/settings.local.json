@@ -14,7 +14,10 @@
       "Bash(./test_pem_header.sh:*)",
       "Bash(openssl asn1parse:*)",
       "Bash(./test_openssl_verify.sh:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(go run:*)",
+      "WebFetch(domain:www.rfc-editor.org)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": [],
