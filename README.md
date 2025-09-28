@@ -1,55 +1,57 @@
-# Signet MVP
+# Signet
 
-An offline-first alternative to gitsign for signing Git commits using self-sovereign identity.
+An offline-first Git commit signing tool using ephemeral X.509 certificates and Ed25519 cryptography.
 
-## 🎯 MVP Focus
+## Features
 
-This MVP implements a minimal, focused solution for offline Git commit signing:
-- ✅ Complete offline operation
-- ✅ Self-signed X.509 certificates
-- ✅ Ed25519 signatures only
-- ✅ Single device support
-- ❌ No multi-device sync (deferred)
-- ❌ No DID resolution (deferred)
-- ❌ No key recovery (deferred)
+- ✅ **Completely Offline**: No network required for signing
+- ✅ **Ephemeral Certificates**: Short-lived (5-minute) X.509 certificates  
+- ✅ **Ed25519 Cryptography**: Modern, fast elliptic curve signatures
+- ✅ **Git Integration**: Drop-in replacement for GPG signing
+- ✅ **Self-Sovereign**: Your master key never leaves your device
+- ✅ **CMS/PKCS#7 Output**: Industry standard signature format
 
 ## Quick Start
 
 ```bash
+# Install dependencies (macOS)
+brew install gnupg go
+
 # Build signet-commit
-go build -o signet-commit cmd/signet-commit/main.go
+go build -o signet-commit ./cmd/signet-commit
 
-# Configure Git to use signet-commit
-git config commit.gpg.program signet-commit
-git config commit.gpgsign true
+# Initialize (creates ~/.signet/master.key)
+./signet-commit --init
 
-# Sign a commit (works completely offline!)
+# Configure Git
+git config --global gpg.format x509
+git config --global gpg.x509.program $(pwd)/signet-commit  
+git config --global user.signingKey $(./signet-commit --export-key-id)
+git config --global commit.gpgsign true
+
+# Sign commits!
 git commit -S -m "My signed commit"
 ```
 
-## Architecture
+## Prerequisites
 
-The MVP consists of two main components:
+### Required Dependencies
 
-### libsignet (Core Library)
-- **pkg/signet**: Lightweight CBOR tokens
-- **pkg/crypto/epr**: Ephemeral proof of possession
-- **pkg/crypto/keys**: Ed25519 key operations
-- **pkg/attest/x509**: Local CA for self-signed certificates
-- **pkg/crypto/cose**: COSE message wrapper
+- **Go 1.21+**: For building the binary
+- **GnuPG**: Provides `gpgsm` required for Git's X.509 signature verification
 
-### signet-commit (CLI Tool)
-- Drop-in replacement for GPG/gitsign
-- Issues ephemeral certificates (5-minute validity)
-- Signs commits with ephemeral keys
-- Works completely offline
+```bash
+# macOS
+brew install go gnupg
 
-## How It Works
+# Ubuntu/Debian  
+sudo apt install golang-go gnupg-agent
 
-1. **Master Key**: Your identity is anchored to a local Ed25519 key pair
-2. **Local CA**: Acts as its own certificate authority
-3. **Ephemeral Certificates**: Issues short-lived certs for each signing operation
-4. **Offline-First**: No network required at any step
+# Fedora/RHEL
+sudo dnf install golang gnupg2
+```
+
+**Important**: The `gpgsm` tool from GnuPG is required for Git's X.509 signature support, even when using a custom signing program like signet-commit.
 
 ## Installation
 
@@ -59,14 +61,40 @@ git clone https://github.com/jamestexas/signet.git
 cd signet
 
 # Build the binary
-go build -o signet-commit cmd/signet-commit/*.go
+go build -o signet-commit ./cmd/signet-commit
 
-# Install to PATH
-sudo mv signet-commit /usr/local/bin/
+# Optional: Install to PATH
+sudo cp signet-commit /usr/local/bin/
 
-# Initialize Signet (creates ~/.signet/)
-signet-commit --init
+# Initialize Signet (creates ~/.signet/master.key)
+./signet-commit --init
 ```
+
+## Git Configuration
+
+After installation, configure Git to use signet-commit:
+
+```bash
+# Set signature format to X.509
+git config --global gpg.format x509
+
+# Set signet-commit as the X.509 program (use full path)
+git config --global gpg.x509.program /path/to/signet-commit
+
+# Set your signing key (use the exported key ID)
+git config --global user.signingKey $(signet-commit --export-key-id)
+
+# Enable automatic commit signing
+git config --global commit.gpgsign true
+```
+
+## How It Works
+
+1. **Master Key**: Your identity is anchored to a local Ed25519 key pair
+2. **Local CA**: Acts as its own certificate authority using the master key
+3. **Ephemeral Certificates**: Issues short-lived certs (5 minutes) for each signing operation
+4. **CMS/PKCS#7 Signatures**: Creates industry-standard detached signatures
+5. **Offline-First**: No network required at any step
 
 ## Project Structure
 
@@ -81,16 +109,55 @@ signet/
 └── docs/                  # Documentation
 ```
 
+## Troubleshooting
+
+### macOS: "gpg failed to sign the data"
+
+On macOS, Apple Git requires binaries to be in trusted locations or properly code-signed. If `git commit -S` fails with "gpg failed to sign the data", the binary location is likely blocked by macOS security policy.
+
+**Solution 1: Install to trusted location**
+```bash
+# Install to /usr/local/bin (trusted by Apple Git)
+sudo cp signet-commit /usr/local/bin/signet-commit
+sudo chmod 755 /usr/local/bin/signet-commit
+
+# Update Git configuration  
+git config --global gpg.x509.program /usr/local/bin/signet-commit
+```
+
+**Solution 2: Code-sign the binary**
+```bash
+# Code-sign for hardened runtime
+codesign -s - -f --timestamp=none --options=runtime /path/to/signet-commit
+
+# Then use the original path in Git config
+git config --global gpg.x509.program /path/to/signet-commit
+```
+
+### Verifying Configuration
+
+```bash
+# Check Git configuration
+git config --list | grep -E "(gpg|sign)"
+
+# Test signet-commit directly
+echo "test" | signet-commit --detach-sign
+
+# Check that gpgsm is available
+which gpgsm
+```
+
 ## Development Status
 
 - [x] Core architecture design
-- [x] Project scaffolding
-- [ ] CBOR token implementation
-- [ ] Ed25519 key operations
-- [ ] Local CA implementation
-- [ ] Git integration
-- [ ] Testing suite
-- [ ] Documentation
+- [x] Ed25519 key operations  
+- [x] Local CA implementation
+- [x] CMS/PKCS#7 signature generation
+- [x] Git integration (CLI)
+- [x] Integration testing
+- [ ] Signature verification testing
+- [ ] Cross-platform testing
+- [ ] CI/CD pipeline
 
 ## Security Model
 
