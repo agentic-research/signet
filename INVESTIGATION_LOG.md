@@ -1102,4 +1102,121 @@ Our implementation passes all feasible tests. The suggested RFC 8410 test vector
 
 ---
 
+## 2024-09-28: ADR Cleanup and Documentation Architecture
+
+### Context
+Received comprehensive feedback on ADRs highlighting terminology issues, maturity transparency gaps, and need for better documentation structure.
+
+### Key Issues Addressed
+
+#### 1. Terminology Precision
+- **Problem**: "ZK proof" terminology was misleading - we use ephemeral key IDs, not true zero-knowledge proofs
+- **Solution**: Replaced all instances with accurate terms:
+  - "ephemeral key IDs"
+  - "privacy-preserving proof of possession"
+  - Added explicit clarification: "not true ZK"
+- **Impact**: Builds credibility with security reviewers
+
+#### 2. Implementation Maturity Transparency
+- **Problem**: ADRs read as if everything was implemented
+- **Solution**: Created comprehensive FEATURE_MATRIX.md with:
+  - Status indicators: ✅ Complete, 🚧 In Progress, ⏳ Planned, 🔮 Experimental
+  - Component-by-component breakdown
+  - Clear dependencies and timelines
+- **Learning**: Always distinguish specification from implementation
+
+#### 3. Documentation Architecture
+- **Before**: Scattered temporary files (README_CMS, BREAKTHROUGH_SOLUTION, etc.)
+- **After**:
+  ```
+  docs/
+  ├── FEATURE_MATRIX.md         # Comprehensive ecosystem status
+  ├── CMS_IMPLEMENTATION.md     # Technical deep-dive
+  ├── adrs/                     # Architecture decisions
+  └── problem-statement.md      # Original vision
+  ```
+- **Benefit**: Clear navigation, no redundancy
+
+### Feature Matrix Design
+
+Created comprehensive matrix covering:
+
+1. **libsignet** (Core Protocol Library)
+   - Token structure, cryptographic operations
+   - Proof of possession, certificate management
+   - Future features (DID, ZK, post-quantum)
+
+2. **SDK Layer**
+   - Language support (Go, Python, JS/TS, Rust, WASM)
+   - Platform-specific key storage
+   - Implementation maturity per SDK
+
+3. **Applications Layer**
+   - signet-commit (✅ Production)
+   - signet-auth (🚧 Alpha)
+   - signet-proxy (⏳ Planned)
+   - signet-bridge (⏳ Planned)
+
+4. **Edge Layer**
+   - API gateways (Kong, AWS, Cloudflare)
+   - Service mesh (Istio, Linkerd, Consul)
+   - Load balancers (HAProxy, Traefik, Caddy)
+
+5. **Infrastructure Layer**
+   - Key management (HSM, Cloud KMS, Vault)
+   - Observability (Metrics, Tracing, Audit)
+   - Storage (Cache, Revocation, Logs)
+
+### Technical Improvements
+
+#### Real HTTP Example Added
+```http
+GET /api/users/me HTTP/1.1
+Host: api.example.com
+Authorization: Bearer SIG1.eyJpc3Mi...
+Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; ...
+```
+- Shows concrete headers developers will see
+- Demonstrates SDK abstraction value
+
+#### CMS Implementation Documented
+- Consolidated temporary files into CMS_IMPLEMENTATION.md
+- Explains IMPLICIT vs EXPLICIT ASN.1 encoding
+- Documents OpenSSL verification process
+- Highlights Go ecosystem contribution (first Ed25519 CMS library)
+
+### Lessons Learned
+
+1. **Precision Matters**: Security reviewers will scrutinize cryptographic claims
+2. **Maturity Matrices Build Trust**: Clear about what's ready vs planned
+3. **Examples Ground Abstractions**: HTTP headers make protocol tangible
+4. **Cross-Linking Aids Discovery**: ADRs should reference each other
+5. **Clean as You Go**: Temporary docs should be consolidated promptly
+
+### Next Steps
+
+1. **Immediate**:
+   - Push to main after review
+   - Update README with new doc structure
+   - Create GitHub issues from ⏳ Planned items
+
+2. **Short-term**:
+   - Implement HTTP middleware (Q4 2024)
+   - Complete Python SDK to beta
+   - Add CI badges for test coverage
+
+3. **Long-term**:
+   - True ZK proof research (ring signatures)
+   - Post-quantum readiness (Dilithium)
+   - Full ecosystem integration
+
+### Metrics of Success
+
+- Documentation clarity: No more "what is actually implemented?" questions
+- Developer confidence: Clear migration path from bearer tokens
+- Security credibility: Accurate cryptographic terminology
+- Ecosystem visibility: Feature matrix shows full vision
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*
