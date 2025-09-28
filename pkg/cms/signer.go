@@ -1,3 +1,12 @@
+// Package cms implements CMS/PKCS#7 signature generation with Ed25519 support.
+//
+// This package fills a gap in the Go ecosystem as existing CMS libraries
+// (mozilla/pkcs7, cloudflare/cfssl) do not support Ed25519 signatures.
+//
+// Current limitations:
+// - SignedAttributes encoding has known issues with IMPLICIT SET tagging
+// - Verification with OpenSSL/gpgsm may fail due to ASN.1 encoding
+// - See docs/CMS_ASN1_SOLUTION.md for detailed analysis
 package cms
 
 import (
@@ -22,7 +31,21 @@ var (
 	oidEd25519                = asn1.ObjectIdentifier{1, 3, 101, 112}
 )
 
-// SignData creates a detached CMS/PKCS#7 signature for Git
+// SignData creates a detached CMS/PKCS#7 signature using Ed25519.
+//
+// This function implements RFC 5652 (CMS) with RFC 8410 (Ed25519 in CMS).
+// The signature is detached (does not include the original data).
+//
+// TODO(jamestexas): Fix IMPLICIT encoding - see docs/CMS_ASN1_SOLUTION.md
+// Workaround: Use with Git's internal verification only
+//
+// Parameters:
+//   - data: The data to be signed
+//   - cert: The X.509 certificate containing the public key
+//   - privateKey: The Ed25519 private key for signing
+//
+// Returns:
+//   - DER-encoded CMS/PKCS#7 signature
 func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey) ([]byte, error) {
 	// 1. Create signed attributes
 	signedAttrs, err := createSignedAttributes(data)
