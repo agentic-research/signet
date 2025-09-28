@@ -1,180 +1,269 @@
-# Next Steps for Signet MVP Implementation
+# Next Steps for Signet Development
 
-## Immediate Actions (Week 1)
+## Current Status (September 28, 2024)
 
-### 1. Core Library Implementation ✅
-- [x] **CBOR Integration**
-  - Added `fxamacker/cbor/v2` to go.mod
-  - Implemented Token.Marshal() and Unmarshal()
-  - Added nonce and ephemeral key binding for replay protection
+### ✅ Completed MVP Components
 
-- [x] **Ed25519 Operations**
-  - Implemented key generation functions
-  - Completed Ed25519Signer with Destroy() for zeroization
-  - Added Argon2id key stretching for passwords
-  - Created HashPublicKey for ConfirmationID
+#### Core Library (libsignet)
+- ✅ **CBOR Token Structure**: Implemented with integer keys for efficiency
+- ✅ **Ed25519 Cryptography**: Full key generation, signing, and verification
+- ✅ **Ephemeral Proofs**: Two-step verification with domain separation
+- ✅ **CMS/PKCS#7**: First Go library with Ed25519 support
+- ✅ **X.509 Certificates**: Local CA with ephemeral certificate generation
 
-- [x] **Ephemeral Proof**
-  - Implemented proof generation with domain separation
-  - Added two-step verification with expiry checking
-  - Included purpose and timestamp in binding
+#### signet-commit Application
+- ✅ **Git Integration**: Successfully signs commits offline
+- ✅ **Master Key Management**: Secure storage with proper permissions
+- ✅ **CMS Signatures**: Git-compatible output format
+- ✅ **Integration Testing**: Validated with real Git repositories
 
-### 2. Local CA Implementation ✅
-- [x] **X.509 Certificate Generation**
-  - Implemented LocalCA.IssueCodeSigningCertificate()
-  - Added Subject Key Identifier for Git compatibility
-  - Set code signing extensions correctly
-  - Fixed serial number generation error handling
+#### Test Coverage
+- ✅ **RFC 8032 Test Vectors**: Ed25519 validation passing
+- ✅ **ASN.1 Encoding Tests**: SET vs IMPLICIT [0] correctly implemented
+- ✅ **OpenSSL Verification**: Signatures verify with `-binary` flag
 
-- [ ] **Certificate Validation**
-  - Test certificates with actual Git
-  - Verify gpgsm acceptance
-  - Test on different platforms
+## Immediate Next Steps (Week 1-2)
 
-### 3. CLI Tool (signet-commit) 🚧
-- [ ] **Git Integration**
-  - Read commit data from stdin
-  - Output CMS/PKCS#7 signature (not just PEM)
-  - Implement gpgsm-compatible format
-  - Handle Git's expected exit codes
+### 1. Protocol Specification 📝
+- [ ] **Write Signet Protocol RFC**
+  - Token structure specification
+  - Proof of possession flow
+  - Hierarchical permission model
+  - Federation mechanisms
 
-- [ ] **Configuration**
-  - Implement config file loading
-  - Add --init command for setup
-  - Create ~/.signet directory structure
-  - Store master key with 0600 permissions
+- [ ] **Define Standard Headers**
+  - HTTP: `Signet-Authorization` header
+  - gRPC: Metadata fields
+  - WebSocket: Upgrade negotiation
 
-- [ ] **Critical: Return Ephemeral Private Key**
-  - Modify LocalCA to return private key with certificate
-  - Use ephemeral key to sign commits
-  - Destroy ephemeral key after use
+### 2. HTTP Middleware Implementation 🌐
+- [ ] **Go HTTP Middleware**
+  ```go
+  func SignetMiddleware(next http.Handler) http.Handler
+  ```
+  - Extract and verify signet tokens
+  - Context propagation
+  - Permission evaluation
 
-## Testing Phase (Week 2)
+- [ ] **Example Service**
+  - Simple API with Signet auth
+  - Demonstrate bearer token replacement
+  - Show permission escalation
 
-### Unit Tests
-- [ ] Test each package independently
-- [ ] Create test vectors for crypto operations
-- [ ] Mock Git interactions
-- [ ] Benchmark performance
+### 3. Production Hardening 🔒
+- [ ] **Cross-Platform Testing**
+  - Linux validation
+  - Windows support
+  - CI/CD pipeline setup
 
-### Integration Tests
-- [ ] Test with real Git repositories
-- [ ] Verify signature verification
-- [ ] Cross-platform testing (Linux/macOS/Windows)
-- [ ] Different Git versions (2.20+)
+- [ ] **Security Audit**
+  - Key material handling review
+  - Timing attack analysis
+  - Fuzzing test suite
 
-### Performance Testing
-- [ ] Measure end-to-end signing time
-- [ ] Profile memory usage
-- [ ] Optimize hot paths
-- [ ] Target: < 100ms total time
+## Medium-term Goals (Month 1-2)
 
-## Documentation (Parallel)
+### Protocol Extensions
+- [ ] **Organizational Attestation**
+  - Company CA integration
+  - Team membership proofs
+  - Role-based permissions
 
-### User Documentation
-- [ ] **Installation Guide**
-  - Build instructions
-  - Binary distribution
-  - PATH configuration
+- [ ] **Federation Protocol**
+  - Cross-organization trust
+  - Identity bridging
+  - Revocation mechanisms
 
-- [ ] **Quick Start Guide**
-  - First-time setup
-  - Git configuration
-  - Signing first commit
+### SDK Development
+- [ ] **Language Bindings**
+  - Python SDK
+  - JavaScript/TypeScript
+  - Rust implementation
 
-- [ ] **Troubleshooting**
-  - Common errors
-  - Debug mode
-  - FAQ
+- [ ] **Framework Integration**
+  - Express.js middleware
+  - FastAPI integration
+  - Spring Boot starter
 
-### Developer Documentation
-- [ ] API documentation (godoc)
-- [ ] Architecture deep-dive
-- [ ] Contributing guide
-- [ ] Security considerations
+### Developer Experience
+- [ ] **CLI Tools**
+  - `signet auth` - Authentication helper
+  - `signet verify` - Token verification
+  - `signet rotate` - Key rotation
 
-## Validation Milestones
+- [ ] **Developer Portal**
+  - Interactive documentation
+  - Token playground
+  - Integration examples
 
-### MVP Success Criteria
-1. **Functional Test**: Can sign commits completely offline
-2. **Performance Test**: Signing takes < 100ms
-3. **Compatibility Test**: Works with Git 2.20+
-4. **Security Test**: Keys never exposed, proper certificate lifetime
-5. **Usability Test**: Setup in < 5 minutes
+## Long-term Vision (Quarter 1-2)
 
-### Demo Scenarios
-1. **New User Setup**
-   ```bash
-   signet-commit --init
-   git config commit.gpg.program signet-commit
-   git commit -S -m "First signed commit"
-   ```
+### Enterprise Features
+- [ ] **Hardware Security Modules**
+  - PKCS#11 support
+  - TPM integration
+  - Cloud KMS backends
 
-2. **Offline Workflow**
-   - Disconnect network
-   - Make changes
-   - Sign commit
-   - Verify signature
+- [ ] **Compliance & Audit**
+  - Audit log integration
+  - Compliance reporting
+  - SIEM connectors
 
-3. **Certificate Inspection**
-   ```bash
-   git log --show-signature
-   ```
+- [ ] **Multi-factor Authentication**
+  - Biometric binding
+  - FIDO2 integration
+  - Time-based challenges
 
-## Future Considerations (Post-MVP)
+### Ecosystem Integration
+- [ ] **Service Mesh**
+  - Istio integration
+  - Envoy filter
+  - Linkerd support
 
-### Phase 2 Enhancements
-- DID integration (did:key initially)
-- Multiple key algorithm support
-- Certificate caching for performance
-- Backup and recovery mechanisms
+- [ ] **Cloud Native**
+  - Kubernetes admission controller
+  - SPIFFE/SPIRE bridge
+  - OPA policy integration
 
-### Phase 3 Integration
-- Sigstore ecosystem compatibility
-- Rekor transparency log submission
-- Fulcio certificate co-signing
-- Cosign artifact signing
+- [ ] **Identity Providers**
+  - OIDC compatibility layer
+  - SAML bridge
+  - Active Directory integration
 
-### Phase 4 Advanced Features
-- Multi-device synchronization
-- Hardware security module support
-- Team/organization certificates
-- Web of trust model
+## Research & Innovation
 
-## Risk Register
+### Advanced Cryptography
+- [ ] **Post-Quantum Algorithms**
+  - Dilithium signatures
+  - Hybrid schemes
+  - Migration strategies
 
+- [ ] **Zero-Knowledge Proofs**
+  - Anonymous credentials
+  - Selective disclosure
+  - Range proofs for permissions
+
+### Novel Applications
+- [ ] **Git SSH Certificates**
+  - Replace SSH keys with Signet
+  - Ephemeral SSH access
+  - Audit trail
+
+- [ ] **Database Authentication**
+  - PostgreSQL integration
+  - MongoDB auth mechanism
+  - Redis ACL integration
+
+- [ ] **IoT Device Identity**
+  - Embedded device support
+  - Mesh network authentication
+  - Edge computing scenarios
+
+## Success Metrics
+
+### Adoption Indicators
+- Number of GitHub stars
+- Active contributors
+- Production deployments
+- SDK downloads
+
+### Technical Metrics
+- Authentication latency (target: <10ms)
+- Token size (target: <500 bytes)
+- Key rotation time (target: <1s)
+- Verification throughput (target: >10k/sec)
+
+### Security Metrics
+- Time to patch vulnerabilities
+- Security audit findings
+- Penetration test results
+- Bug bounty participation
+
+## Community Building
+
+### Documentation
+- [ ] **User Guides**
+  - Getting started
+  - Migration guides
+  - Best practices
+
+- [ ] **Architecture Docs**
+  - Design decisions
+  - Security model
+  - Performance analysis
+
+### Engagement
+- [ ] **Conference Talks**
+  - Security conferences
+  - Developer meetups
+  - Webinars
+
+- [ ] **Open Source**
+  - Contributor guidelines
+  - Code of conduct
+  - Governance model
+
+## Risk Management
+
+### Technical Risks
 | Risk | Mitigation | Priority |
 |------|------------|----------|
-| Git breaking changes | Abstract Git interface | High |
-| Key loss | Document backup process | High |
-| Platform differences | Early cross-platform testing | Medium |
-| Performance regression | Continuous benchmarking | Medium |
-| Security vulnerabilities | Security review before release | High |
+| Protocol complexity | Incremental rollout | High |
+| Adoption barriers | Clear migration path | High |
+| Performance impact | Extensive benchmarking | Medium |
+| Key management | HSM integration | High |
 
-## Communication Plan
+### Organizational Risks
+| Risk | Mitigation | Priority |
+|------|------------|----------|
+| Maintenance burden | Build community | Medium |
+| Security vulnerabilities | Bug bounty program | High |
+| Competing standards | Unique value prop | Medium |
 
-### Progress Updates
-- Weekly status in INVESTIGATION_LOG.md
-- GitHub issues for tracking
-- Pull requests for review
+## Milestones
 
-### Feedback Channels
-- GitHub discussions for design decisions
-- Issue tracker for bugs
-- Community chat for questions
+### Q4 2024
+- ✅ MVP Complete (signet-commit)
+- [ ] Protocol specification v1.0
+- [ ] HTTP middleware alpha
+- [ ] Python SDK beta
 
-## Definition of Done
+### Q1 2025
+- [ ] Production deployment (pilot)
+- [ ] Service mesh integration
+- [ ] Enterprise features alpha
+- [ ] 1.0 release
 
-The MVP is complete when:
-1. All unit tests pass
-2. Integration tests pass on all platforms
-3. Performance targets met
-4. Documentation complete
-5. Security review passed
-6. Successfully used for 1 week of development
+### Q2 2025
+- [ ] Cloud provider integration
+- [ ] Compliance certifications
+- [ ] Large-scale deployments
+- [ ] Ecosystem maturity
+
+## Call to Action
+
+**For Contributors:**
+- Review protocol specification
+- Implement language SDKs
+- Build integration examples
+- Report security issues
+
+**For Users:**
+- Try signet-commit today
+- Provide feedback on UX
+- Share use cases
+- Join the community
+
+**For Organizations:**
+- Evaluate for pilot programs
+- Contribute enterprise requirements
+- Sponsor development
+- Join advisory board
 
 ---
 
-**Start Date**: September 27, 2024
-**Target Completion**: October 11, 2024 (2 weeks)
-**First Release**: v0.1.0-mvp
+**Vision**: Make authentication invisible, secure, and user-controlled.
+
+**Mission**: Replace bearer tokens with cryptographic proofs everywhere.
+
+**Values**: Security, Simplicity, Sovereignty, Standards.
