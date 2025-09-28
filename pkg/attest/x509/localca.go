@@ -31,8 +31,9 @@ func NewLocalCA(masterKey crypto.Signer, issuerDID string) *LocalCA {
 	}
 }
 
-// IssueCodeSigningCertificate creates a self-signed X.509 certificate
+// IssueCodeSigningCertificate creates an X.509 certificate
 // for code signing with the specified validity duration
+// The certificate is issued by the master key (CA) for an ephemeral key
 // Returns the certificate, DER bytes, and the ephemeral private key
 func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (*x509.Certificate, []byte, ed25519.PrivateKey, error) {
 	// 1. Generate ephemeral key pair for the certificate
@@ -41,28 +42,39 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 		return nil, nil, nil, err
 	}
 
-	// 2. Create certificate template
+	// 2. Create CA (issuer) certificate template
+	// This represents the master key acting as CA
+	issuerTemplate := ca.CreateCACertificateTemplate()
+	if issuerTemplate == nil {
+		return nil, nil, nil, errors.New("failed to create issuer template")
+	}
+
+	// 3. Create certificate template for the ephemeral key
 	template := ca.CreateCertificateTemplate(validityDuration)
 	if template == nil {
 		return nil, nil, nil, errors.New("failed to create certificate template")
 	}
 
-	// 3. Add Subject Key Identifier (required for Git)
+	// 4. Add Subject Key Identifier (required for Git)
 	template.SubjectKeyId = generateSubjectKeyID(ephemeralPub)
+	
+	// 5. Add Authority Key Identifier (points to master key)
+	issuerTemplate.SubjectKeyId = generateSubjectKeyID(ca.masterKey.Public())
+	template.AuthorityKeyId = issuerTemplate.SubjectKeyId
 
-	// 4. Self-sign the certificate with master key
+	// 6. Issue the certificate: master key signs for ephemeral key
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
-		template,
-		template, // self-signed
-		ephemeralPub,
-		ca.masterKey,
+		template,      // certificate being created
+		issuerTemplate, // CA certificate (master key)
+		ephemeralPub,   // public key being certified
+		ca.masterKey,   // CA private key for signing
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// 5. Parse the certificate to return
+	// 7. Parse the certificate to return
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
 		return nil, nil, nil, err
@@ -101,8 +113,35 @@ func (ca *LocalCA) IssueEphemeralCertificate(publicKey crypto.PublicKey, validit
 	return cert, certDER, nil
 }
 
+// CreateCACertificateTemplate creates a template for the CA (master key) certificate
+func (ca *LocalCA) CreateCACertificateTemplate() *x509.Certificate {
+	serialNumber, err := GenerateSerialNumber()
+	if err != nil {
+		return nil
+	}
+
+	// CA certificate has a long validity (10 years for the master key)
+	now := time.Now()
+	
+	// Parse DID as URI for SAN
+	didURI, _ := url.Parse(ca.issuerDID)
+
+	return &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject:      EncodeDIDAsSubject(ca.issuerDID),
+		Issuer:       EncodeDIDAsSubject(ca.issuerDID), // Self-issued
+		NotBefore:    now.Add(-24 * time.Hour), // Valid from yesterday to avoid clock skew
+		NotAfter:     now.Add(10 * 365 * 24 * time.Hour), // Valid for 10 years
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		URIs:         []*url.URL{didURI},
+		IsCA:         true,
+		BasicConstraintsValid: true,
+	}
+}
+
 // CreateCertificateTemplate creates a basic X.509 certificate template
-// with the CA's DID as subject
+// for an ephemeral certificate
 func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x509.Certificate {
 	serialNumber, err := GenerateSerialNumber()
 	if err != nil {
@@ -118,12 +157,14 @@ func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x5
 	return &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject:      EncodeDIDAsSubject(ca.issuerDID),
+		Issuer:       EncodeDIDAsSubject(ca.issuerDID), // Will be overridden by CA issuer
 		NotBefore:    now,
 		NotAfter:     now.Add(validityDuration),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
 		URIs:         []*url.URL{didURI},
 		IsCA:         false,
+		BasicConstraintsValid: true,
 	}
 }
 

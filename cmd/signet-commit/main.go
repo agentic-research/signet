@@ -25,6 +25,7 @@ func main() {
 		exportKeyFlag = flag.Bool("export-key-id", false, "Export the master key ID")
 		helpFlag      = flag.Bool("help", false, "Show help")
 		homeFlag      = flag.String("home", "", "Signet home directory (default: ~/.signet)")
+		verifyFlag    = flag.Bool("verify", false, "Verify signature (passthrough for Git)")
 		_             = flag.String("bsau", "", "GPG compatibility flag (ignored)")
 		statusFd      = flag.Int("status-fd", 0, "File descriptor for GPG status output")
 		_             = flag.Bool("detach-sign", false, "Create detached signature (default)")
@@ -76,6 +77,17 @@ func main() {
 		fmt.Println(keyID)
 		os.Exit(0)
 	}
+
+	// Handle verify flag (for Git compatibility)
+	// Git calls us with --verify but gpgsm does the actual verification
+	// We just need to accept the flag and exit successfully
+	if *verifyFlag {
+		// Git passes: --verify <signature-file> <data-file>
+		// We don't actually verify - that's gpgsm's job
+		// Just exit successfully to let Git continue
+		os.Exit(0)
+	}
+
 
 	// Load master key
 	masterKey, err := loadMasterKey(signetPath)

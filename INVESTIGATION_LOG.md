@@ -591,7 +591,31 @@ fatal: failed to write commit object
 - ✅ signet-commit MVP functionally complete
 - ✅ Creates cryptographically valid signatures  
 - ✅ Integration test infrastructure solid
-- ❓ Git integration configuration issue blocking validation
+- ✅ Installed to trusted location `/usr/local/bin`
+- ❓ Git still fails despite calling our program correctly
+
+## 2024-09-28: Debugging Git Integration After Trust Fix
+
+### New Discovery: Git IS Calling Our Program
+
+**Evidence from GIT_TRACE**:
+```
+trace: run_command: /usr/local/bin/signet-commit --status-fd=2 -bsau 22b89761...
+```
+
+**Key Observations**:
+1. Git successfully calls signet-commit from `/usr/local/bin` (macOS security issue resolved)
+2. Program works perfectly when called with same arguments manually
+3. Creates valid CMS/PKCS#7 output
+4. Git still reports "gpg failed to sign the data"
+
+**Hypothesis**: Git may be expecting GPG status messages on stderr (--status-fd=2) that we're not providing.
+
+### Next Debugging Steps
+1. Investigate what GPG status messages Git expects
+2. Check if Git is reading our stdout output correctly
+3. Verify Git can parse our PEM-formatted CMS output
+4. Test with minimal GPG status output implementation
 
 ---
 

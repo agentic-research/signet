@@ -65,8 +65,11 @@ exec "$SIGNET_CMD_PATH" --home "$SIGNET_HOME" "\$@"
 EOF
 chmod +x "$WRAPPER_SCRIPT"
 
-# Tell Git to use our wrapper script
+# Tell Git to use our wrapper script for signing
 git config --local gpg.x509.program "$WRAPPER_SCRIPT"
+
+# Tell Git to use gpgsm for verification (it knows how to verify X.509)
+git config --local gpg.x509.verifyProgram "$(which gpgsm)"
 
 # Tell Git to use our master key for signing
 git config --local user.signingKey "$MASTER_KEY_ID"
