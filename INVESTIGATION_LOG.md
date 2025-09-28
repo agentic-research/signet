@@ -818,4 +818,66 @@ Three viable paths:
 
 ---
 
+## 2024-09-28: ASN.1 IMPLICIT vs EXPLICIT Tagging - Theoretical Analysis
+
+### Critical Discovery by Theoretical Foundations Analyst
+
+**The Root Cause**: We were creating `[0] EXPLICIT SET OF` when RFC 5652 requires `[0] IMPLICIT SET OF`.
+
+**Mathematical/Theoretical Insight**:
+- EXPLICIT tagging: `[0] { SET { attributes... } }` - Tag 0xA0 containing tag 0x31
+- IMPLICIT tagging: `[0] { attributes... }` - Tag 0xA0 directly containing attribute contents
+- The IMPLICIT keyword means the context tag [0] **replaces** the SET tag rather than wrapping it
+
+### Current Status of Fix
+
+**Attempted Fix**:
+```go
+// In pkg/cms/signer.go
+type attributeSet struct {
+    Attributes []attribute `asn1:"set"`
+}
+// This creates SEQUENCE { SET { attrs } } 
+// We extract SET and wrap in [0], but this is still EXPLICIT
+```
+
+**Still Failing**: OpenSSL verification still rejects with ASN.1 encoding errors.
+
+### The Correct Solution (From Theoretical Analysis)
+
+Need two separate encodings:
+1. **For signing**: Plain `SET OF attributes` (tag 0x31)
+2. **For SignerInfo**: `[0] IMPLICIT` with SET contents but context tag
+
+**Implementation Required**:
+```go
+func encodeSignedAttributesImplicit(attrs []attribute) (asn1.RawValue, error) {
+    // Encode as SET, extract contents, wrap with [0] tag replacing SET tag
+    // See docs/CMS_ASN1_SOLUTION.md for complete implementation
+}
+```
+
+### Validation Strategy Identified
+
+1. **OpenSSL 3.0+ Test**: Create reference signatures with OpenSSL Ed25519
+2. **ASN.1 Structure Comparison**: Use `openssl asn1parse` to compare
+3. **Cross-Verification**: OpenSSL must verify our signatures
+4. **Git Integration**: Ultimate validation
+
+### Market Opportunity
+
+**We're building the first Go CMS/PKCS#7 library with Ed25519 support!**
+- No existing Go library supports this (Mozilla pkcs7, CFSSL, smimesign all lack Ed25519)
+- Git is moving toward Ed25519/SSH keys
+- Community desperately needs this
+
+### Next Steps Required
+
+1. Implement the correct IMPLICIT tagging solution
+2. Create comprehensive test suite with OpenSSL cross-verification
+3. Extract as standalone library: `github.com/jamestexas/go-cms-ed25519`
+4. Contribute to Go ecosystem
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*

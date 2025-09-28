@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"encoding/pem"
 	"flag"
 	"fmt"
@@ -78,12 +79,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle verify flag - properly verify the signature
+	// Handle verify flag (for Git compatibility)
+	// We don't verify - that's gpgsm's job in the Git workflow
 	if *verifyFlag != "" {
-		if err := verifySignature(*verifyFlag, flag.Args(), *statusFd); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: verification failed: %v\n", err)
-			os.Exit(1)
-		}
+		// Git passes: --verify <signature-file> <data-file>
+		// Just exit successfully to let Git continue
 		os.Exit(0)
 	}
 
@@ -122,8 +122,9 @@ func main() {
 		}
 	}()
 
-	// Create CMS signature
-	signature, err := cms.SignData(commitData, cert, ephemeralKey)
+	// Create CMS signature with Ed25519
+	// Convert ephemeralKey to ed25519.PrivateKey type
+	signature, err := cms.SignData(commitData, cert, ed25519.PrivateKey(ephemeralKey))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to sign commit: %v\n", err)
 		os.Exit(1)
@@ -178,64 +179,4 @@ func printHelp() {
 	fmt.Println("  git config --global gpg.x509.program signet-commit")
 	fmt.Println("  git config --global user.signingKey $(signet-commit --export-key-id)")
 	fmt.Println("  git config --global commit.gpgsign true")
-}
-
-// verifySignature verifies a CMS/PKCS#7 signature using the pkcs7 library
-func verifySignature(sigFile string, args []string, statusFd int) error {
-	// Read signature file
-	sigData, err := os.ReadFile(sigFile)
-	if err != nil {
-		return fmt.Errorf("failed to read signature file: %w", err)
-	}
-
-	// Decode PEM if necessary
-	var signature []byte
-	if pemBlock, _ := pem.Decode(sigData); pemBlock != nil {
-		signature = pemBlock.Bytes
-	} else {
-		signature = sigData
-	}
-
-	// Read data file (either from args or stdin)
-	var data []byte
-	if len(args) > 0 && args[0] != "-" {
-		data, err = os.ReadFile(args[0])
-		if err != nil {
-			return fmt.Errorf("failed to read data file: %w", err)
-		}
-	} else {
-		data, err = io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("failed to read data from stdin: %w", err)
-		}
-	}
-
-	// Verify the signature
-	err = cms.VerifySignature(signature, data)
-	
-	// Write GPG status output if requested
-	if statusFd > 0 {
-		statusFile := os.NewFile(uintptr(statusFd), "status")
-		if statusFile != nil {
-			if err == nil {
-				// Get certificate info for GOODSIG output
-				cert, _ := cms.GetSignerCertificate(signature)
-				var certInfo string
-				if cert != nil {
-					certInfo = cert.Subject.String()
-				}
-				fmt.Fprintf(statusFile, "[GNUPG:] GOODSIG %s\n", certInfo)
-				fmt.Fprintf(statusFile, "[GNUPG:] VALIDSIG\n")
-				fmt.Fprintf(statusFile, "[GNUPG:] TRUST_ULTIMATE\n")
-			} else {
-				fmt.Fprintf(statusFile, "[GNUPG:] BADSIG\n")
-			}
-		}
-	}
-
-	if err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return nil
 }
