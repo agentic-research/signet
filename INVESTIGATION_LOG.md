@@ -1466,4 +1466,78 @@ The feedback was invaluable in identifying gaps between how we described the pro
 
 ---
 
+## 2024-09-28: MVP-to-Spec Milestone Planning
+
+### Context
+Analyzed `signet-commit` (our gitsign equivalent) for generalization potential and created incremental plan to reach ADR-001 specification.
+
+### Key Findings
+
+#### Current MVP Assessment
+**What Works Well**:
+- 1,654 lines of clean, tested code
+- Production-ready git commit signing
+- Unique Ed25519 CMS/PKCS#7 implementation (first in Go ecosystem)
+- Modular design: key management, CA, and signing are separate
+
+**Generalization Potential**: HIGH
+- CMS/PKCS#7 works for: S/MIME, PDF signing, code signing
+- Ephemeral cert pattern is universally applicable
+- Core signing logic (~400 lines) easily extractable
+
+#### Milestone Plan: MVP → Spec
+
+**Milestone 1: Generic Signer** (`sigsign`)
+- Extract signing from git-specific context
+- Support multiple formats: CMS, COSE, Signet
+- Timeline: Week 1
+- Effort: ~500 lines
+
+**Milestone 2: Enhanced Token**
+- Add 3 fields: audience, capabilities, jti
+- Maintain backward compatibility
+- Timeline: Week 2
+- Effort: ~300 lines
+
+**Milestone 3: Wire Format**
+- Implement `SIG1.<b64url>.<b64url>` format
+- Add COSE-Sign1 layer
+- Timeline: Week 3
+- Effort: ~400 lines
+
+**Milestone 4: HTTP Integration**
+- Simple middleware pattern
+- Offline verification
+- Timeline: Week 4
+- Effort: ~600 lines
+
+**Milestone 5: Capabilities**
+- Semantic permission system
+- Capability computation
+- Timeline: Weeks 5-6
+- Effort: ~800 lines
+
+### Strategic Insights
+
+1. **Build on Strength**: Our CMS implementation is unique and working - use as foundation
+2. **Incremental Value**: Each milestone delivers usable functionality
+3. **Pattern Reuse**: `sigsign` becomes the universal signer for all contexts
+4. **Clear Progression**:
+   - Current: Git signing only
+   - Next: Any file/data signing
+   - Future: Full authentication system
+
+### Implementation Started
+- Created `cmd/sigsign/main.go` skeleton
+- Demonstrates generic signing interface
+- Ready for core logic extraction
+
+### Next Actions
+1. Extract signing logic from signet-commit to pkg/signing
+2. Implement basic sigsign with CMS support
+3. Add COSE format support
+4. Test with non-git use cases
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*
