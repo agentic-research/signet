@@ -208,6 +208,71 @@
 1. **Git Integration Points**:
    - `commit.gpg.program`: Path to signing binary
    - `commit.gpgsign`: Enable signing
+
+---
+
+## 2024-09-28: Claude Code Repository Configuration
+
+### Key Activities
+
+#### CLAUDE.md Creation
+- **Task**: Created repository guidance file for future Claude Code instances
+- **Purpose**: Accelerate onboarding and maintain consistency across sessions
+- **Structure**:
+  - Build and test commands with Make targets
+  - Architecture overview focusing on offline-first design
+  - Core component mapping (libsignet, signet-commit)
+  - Implementation notes on unique features
+
+#### Git Configuration Cleanup
+- **Issue Discovered**: `.claude/settings.local.json` was incorrectly tracked in git
+- **Resolution**: Removed from tracking while preserving local file
+- **Learning**: Always verify `.gitignore` patterns are working as expected
+
+### Technical Discoveries
+
+1. **Repository Structure**:
+   - Clean separation between `pkg/` (library) and `cmd/` (applications)
+   - Integration tests in `scripts/testing/` for end-to-end validation
+   - Docker-based testing environment for consistent CI/CD
+
+2. **Unique Implementation Features**:
+   - **Ed25519 CMS/PKCS#7**: First Go implementation supporting this combination
+   - **CBOR with Integer Keys**: Deterministic serialization strategy
+   - **Two-Step Verification**: Simple but secure PoP model
+   - **5-Minute Certificates**: Balance between security and usability
+
+3. **Development Workflow**:
+   - Make-based build system with clear targets
+   - Docker containers for integration testing
+   - Local and containerized testing options
+
+### Documentation Strategy Insights
+
+1. **CLAUDE.md Best Practices**:
+   - Focus on non-obvious architecture decisions
+   - Document unique implementation details
+   - Provide concrete command examples
+   - Avoid generic development advice
+
+2. **Repository Documentation Layers**:
+   - `README.md`: User-facing project overview
+   - `CLAUDE.md`: AI assistant guidance
+   - `ARCHITECTURE.md`: Deep technical design
+   - `INVESTIGATION_LOG.md`: Development history and learnings
+   - `/docs/adrs/`: Formal decision records
+
+### Process Improvements Identified
+
+1. **Git Hygiene**: Regular checks for accidentally tracked files
+2. **Documentation Updates**: Keep CLAUDE.md synchronized with architecture changes
+3. **Testing Commands**: Document all test variations in CLAUDE.md
+
+### Next Steps
+
+1. **Immediate**: Push all commits to update PR #2
+2. **Short-term**: Begin implementation based on CLAUDE.md structure
+3. **Long-term**: Update CLAUDE.md as architecture evolves
    - Input: Commit data on stdin
    - Output: PEM-encoded signature on stdout
 
