@@ -745,4 +745,77 @@ Despite ASN.1 fixes and additional validation:
 
 ---
 
+## 2024-09-28: PKCS7/CMS Library Research - Ed25519 Support
+
+### Critical Discovery: No Mainstream Library Supports Ed25519
+
+**Research Summary**:
+- **Mozilla pkcs7 (go.mozilla.org/pkcs7)**: ❌ Only supports RSA and ECDSA
+- **Cloudflare CFSSL**: ❌ Read-only PKCS7 for certificate bundling, no signature creation
+- **GitHub smimesign**: ❌ Only supports SHA256-RSA, traditional S/MIME
+- **GitHub ietf-cms**: ❌ Moved to smimesign, same limitations
+
+**Root Cause**: 
+1. S/MIME standards traditionally use RSA (legacy enterprise)
+2. Ed25519 is relatively new (RFC 8032 from 2017)
+3. CMS/PKCS#7 specs predate modern elliptic curves
+
+### Failed Refactoring Attempt
+
+**What We Tried**:
+- Refactored to use Mozilla's pkcs7 library per ADR-003
+- Clean wrapper implementation in pkg/cms
+- Proper verification with pkcs7.Verify()
+
+**Why It Failed**:
+```
+Error: failed to sign commit: failed to add signer: 
+pkcs7: cannot convert encryption algorithm to oid, 
+unknown private key type ed25519.PrivateKey
+```
+
+### Key Learning: Our Custom Implementation Was Correct!
+
+We were actually **ahead of the curve** building Ed25519 CMS support. The issue isn't our choice of Ed25519 or custom implementation - it's the ASN.1 encoding details.
+
+### The Real Issue: SignedAttrs Encoding
+
+**RFC 5652 § 5.3 Requirement**:
+```
+SignedAttributes ::= [0] IMPLICIT SET OF Attribute
+```
+
+**Our Bug**:
+- We're encoding as SEQUENCE inside [0] tag
+- OpenSSL/gpgsm expect SET (tag 17) not SEQUENCE (tag 16)
+- Go's `asn1.Marshal` doesn't automatically use SET for slices
+
+**The Fix**:
+Need to explicitly force SET encoding, possibly by:
+1. Using a struct with `asn1:"set"` tag
+2. Manual ASN.1 construction with proper SET tag
+3. Or switching to a different signature format (SSH)
+
+### Alternative Discovered: SSH Signatures
+
+Git now natively supports SSH Ed25519 signatures:
+```bash
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub
+```
+- Simpler format, no CMS complexity
+- Native Ed25519 support
+- Widely adopted
+
+### Decision Point
+
+Three viable paths:
+1. **Fix our custom CMS** - We're close, just need SET encoding
+2. **Switch to SSH format** - Simpler, modern, Ed25519-native
+3. **Switch to ECDSA** - Use standard libraries, but architectural change
+
+**Recommendation**: Fix our custom implementation - we've invested the work and we're one encoding fix away from success.
+
+---
+
 *This log will be updated as the investigation progresses and new discoveries are made.*

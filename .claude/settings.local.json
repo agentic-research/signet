@@ -1,9 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(./test_integration.sh:*)",
+      "Read(/private/tmp/test-verify/**)",
+      "Read(/private/tmp/test-verify/**)",
+      "Read(/private/tmp/verify-test2/**)",
+      "Read(/private/tmp/verify-test2/**)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/jamesgardner/remotes/jamestexas/fulcio"
+    ]
   }
 }

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/attest/x509"
+	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cms"
 )
 
@@ -25,7 +25,7 @@ func main() {
 		exportKeyFlag = flag.Bool("export-key-id", false, "Export the master key ID")
 		helpFlag      = flag.Bool("help", false, "Show help")
 		homeFlag      = flag.String("home", "", "Signet home directory (default: ~/.signet)")
-		verifyFlag    = flag.Bool("verify", false, "Verify signature (passthrough for Git)")
+		verifyFlag    = flag.String("verify", "", "Verify signature from file")
 		_             = flag.String("bsau", "", "GPG compatibility flag (ignored)")
 		statusFd      = flag.Int("status-fd", 0, "File descriptor for GPG status output")
 		_             = flag.Bool("detach-sign", false, "Create detached signature (default)")
@@ -78,13 +78,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle verify flag (for Git compatibility)
-	// Git calls us with --verify but gpgsm does the actual verification
-	// We just need to accept the flag and exit successfully
-	if *verifyFlag {
-		// Git passes: --verify <signature-file> <data-file>
-		// We don't actually verify - that's gpgsm's job
-		// Just exit successfully to let Git continue
+	// Handle verify flag - properly verify the signature
+	if *verifyFlag != "" {
+		if err := verifySignature(*verifyFlag, flag.Args(), *statusFd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: verification failed: %v\n", err)
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 
@@ -107,7 +106,7 @@ func main() {
 
 	// Create Local CA
 	issuerDID := "did:key:signet" // Simplified DID for MVP
-	ca := x509.NewLocalCA(masterKey, issuerDID)
+	ca := attestx509.NewLocalCA(masterKey, issuerDID)
 
 	// Generate ephemeral certificate
 	cert, _, ephemeralKey, err := ca.IssueCodeSigningCertificate(defaultCertValidity)
@@ -179,4 +178,64 @@ func printHelp() {
 	fmt.Println("  git config --global gpg.x509.program signet-commit")
 	fmt.Println("  git config --global user.signingKey $(signet-commit --export-key-id)")
 	fmt.Println("  git config --global commit.gpgsign true")
+}
+
+// verifySignature verifies a CMS/PKCS#7 signature using the pkcs7 library
+func verifySignature(sigFile string, args []string, statusFd int) error {
+	// Read signature file
+	sigData, err := os.ReadFile(sigFile)
+	if err != nil {
+		return fmt.Errorf("failed to read signature file: %w", err)
+	}
+
+	// Decode PEM if necessary
+	var signature []byte
+	if pemBlock, _ := pem.Decode(sigData); pemBlock != nil {
+		signature = pemBlock.Bytes
+	} else {
+		signature = sigData
+	}
+
+	// Read data file (either from args or stdin)
+	var data []byte
+	if len(args) > 0 && args[0] != "-" {
+		data, err = os.ReadFile(args[0])
+		if err != nil {
+			return fmt.Errorf("failed to read data file: %w", err)
+		}
+	} else {
+		data, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("failed to read data from stdin: %w", err)
+		}
+	}
+
+	// Verify the signature
+	err = cms.VerifySignature(signature, data)
+	
+	// Write GPG status output if requested
+	if statusFd > 0 {
+		statusFile := os.NewFile(uintptr(statusFd), "status")
+		if statusFile != nil {
+			if err == nil {
+				// Get certificate info for GOODSIG output
+				cert, _ := cms.GetSignerCertificate(signature)
+				var certInfo string
+				if cert != nil {
+					certInfo = cert.Subject.String()
+				}
+				fmt.Fprintf(statusFile, "[GNUPG:] GOODSIG %s\n", certInfo)
+				fmt.Fprintf(statusFile, "[GNUPG:] VALIDSIG\n")
+				fmt.Fprintf(statusFile, "[GNUPG:] TRUST_ULTIMATE\n")
+			} else {
+				fmt.Fprintf(statusFile, "[GNUPG:] BADSIG\n")
+			}
+		}
+	}
+
+	if err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	return nil
 }

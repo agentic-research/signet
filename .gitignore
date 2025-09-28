@@ -38,7 +38,7 @@ Thumbs.db
 # Local configuration
 .env
 .env.local
-
+.claude/
 # Signet user data (never commit master keys!)
 ~/.signet/
 experiments/
