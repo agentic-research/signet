@@ -101,7 +101,10 @@ jobs:
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
-      - name: Check for secrets with gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # TODO: Re-enable Gitleaks after repo goes public
+      # Gitleaks requires access to PR commits which doesn't work
+      # properly with private repos and GitHub Actions permissions
+      # - name: Check for secrets with gitleaks
+      #   uses: gitleaks/gitleaks-action@v2
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
