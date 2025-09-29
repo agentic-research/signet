@@ -1,3 +1,6 @@
+# If you prefer the allow list template instead of the deny list, see community template:
+# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -8,8 +11,11 @@
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool, specifically when used with LiteIDE
+# Code coverage profiles and other test artifacts
 *.out
+coverage.*
+*.coverprofile
+profile.cov
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
@@ -19,38 +25,43 @@ go.work
 go.work.sum
 
 # Build artifacts
-/signet-commit
-/sigsign
 /dist/
 /build/
+/signet-commit
+/sigsign
 
-# IDE specific files
+# Editor/IDE specific files
 .idea/
+.vscode/
+*.iml
 *.swp
 *.swo
 *~
-.vscode/
-*.iml
 
 # OS specific files
 .DS_Store
 Thumbs.db
 
-# Local configuration
+# Local configuration and secrets (DO NOT COMMIT)
 .env
 .env.local
 .claude/
-# Signet user data (never commit master keys!)
-~/.signet/
-experiments/
-
-# Test files and temporary data
-test.txt
-*.sig
-*.pem
 
 # Crumb tracking
 .crumb/
 
+# Project-specific ignores
+#
+# Signet user data (never commit master keys!)
+# Note: Ignores a .signet directory in the project root. To ignore ~/.signet
+# in your home directory, add it to your global gitignore file.
+.signet/
+#
+# Temporary test files and local experiments
+experiments/
+test.txt
+*.sig
+*.pem
+#
 # Internal documentation (keep locally but don't push)
 INVESTIGATION_LOG.md
