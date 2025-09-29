@@ -6,7 +6,7 @@
 
 Current "solutions" don't solve the problem:
 - **MFA** only protects initial login, not token usage after theft
-- **Token rotation** shortens the theft window but doesn't eliminate it  
+- **Token rotation** shortens the theft window but doesn't eliminate it
 - **Zero Trust** just verifies stolen tokens more frequently
 - **mTLS** works but is operationally complex and inflexible
 

@@ -87,7 +87,6 @@ func main() {
 		os.Exit(0)
 	}
 
-
 	// Load master key
 	masterKey, err := loadMasterKey(signetPath)
 	if err != nil {
@@ -137,13 +136,13 @@ func main() {
 		if flag.NArg() > 0 {
 			keyFpr = flag.Arg(0)
 		}
-		
+
 		// Create status file from descriptor
 		statusFile := os.NewFile(uintptr(*statusFd), "status")
 		if statusFile != nil {
 			// Format: [GNUPG:] SIG_CREATED <type> <pk_algo> <hash_algo> <class> <timestamp> <fingerprint>
 			// type: D (detached)
-			// pk_algo: 22 (EdDSA)  
+			// pk_algo: 22 (EdDSA)
 			// hash_algo: 8 (SHA256)
 			// class: 00 (standard)
 			timestamp := time.Now().Unix()

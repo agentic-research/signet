@@ -24,10 +24,10 @@ func TestParseProofHeader(t *testing.T) {
 	timestamp := time.Now().Unix()
 
 	// Fill random data
-	rand.Read(jti)
-	rand.Read(capID)
-	rand.Read(ephemeralKeyHash)
-	rand.Read(nonce)
+	_, _ = rand.Read(jti)
+	_, _ = rand.Read(capID)
+	_, _ = rand.Read(ephemeralKeyHash)
+	_, _ = rand.Read(nonce)
 
 	// Create a valid header
 	header := &ProofHeader{

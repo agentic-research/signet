@@ -2,7 +2,7 @@
 set -e
 
 # Integration Test for signet-commit
-# This script validates that signet-commit can be used by Git to create 
+# This script validates that signet-commit can be used by Git to create
 # and verify cryptographically valid commit signatures
 
 echo "=== Signet-commit Integration Test ==="
@@ -43,7 +43,7 @@ echo "--- Step 2: Initialize Signet ---"
 SIGNET_HOME="$TEST_DIR/.signet"
 SIGNET_CMD_PATH="$ORIGINAL_DIR/signet-commit"
 
-# Initialize signet 
+# Initialize signet
 echo "Initializing signet with home: $SIGNET_HOME"
 $SIGNET_CMD_PATH --home "$SIGNET_HOME" --init
 
@@ -114,7 +114,7 @@ if git cat-file commit HEAD | grep -q "gpgsig"; then
     echo "✅ Signature attached to commit"
     SIGNATURE_ATTACHED=true
 else
-    echo "❌ Signature not found on commit"  
+    echo "❌ Signature not found on commit"
     SIGNATURE_ATTACHED=false
 fi
 

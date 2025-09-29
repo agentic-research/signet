@@ -84,7 +84,7 @@ def compute_cap_id(cap_tokens):
             if not token_id:
                 raise UnregisteredTokenError(token)
             token_ids.append(token_id)
-    
+
     # Sort, deduplicate, hash to 128 bits
     canonical = sorted(set(token_ids))
     return trunc128(sha256(cbor_encode(canonical)))
@@ -98,23 +98,23 @@ def generate_ppid(global_user_id, audience, jti, issuer_secret):
     )
 Per-Request Proof-of-Possession (Revised)
 Signet-Proof Header Format (Ephemeral Key ID Based)
-Signet-Proof: v=1; ts=1700000000; nonce=<b64url(16B)>; 
-             kid=<ephemeral_key_id>; 
+Signet-Proof: v=1; ts=1700000000; nonce=<b64url(16B)>;
+             kid=<ephemeral_key_id>;
              proof=<b64url(signature)>
 Proof Generation
 python
 def generate_pop_proof(request, private_key):
     # Generate ephemeral key ID (cached for session)
     kid = generate_ephemeral_kid()
-    
+
     # Canonical string for signature
     canon = f"{method}\n{path}\n{host}\n{ts}\n{nonce}\n{jti}"
     if method in ["POST", "PUT"]:
         canon += f"\n{sha256_hex(body)}"
-    
+
     # Sign with private key (ephemeral proof)
     proof = ed25519_sign(private_key, canon)
-    
+
     # Cache kid → cnf_key_hash mapping at verifier
     return kid, proof
 Verification Rules
@@ -339,4 +339,3 @@ Ed25519: RFC 8032
 Capability-Based Security: Miller, 2006
 BeyondCorp: Google, 2014 (what not to do)
 "The best auth system is the one developers don't have to think about."
-

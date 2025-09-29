@@ -93,7 +93,7 @@ go test -bench=. ./cmd/signet-commit -benchtime=10s -benchmem
 
 ### Functional Limitations
 - **Single CA only**: Cannot handle multi-root or certificate chains
-- **No CMS verification**: Only signing implemented, not verification
+- **No native CMS verification**: Verification via OpenSSL (tested in scripts/testing/)
 - **Memory-based**: Entire files loaded into memory (no streaming)
 - **COSE unused**: `pkg/crypto/cose` imported but not integrated
 

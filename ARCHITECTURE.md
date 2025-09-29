@@ -250,7 +250,7 @@ func (a *SignetToSigstoreAdapter) SignMessage(message io.Reader, opts ...SignOpt
 }
 ```
 
-2. **Direct Adoption for Non-Core Components**: 
+2. **Direct Adoption for Non-Core Components**:
 - Use Sigstore's KMS integration directly (`sigstore/sigstore/pkg/signature/kms`)
 - Adopt their options pattern for configuration
 - Reuse their key format utilities
@@ -260,7 +260,7 @@ func (a *SignetToSigstoreAdapter) SignMessage(message io.Reader, opts ...SignOpt
 - Use adapters when interfacing with Sigstore ecosystem
 - This allows us to maintain our offline-first design while benefiting from Sigstore's extensive integrations
 
-**Recommendation**: 
+**Recommendation**:
 - Adopt Sigstore interfaces for external-facing APIs
 - Maintain our simpler interfaces internally
 - Provide bidirectional adapters for maximum compatibility

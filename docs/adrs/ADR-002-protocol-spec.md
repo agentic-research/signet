@@ -1,8 +1,8 @@
 # ADR-0002: Signet Protocol Specification v1.0
 
-**Status:** Draft  
-**Type:** Protocol Specification  
-**Date:** 2025-09-27  
+**Status:** Draft
+**Type:** Protocol Specification
+**Date:** 2025-09-27
 **Authors:** James Gardner
 
 ## Abstract
@@ -35,7 +35,7 @@ SIG1.<base64url(CBOR payload)>.<base64url(COSE_Sign1 signature)>
 ```cddl
 signet-token = {
   1: uint,           ; iss_id - Issuer identifier
-  2: uint,           ; aud_id - Audience identifier  
+  2: uint,           ; aud_id - Audience identifier
   3: bstr .size 32,  ; sub_ppid - Per-token pairwise pseudonym
   4: uint,           ; exp - Expiration (Unix timestamp)
   ? 5: uint,         ; nbf - Not before
@@ -91,7 +91,7 @@ def generate_ppid(user_id: str, audience: str, jti: bytes, secret: bytes) -> byt
 #### Request Signing
 
 ```
-Signet-Proof: v=1; ts=<timestamp>; nonce=<base64url(16 bytes)>; 
+Signet-Proof: v=1; ts=<timestamp>; nonce=<base64url(16 bytes)>;
               kid=<ephemeral_key_id>; sig=<base64url(signature)>
 ```
 
@@ -111,7 +111,7 @@ def build_canonical_string(method, path, host, timestamp, nonce, jti, body=None)
 def generate_proof(request, private_key, jti):
     timestamp = int(time.time())
     nonce = os.urandom(16)
-    
+
     canonical = build_canonical_string(
         request.method,
         request.path,
@@ -121,7 +121,7 @@ def generate_proof(request, private_key, jti):
         base64url_encode(jti),
         request.body
     )
-    
+
     signature = ed25519_sign(private_key, canonical.encode())
     return format_proof_header(timestamp, nonce, kid, signature)
 ```
@@ -194,11 +194,11 @@ def register_custom_capability(name: str) -> int:
     """Register custom capability with issuer"""
     if not name.startswith(org_prefix):
         raise ValueError("Must use org prefix")
-    
+
     # Deterministic assignment
     hash_value = sha256(name.encode()).digest()
     capability_id = 0x10000 | (int.from_bytes(hash_value[:2], 'big'))
-    
+
     registry[capability_id] = name
     return capability_id
 ```
@@ -310,7 +310,7 @@ Request:
   Method: GET
   Path: /api/users
   Host: api.example.com
-  
+
 Canonical String:
   GET\n/api/users\napi.example.com\n1700000000\n<nonce>\n<jti>
 
@@ -336,7 +336,7 @@ cap_tokens: [0x02, 0x0100]  # write, env:prod
 
 # Admin with constraints
 cap_tokens: [0x04, 0x0100, 0x0200]  # admin, env:prod, limit:100
-cap_custom: 
+cap_custom:
   rate_limit: 100
   expires: 1700002000
 ```

@@ -90,7 +90,7 @@ if openssl cms -verify -inform DER -in test_signature.der -noverify -out /dev/nu
 else
     echo "✗ FAILED: OpenSSL cannot parse DER directly"
     echo "This suggests the ASN.1 structure itself has issues"
-    
+
     # Try to get more details
     echo
     echo "Getting error details:"

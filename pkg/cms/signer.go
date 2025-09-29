@@ -97,10 +97,9 @@ func createSignedAttributes(messageDigest []byte) []attribute {
 	messageDigestValue, _ := asn1.Marshal(messageDigest)
 	signingTimeValue, _ := asn1.Marshal(time.Now().UTC())
 
-
 	return []attribute{
 		{
-			Type:  oidAttributeContentType,
+			Type: oidAttributeContentType,
 			Value: asn1.RawValue{
 				Class:      0,  // universal
 				Tag:        17, // SET
@@ -109,7 +108,7 @@ func createSignedAttributes(messageDigest []byte) []attribute {
 			},
 		},
 		{
-			Type:  oidAttributeSigningTime,
+			Type: oidAttributeSigningTime,
 			Value: asn1.RawValue{
 				Class:      0,  // universal
 				Tag:        17, // SET
@@ -118,7 +117,7 @@ func createSignedAttributes(messageDigest []byte) []attribute {
 			},
 		},
 		{
-			Type:  oidAttributeMessageDigest,
+			Type: oidAttributeMessageDigest,
 			Value: asn1.RawValue{
 				Class:      0,  // universal
 				Tag:        17, // SET
@@ -277,11 +276,11 @@ func buildSignerInfo(cert *x509.Certificate, signedAttrsBytes []byte, signature 
 func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	// Build SignedData
 	var sdBuf bytes.Buffer
-	
+
 	// Version (INTEGER 1)
 	versionBytes, _ := asn1.Marshal(1)
 	sdBuf.Write(versionBytes)
-	
+
 	// DigestAlgorithms (SET OF AlgorithmIdentifier)
 	digestAlgs := []pkix.AlgorithmIdentifier{{Algorithm: oidSHA256}}
 	digestAlgsBytes, _ := asn1.Marshal(digestAlgs)
@@ -290,7 +289,7 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 		digestAlgsBytes[0] = 0x31
 	}
 	sdBuf.Write(digestAlgsBytes)
-	
+
 	// EncapContentInfo
 	encapContent := struct {
 		ContentType asn1.ObjectIdentifier
@@ -301,7 +300,7 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	encapBytes, _ := asn1.Marshal(encapContent)
 	sdBuf.Write(encapBytes)
-	
+
 	// Certificates [0] IMPLICIT
 	certHeader := []byte{0xA0} // context-specific, constructed, tag 0
 	if len(cert.Raw) < 128 {
@@ -319,24 +318,24 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	sdBuf.Write(certHeader)
 	sdBuf.Write(cert.Raw)
-	
+
 	// SignerInfos (SET OF SignerInfo)
 	siSetHeader := makeSetHeader(len(signerInfo))
 	sdBuf.Write(siSetHeader)
 	sdBuf.Write(signerInfo)
-	
+
 	// Wrap SignedData in SEQUENCE
 	sdContent := sdBuf.Bytes()
 	sdSeqHeader := makeSequenceHeader(len(sdContent))
 	signedData := append(sdSeqHeader, sdContent...)
-	
+
 	// Build ContentInfo
 	var ciBuf bytes.Buffer
-	
+
 	// ContentType (OBJECT IDENTIFIER)
 	contentTypeBytes, _ := asn1.Marshal(oidSignedData)
 	ciBuf.Write(contentTypeBytes)
-	
+
 	// Content [0] EXPLICIT
 	contentHeader := []byte{0xA0} // context-specific, constructed, tag 0
 	if len(signedData) < 128 {
@@ -354,11 +353,11 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	}
 	ciBuf.Write(contentHeader)
 	ciBuf.Write(signedData)
-	
+
 	// Wrap ContentInfo in SEQUENCE
 	ciContent := ciBuf.Bytes()
 	ciSeqHeader := makeSequenceHeader(len(ciContent))
-	
+
 	return append(ciSeqHeader, ciContent...), nil
 }
 

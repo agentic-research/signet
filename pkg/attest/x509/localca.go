@@ -57,7 +57,7 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 
 	// 4. Add Subject Key Identifier (required for Git)
 	template.SubjectKeyId = generateSubjectKeyID(ephemeralPub)
-	
+
 	// 5. Add Authority Key Identifier (points to master key)
 	issuerTemplate.SubjectKeyId = generateSubjectKeyID(ca.masterKey.Public())
 	template.AuthorityKeyId = issuerTemplate.SubjectKeyId
@@ -65,7 +65,7 @@ func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (
 	// 6. Issue the certificate: master key signs for ephemeral key
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
-		template,      // certificate being created
+		template,       // certificate being created
 		issuerTemplate, // CA certificate (master key)
 		ephemeralPub,   // public key being certified
 		ca.masterKey,   // CA private key for signing
@@ -122,20 +122,20 @@ func (ca *LocalCA) CreateCACertificateTemplate() *x509.Certificate {
 
 	// CA certificate has a long validity (10 years for the master key)
 	now := time.Now()
-	
+
 	// Parse DID as URI for SAN
 	didURI, _ := url.Parse(ca.issuerDID)
 
 	return &x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject:      EncodeDIDAsSubject(ca.issuerDID),
-		Issuer:       EncodeDIDAsSubject(ca.issuerDID), // Self-issued
-		NotBefore:    now.Add(-24 * time.Hour), // Valid from yesterday to avoid clock skew
-		NotAfter:     now.Add(10 * 365 * 24 * time.Hour), // Valid for 10 years
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
-		URIs:         []*url.URL{didURI},
-		IsCA:         true,
+		SerialNumber:          serialNumber,
+		Subject:               EncodeDIDAsSubject(ca.issuerDID),
+		Issuer:                EncodeDIDAsSubject(ca.issuerDID),   // Self-issued
+		NotBefore:             now.Add(-24 * time.Hour),           // Valid from yesterday to avoid clock skew
+		NotAfter:              now.Add(10 * 365 * 24 * time.Hour), // Valid for 10 years
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		URIs:                  []*url.URL{didURI},
+		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}
 }
@@ -155,15 +155,15 @@ func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x5
 	didURI, _ := url.Parse(ca.issuerDID)
 
 	return &x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject:      EncodeDIDAsSubject(ca.issuerDID),
-		Issuer:       EncodeDIDAsSubject(ca.issuerDID), // Will be overridden by CA issuer
-		NotBefore:    now,
-		NotAfter:     now.Add(validityDuration),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
-		URIs:         []*url.URL{didURI},
-		IsCA:         false,
+		SerialNumber:          serialNumber,
+		Subject:               EncodeDIDAsSubject(ca.issuerDID),
+		Issuer:                EncodeDIDAsSubject(ca.issuerDID), // Will be overridden by CA issuer
+		NotBefore:             now,
+		NotAfter:              now.Add(validityDuration),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		URIs:                  []*url.URL{didURI},
+		IsCA:                  false,
 		BasicConstraintsValid: true,
 	}
 }
