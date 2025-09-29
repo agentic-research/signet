@@ -30,6 +30,7 @@ go.work.sum
 # Build artifacts
 /dist/
 /build/
+/bin/
 /signet-commit
 /sigsign
 
