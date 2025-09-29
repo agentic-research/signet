@@ -49,7 +49,7 @@ func createSignetProof(jti []byte, timestamp int64) string {
 	// Build proof header
 	// Format: v1;m=compact;t=<token>;jti=<jti>;cap=<cap>;s=<sig>;n=<nonce>;ts=<timestamp>
 	proof := fmt.Sprintf("v1;m=compact;t=%s;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
-		"dummy_token",
+		"placeholder_token",
 		base64.RawURLEncoding.EncodeToString(jti),
 		base64.RawURLEncoding.EncodeToString(sha256.New().Sum(nil)[:16]),
 		base64.RawURLEncoding.EncodeToString(signature),

@@ -58,24 +58,24 @@ import (
 // These allow consumers to programmatically check error types using errors.Is()
 var (
 	// Signature and verification errors
-	ErrInvalidSignature      = errors.New("invalid signature")
+	ErrInvalidSignature        = errors.New("invalid signature")
 	ErrInvalidBindingSignature = errors.New("invalid binding signature")
 	ErrInvalidRequestSignature = errors.New("invalid request signature")
-	ErrSignatureMismatch     = errors.New("signature mismatch")
+	ErrSignatureMismatch       = errors.New("signature mismatch")
 
 	// Key-related errors
-	ErrKeyNotFound           = errors.New("key not found")
-	ErrInvalidKeyType        = errors.New("invalid key type")
-	ErrKeyGenerationFailed   = errors.New("key generation failed")
-	ErrMasterKeyRequired     = errors.New("master key required")
-	ErrInvalidPublicKey      = errors.New("invalid public key")
-	ErrInvalidPrivateKey     = errors.New("invalid private key")
+	ErrKeyNotFound         = errors.New("key not found")
+	ErrInvalidKeyType      = errors.New("invalid key type")
+	ErrKeyGenerationFailed = errors.New("key generation failed")
+	ErrMasterKeyRequired   = errors.New("master key required")
+	ErrInvalidPublicKey    = errors.New("invalid public key")
+	ErrInvalidPrivateKey   = errors.New("invalid private key")
 
 	// Token and expiration errors
-	ErrExpiredToken          = errors.New("token has expired")
-	ErrExpiredProof          = errors.New("ephemeral proof has expired")
-	ErrExpiredCertificate    = errors.New("certificate has expired")
-	ErrTokenNotYetValid      = errors.New("token not yet valid")
+	ErrExpiredToken       = errors.New("token has expired")
+	ErrExpiredProof       = errors.New("ephemeral proof has expired")
+	ErrExpiredCertificate = errors.New("certificate has expired")
+	ErrTokenNotYetValid   = errors.New("token not yet valid")
 
 	// Certificate errors
 	ErrInvalidCertificate    = errors.New("invalid certificate")
@@ -83,31 +83,31 @@ var (
 	ErrNoCertificates        = errors.New("no certificates found")
 
 	// Encoding/Decoding errors
-	ErrInvalidCBOR           = errors.New("invalid CBOR encoding")
-	ErrInvalidASN1           = errors.New("invalid ASN.1 encoding")
-	ErrInvalidPEM            = errors.New("invalid PEM encoding")
-	ErrDecodingFailed        = errors.New("decoding failed")
-	ErrEncodingFailed        = errors.New("encoding failed")
+	ErrInvalidCBOR    = errors.New("invalid CBOR encoding")
+	ErrInvalidASN1    = errors.New("invalid ASN.1 encoding")
+	ErrInvalidPEM     = errors.New("invalid PEM encoding")
+	ErrDecodingFailed = errors.New("decoding failed")
+	ErrEncodingFailed = errors.New("encoding failed")
 
 	// CMS/PKCS#7 specific errors
-	ErrCMSCreationFailed     = errors.New("CMS creation failed")
-	ErrInvalidCMSSignature   = errors.New("invalid CMS signature")
-	ErrUnsupportedAlgorithm  = errors.New("unsupported algorithm")
+	ErrCMSCreationFailed    = errors.New("CMS creation failed")
+	ErrInvalidCMSSignature  = errors.New("invalid CMS signature")
+	ErrUnsupportedAlgorithm = errors.New("unsupported algorithm")
 
 	// File and I/O errors
-	ErrFileNotFound          = errors.New("file not found")
-	ErrPermissionDenied      = errors.New("permission denied")
-	ErrReadFailed            = errors.New("read operation failed")
-	ErrWriteFailed           = errors.New("write operation failed")
+	ErrFileNotFound     = errors.New("file not found")
+	ErrPermissionDenied = errors.New("permission denied")
+	ErrReadFailed       = errors.New("read operation failed")
+	ErrWriteFailed      = errors.New("write operation failed")
 
 	// Configuration errors
-	ErrNotInitialized        = errors.New("signet not initialized")
-	ErrAlreadyInitialized    = errors.New("signet already initialized")
-	ErrInvalidConfiguration  = errors.New("invalid configuration")
+	ErrNotInitialized       = errors.New("signet not initialized")
+	ErrAlreadyInitialized   = errors.New("signet already initialized")
+	ErrInvalidConfiguration = errors.New("invalid configuration")
 
 	// Context errors
-	ErrContextCanceled       = errors.New("operation canceled")
-	ErrTimeout               = errors.New("operation timed out")
+	ErrContextCanceled = errors.New("operation canceled")
+	ErrTimeout         = errors.New("operation timed out")
 )
 
 // SignatureError provides detailed information about signature verification failures

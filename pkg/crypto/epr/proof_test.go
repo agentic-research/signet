@@ -153,9 +153,9 @@ func TestVerifier_VerifyBinding(t *testing.T) {
 			wantErr:         false,
 		},
 		{
-			name:            "wrong master key",
-			ctx:             context.Background(),
-			proof:           proofResponse.Proof,
+			name:  "wrong master key",
+			ctx:   context.Background(),
+			proof: proofResponse.Proof,
 			masterPublicKey: func() crypto.PublicKey {
 				pub, _ := generateTestKeyPair()
 				return pub
@@ -367,9 +367,9 @@ func TestVerifier_VerifyProof(t *testing.T) {
 			wantErr:         false,
 		},
 		{
-			name:            "invalid binding",
-			ctx:             context.Background(),
-			proof:           proofResponse.Proof,
+			name:  "invalid binding",
+			ctx:   context.Background(),
+			proof: proofResponse.Proof,
 			masterPublicKey: func() crypto.PublicKey {
 				pub, _ := generateTestKeyPair()
 				return pub

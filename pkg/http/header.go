@@ -68,7 +68,7 @@ func ParseProofHeader(headerValue string) (*ProofHeader, error) {
 	}
 
 	header := &ProofHeader{
-		Version: version,
+		Version:        version,
 		EphemeralProof: &epr.EphemeralProof{},
 	}
 
@@ -307,13 +307,13 @@ func FormatProofHeader(header *ProofHeader) string {
 type SignetToken struct {
 	IssuerID       uint64                 `cbor:"1,keyasint"`
 	AudienceID     uint64                 `cbor:"2,keyasint,omitempty"`
-	SubjectPPID    []byte                 `cbor:"3,keyasint"`  // Per-token pairwise pseudonym
+	SubjectPPID    []byte                 `cbor:"3,keyasint"` // Per-token pairwise pseudonym
 	ExpiresAt      int64                  `cbor:"4,keyasint"`
 	NotBefore      int64                  `cbor:"5,keyasint,omitempty"`
 	IssuedAt       int64                  `cbor:"6,keyasint,omitempty"`
-	CapabilityID   []byte                 `cbor:"7,keyasint"`  // 128-bit capability hash
-	CapabilityVer  uint32                 `cbor:"8,keyasint"`  // major.minor encoded
-	ConfirmationID []byte                 `cbor:"9,keyasint"`  // SHA-256 of bound key
+	CapabilityID   []byte                 `cbor:"7,keyasint"` // 128-bit capability hash
+	CapabilityVer  uint32                 `cbor:"8,keyasint"` // major.minor encoded
+	ConfirmationID []byte                 `cbor:"9,keyasint"` // SHA-256 of bound key
 	KeyID          uint64                 `cbor:"10,keyasint"`
 	CapTokens      []uint64               `cbor:"11,keyasint,omitempty"`
 	CapCustom      map[string]interface{} `cbor:"12,keyasint,omitempty"`
@@ -360,8 +360,8 @@ func DecodeToken(data []byte) (*SignetToken, error) {
 // ComputeEphemeralKeyHash generates privacy-preserving key identifier
 func ComputeEphemeralKeyHash(jti []byte, ephemeralKey ed25519.PublicKey) []byte {
 	h := blake3.New()
-	h.Write(jti)
-	h.Write(ephemeralKey)
+	_, _ = h.Write(jti)
+	_, _ = h.Write(ephemeralKey)
 	return h.Sum(nil)
 }
 
@@ -380,7 +380,7 @@ func CanonicalizeRequest(method, uri, host string, timestamp int64, nonce, jti [
 	// Add body digest for methods with body
 	if (method == "POST" || method == "PUT" || method == "PATCH") && len(body) > 0 {
 		h := blake3.New()
-		h.Write(body)
+		_, _ = h.Write(body)
 		digest := h.Sum(nil)
 		canonical += "\n" + base64.RawURLEncoding.EncodeToString(digest)
 	}

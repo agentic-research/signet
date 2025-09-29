@@ -1,8 +1,8 @@
 # ADR-0003: Signet SDK Architecture
 
-**Status:** Draft  
-**Type:** Implementation Specification  
-**Date:** 2025-09-27  
+**Status:** Draft
+**Type:** Implementation Specification
+**Date:** 2025-09-27
 **Authors:** Signet Contributors
 
 ## Context
@@ -49,13 +49,13 @@ type CredentialManager struct {
     cache       Cache
     masterKey   crypto.Signer
 }
-    
+
     def get_credential(self, scope):
         # Check cache first
         if cached := self.cache.get(scope):
             if cached.expires_at > time.now() + 30:
                 return cached
-        
+
         # Fetch new credential
         return self.fetch_credential(scope)
 ```
@@ -86,7 +86,7 @@ def generate_pop_header(self, request):
     # Ephemeral ID that maps to public key
     kid = self.generate_ephemeral_kid()
     self.cache_key_mapping(kid, self.public_key)
-    
+
     # Server still learns the mapping on first use
     return f"kid={kid}; sig={signature}"
 ```

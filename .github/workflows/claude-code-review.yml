@@ -1,35 +1,68 @@
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  # Trigger after CI tests complete
+  workflow_run:
+    workflows: ["CI Tests"]
+    types: [completed]
+
+  # Manual trigger for specific PRs
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull request number to review'
+        required: true
+        type: number
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-    
+    # Only run if:
+    # 1. Manually triggered OR
+    # 2. Tests passed AND PR is from jamestexas
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.owner.login == 'jamestexas')
+
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write  # Need write to comment
       issues: read
       id-token: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0  # Get full history for better context
+
+      # Get PR number from workflow_run event
+      - name: Get PR number
+        if: github.event_name == 'workflow_run'
+        id: get-pr
+        run: |
+          # Extract PR number from workflow run
+          PR_NUMBER=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }} \
+            --jq '.pull_requests[0].number // empty')
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR associated with this workflow run"
+            exit 1
+          fi
+
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Set PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "pr_number=${{ inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "pr_number=${{ steps.get-pr.outputs.pr_number }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Run Claude Code Review
         id: claude-review
@@ -38,20 +71,32 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ steps.pr.outputs.pr_number }}
 
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
+            Please review pull request #${{ steps.pr.outputs.pr_number }} and provide feedback on:
+            - Code quality and best practices specific to Go
             - Potential bugs or issues
             - Performance considerations
-            - Security concerns
-            - Test coverage
-            
-            Use the repository's CLAUDE.md for guidance on style and conventions. Be constructive and helpful in your feedback.
+            - Security concerns (especially around cryptographic operations)
+            - Test coverage and quality
+            - Documentation completeness
 
-            Use `gh pr comment` with your Bash tool to leave your review as a comment on the PR.
-          
+            Focus on:
+            - The CMS/PKCS#7 implementation correctness
+            - Ed25519 signature handling
+            - ASN.1 encoding issues
+            - Memory safety and zeroization
+
+            Use the repository's CLAUDE.md for guidance on style and conventions.
+            Be constructive and helpful in your feedback.
+
+            Important: This is a cryptographic security project. Pay extra attention to:
+            - Timing attacks
+            - Memory leaks of sensitive data
+            - Proper error handling
+            - Cryptographic best practices
+
+            Use `gh pr comment ${{ steps.pr.outputs.pr_number }}` to leave your review as a comment on the PR.
+
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://docs.claude.com/en/docs/claude-code/sdk#command-line for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
-
+          claude_args: '--allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh api:*),Bash(git log:*),Bash(git diff:*)"'

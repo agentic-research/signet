@@ -67,7 +67,7 @@ git commit -S -m "Signed with Signet"
 
 **Unique Features:**
 - 🚀 First Go library with Ed25519 CMS/PKCS#7 support
-- ⚡ Sub-15ms signature generation
+- ⚡ Sub-millisecond performance: ~0.12ms for Ed25519 signatures (see [performance analysis](docs/PERFORMANCE.md))
 - 🔒 Ephemeral certificates (5-minute lifetime)
 - 🌐 Completely offline operation
 - ✅ OpenSSL verification compatible
@@ -268,3 +268,13 @@ Join the revolution in making authentication invisible, secure, and user-control
 **Questions?** Open an [issue](https://github.com/jamestexas/signet/issues)
 **Ideas?** Start a [discussion](https://github.com/jamestexas/signet/discussions)
 **Ready to contribute?** Check our [roadmap](NEXT_STEPS.md)
+
+## Development
+
+This project is developed with AI assistance (Claude) for rapid prototyping and implementation. All code is reviewed, tested, and validated. AI tools are used for:
+- Code generation and refactoring
+- Documentation writing
+- Test case development
+- Performance optimization suggestions
+
+The human maintainer reviews all AI-generated code for correctness, security, and architectural consistency.

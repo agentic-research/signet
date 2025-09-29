@@ -78,7 +78,7 @@ git config commit.gpgsign true
 ## Data Flow
 
 ```
-[Master Key] 
+[Master Key]
     |
     v
 [LocalCA]
