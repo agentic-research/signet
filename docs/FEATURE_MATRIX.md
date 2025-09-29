@@ -1,7 +1,7 @@
 # Signet Feature Matrix
 
 **Version:** 1.0.0
-**Last Updated:** September 28, 2024
+**Last Updated:** September 28, 2025
 **Status:** Living Document
 
 ## Overview
@@ -84,13 +84,13 @@ Production applications built on Signet.
 | CMS/PKCS#7 Output | Git-compatible signatures | ✅ Complete | Production | - | Custom implementation |
 | Git Integration | Config & hooks | ✅ Complete | Production | - | gpg.format=x509 |
 | **signet-auth** | CLI authentication | 🚧 In Progress | Alpha | libsignet | Interactive auth |
-| Login Flow | Browser-based OIDC | ⏳ Planned | Design | - | Q4 2024 |
+| Login Flow | Browser-based OIDC | ⏳ Planned | Design | - | Q4 2025 |
 | Credential Storage | Secure key management | 🚧 In Progress | Alpha | - | Platform keychains |
-| Token Management | Auto-renewal | ⏳ Planned | Design | - | Q4 2024 |
-| **signet-proxy** | HTTP/gRPC proxy | ⏳ Planned | Design | libsignet, Envoy | Q1 2025 |
+| Token Management | Auto-renewal | ⏳ Planned | Design | - | Q4 2025 |
+| **signet-proxy** | HTTP/gRPC proxy | ⏳ Planned | Design | libsignet, Envoy | Q1 2026 |
 | Request Injection | Add Signet headers | ⏳ Planned | - | - | Transparent auth |
 | Token Verification | Validate incoming | ⏳ Planned | - | - | High performance |
-| **signet-bridge** | Legacy integration | ⏳ Planned | Design | libsignet | Q1 2025 |
+| **signet-bridge** | Legacy integration | ⏳ Planned | Design | libsignet | Q1 2026 |
 | OAuth Translation | OAuth → Signet | ⏳ Planned | - | - | Migration path |
 | SAML Bridge | SAML → Signet | ⏳ Planned | - | - | Enterprise |
 
