@@ -67,7 +67,7 @@ git commit -S -m "Signed with Signet"
 
 **Unique Features:**
 - 🚀 First Go library with Ed25519 CMS/PKCS#7 support
-- ⚡ Sub-15ms signature generation
+- ⚡ Sub-millisecond signature generation (~0.12ms)
 - 🔒 Ephemeral certificates (5-minute lifetime)
 - 🌐 Completely offline operation
 - ✅ OpenSSL verification compatible
