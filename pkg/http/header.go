@@ -2,7 +2,6 @@ package http
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/jamestexas/signet/pkg/crypto/epr"
+	"github.com/zeebo/blake3"
 )
 
 // ProofHeader represents the parsed Signet-Proof HTTP header with v1.0 security enhancements
@@ -171,7 +171,7 @@ func ParseProofHeader(headerValue string) (*ProofHeader, error) {
 
 	// Validate required fields based on mode
 	if header.Mode == "" {
-		header.Mode = "compact" // Default for backwards compatibility
+		return nil, fmt.Errorf("missing mode in proof header")
 	}
 	if header.Token == nil {
 		return nil, fmt.Errorf("missing token in proof header")
@@ -335,7 +335,7 @@ func DecodeToken(data []byte) (*SignetToken, error) {
 
 // ComputeEphemeralKeyHash generates privacy-preserving key identifier
 func ComputeEphemeralKeyHash(jti []byte, ephemeralKey ed25519.PublicKey) []byte {
-	h := sha256.New()
+	h := blake3.New()
 	h.Write(jti)
 	h.Write(ephemeralKey)
 	return h.Sum(nil)
@@ -363,7 +363,7 @@ func CanonicalizeRequest(method, uri, host string, timestamp int64, nonce, jti [
 
 	// Add body digest for methods with body
 	if (method == "POST" || method == "PUT" || method == "PATCH") && len(body) > 0 {
-		h := sha256.New()
+		h := blake3.New()
 		h.Write(body)
 		digest := h.Sum(nil)
 		canonical += "\n" + base64.RawURLEncoding.EncodeToString(digest)

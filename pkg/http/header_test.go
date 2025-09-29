@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"crypto/sha256"
-
 	"github.com/jamestexas/signet/pkg/crypto/epr"
+	"github.com/zeebo/blake3"
 )
 
 func TestParseProofHeader(t *testing.T) {
@@ -97,6 +96,11 @@ func TestParseProofHeaderErrors(t *testing.T) {
 			name:   "empty header",
 			header: "",
 			errMsg: "empty proof header",
+		},
+		{
+			name:   "missing mode",
+			header: "v1;t=dGVzdA;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
+			errMsg: "missing mode",
 		},
 		{
 			name:   "missing parts",
@@ -247,7 +251,7 @@ func TestCanonicalizeRequest(t *testing.T) {
 	body := []byte(`{"test": "data"}`)
 	canonicalPost := CanonicalizeRequest("POST", uri, host, timestamp, nonce, jti, body)
 
-	// Should include body digest
+	// Should include body digest (blake3)
 	if !bytes.Contains(canonicalPost, []byte("POST")) {
 		t.Errorf("Canonical POST missing method")
 	}
@@ -332,7 +336,7 @@ func TestComputeEphemeralKeyHash(t *testing.T) {
 
 	hash := ComputeEphemeralKeyHash(jti, ephemeralPub)
 
-	// Should be 32 bytes (SHA256 output)
+	// Should be 32 bytes (Blake3 output)
 	if len(hash) != 32 {
 		t.Errorf("Hash length mismatch: got %d, want 32", len(hash))
 	}
@@ -391,7 +395,7 @@ func TestCriticalFields(t *testing.T) {
 
 func TestBodyDigest(t *testing.T) {
 	body := []byte(`{"test": "data"}`)
-	h := sha256.New()
+	h := blake3.New()
 	h.Write(body)
 	digest := h.Sum(nil)
 
