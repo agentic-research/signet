@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/subtle"
 	"testing"
 	"time"
 
@@ -363,19 +364,20 @@ func TestConstantTimeCompare(t *testing.T) {
 	copy(sig2, sig1)
 
 	// Same signatures should match
-	if !ConstantTimeCompare(sig1, sig2) {
+	if subtle.ConstantTimeCompare(sig1, sig2) != 1 {
 		t.Errorf("Same signatures should match")
 	}
 
 	// Different signatures should not match
 	sig2[0] ^= 0xFF
-	if ConstantTimeCompare(sig1, sig2) {
+	if subtle.ConstantTimeCompare(sig1, sig2) == 1 {
 		t.Errorf("Different signatures should not match")
 	}
 
-	// Different lengths should not match
+	// Different lengths should not match (subtle.ConstantTimeCompare requires equal lengths)
 	sig3 := make([]byte, 32)
-	if ConstantTimeCompare(sig1, sig3) {
+	// For different lengths, we check length first (this is safe)
+	if len(sig1) == len(sig3) && subtle.ConstantTimeCompare(sig1, sig3) == 1 {
 		t.Errorf("Different length signatures should not match")
 	}
 }

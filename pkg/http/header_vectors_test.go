@@ -33,6 +33,9 @@ func TestSecurityVectors(t *testing.T) {
 
 	for _, tc := range vectors.TestVectors {
 		t.Run(tc.Desc, func(t *testing.T) {
+			// Reset monotonicity cache for each test to avoid interference
+			resetMonotonicCache()
+
 			// Setup notes for specific test cases
 			// For clock skew tests, the timestamp in the header is already set appropriately
 			// The validation happens inside ParseProofHeader -> ValidateTimestamp

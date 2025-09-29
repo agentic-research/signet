@@ -2,17 +2,36 @@ package http
 
 import (
 	"crypto/ed25519"
-	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/jamestexas/signet/pkg/crypto/epr"
 	"github.com/zeebo/blake3"
 )
+
+// Package-level state for monotonicity enforcement
+var lastTS sync.Map // map[string]int64  key: base64(jti)
+
+// checkMonotonic ensures timestamps are strictly increasing for each JTI
+func checkMonotonic(jti []byte, ts int64) error {
+	k := base64.RawURLEncoding.EncodeToString(jti)
+	if v, ok := lastTS.Load(k); ok && ts <= v.(int64) {
+		return errors.New("timestamp not monotonic")
+	}
+	lastTS.Store(k, ts)
+	return nil
+}
+
+// resetMonotonicCache clears the monotonicity cache - for testing only
+func resetMonotonicCache() {
+	lastTS = sync.Map{}
+}
 
 // ProofHeader represents the parsed Signet-Proof HTTP header with v1.0 security enhancements
 type ProofHeader struct {
@@ -192,6 +211,11 @@ func ParseProofHeader(headerValue string) (*ProofHeader, error) {
 		return nil, fmt.Errorf("missing timestamp in proof header")
 	}
 
+	// Enforce monotonicity - timestamps must strictly increase for each JTI
+	if err := checkMonotonic(header.JTI, header.Timestamp); err != nil {
+		return nil, err
+	}
+
 	// Mode-specific validation
 	if header.Mode == "compact" {
 		if header.EphemeralProof.BindingSignature == nil {
@@ -339,14 +363,6 @@ func ComputeEphemeralKeyHash(jti []byte, ephemeralKey ed25519.PublicKey) []byte 
 	h.Write(jti)
 	h.Write(ephemeralKey)
 	return h.Sum(nil)
-}
-
-// ConstantTimeCompare performs constant-time comparison of signatures
-func ConstantTimeCompare(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	return subtle.ConstantTimeCompare(a, b) == 1
 }
 
 // CanonicalizeRequest creates a canonical representation of the HTTP request for signing
