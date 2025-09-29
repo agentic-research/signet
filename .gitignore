@@ -1,0 +1,56 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+/signet-commit
+/sigsign
+/dist/
+/build/
+
+# IDE specific files
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+*.iml
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Local configuration
+.env
+.env.local
+.claude/
+# Signet user data (never commit master keys!)
+~/.signet/
+experiments/
+
+# Test files and temporary data
+test.txt
+*.sig
+*.pem
+
+# Crumb tracking
+.crumb/
+
+# Internal documentation (keep locally but don't push)
+INVESTIGATION_LOG.md

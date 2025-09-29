@@ -1,0 +1,15 @@
+title = "signet-cms allowlist for test vectors"
+
+[allowlist]
+description = "Allow RFC 8032 test seeds/keys (public test vectors, not secrets)"
+# Exact RFC 8032 vectors (Section 7.1) - These are public test vectors from the RFC
+regexes = [
+  '''9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60''',
+  '''d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a''',
+  '''4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb'''
+]
+
+# Allow test files with RFC vectors
+paths = [
+  '''pkg/cms/signer_test.go'''
+]

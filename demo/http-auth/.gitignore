@@ -1,0 +1,3 @@
+# Ignore compiled binaries
+server
+client/main
