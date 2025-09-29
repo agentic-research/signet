@@ -1,7 +1,7 @@
 # Signet Feature Matrix
 
 **Version:** 1.0.0
-**Last Updated:** September 28, 2024
+**Last Updated:** September 28, 2025
 **Status:** Living Document
 
 ## Overview
