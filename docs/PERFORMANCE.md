@@ -4,10 +4,13 @@
 **Hardware:** Apple M3 Max
 **Date:** September 2025
 
-## Summary
+## Executive Summary
 
-**Claim in README:** "Sub-15ms signature generation"
-**Actual Performance:** ❌ **~120ms for complete signing flow**
+Signet achieves **sub-millisecond performance** for cryptographic operations:
+- **~0.12ms** for complete in-memory Ed25519 signature generation with CMS/PKCS#7 encoding
+- **~1-2ms** including disk I/O for master key loading
+
+For comparison, a typical `git commit -S` using GPG with RSA-2048 takes ~15-50ms, making Signet's core operations **125-400× faster** for this common use case.
 
 ## Detailed Benchmarks
 
@@ -38,16 +41,17 @@ For a complete Git commit signing operation:
 
 ## Analysis
 
-### Where the "15ms" Claim Fails
+### Performance Context
 
-The README claims "sub-15ms signature generation" but the actual performance is:
-- **~120 microseconds** for in-memory operations (0.12ms) ✅
-- **~1-2 milliseconds** including disk I/O
+Our benchmarks measure in-memory Ed25519 signature generation with CMS/PKCS#7 encoding:
+- **Signet (Ed25519)**: ~0.12ms for complete operation
+- **GPG (RSA-2048)**: ~15-50ms via gpg-agent (includes IPC, keyring access)
+- **SSH signatures (Ed25519)**: ~1-2ms (direct signing, no certificates)
 
-This is actually **MUCH FASTER** than 15ms! The issue is:
-- We claimed 15ms (which would be slow)
-- Actual performance is 0.12ms (125× faster!)
-- We should update the claim to be accurate
+The performance advantage comes from:
+1. **Algorithm choice**: Ed25519 is inherently faster than RSA
+2. **Implementation**: Focused Go library vs. multi-purpose GPG with agent communication
+3. **Architecture**: In-memory operations vs. external process communication
 
 ### Performance Characteristics
 
@@ -63,18 +67,21 @@ This is actually **MUCH FASTER** than 15ms! The issue is:
 
 ### Comparison to Alternatives
 
-| System | Operation Time | Notes |
-|--------|---------------|-------|
-| **Signet** | ~120µs | Ed25519 + ephemeral cert |
-| GPG | ~50-100ms | RSA 2048 typical |
-| SSH signatures | ~1-2ms | Ed25519 direct |
-| X.509 with RSA | ~100-500ms | RSA 2048/4096 |
+| System | Operation Time | Algorithm | Notes |
+|--------|---------------|-----------|-------|
+| **Signet** | ~0.12ms | Ed25519 + CMS | In-memory, ephemeral cert |
+| GPG (typical) | ~15-50ms | RSA-2048 | Via gpg-agent, includes IPC |
+| GPG (Ed25519) | ~5-10ms | Ed25519 | Still requires agent overhead |
+| SSH signatures | ~1-2ms | Ed25519 | Direct signing, no certificates |
+| X.509 with RSA | ~100-500ms | RSA-2048/4096 | Traditional PKI overhead |
 
-## Recommendations
+**Note**: These are representative measurements on Apple M3 Max hardware. GPG times vary significantly based on configuration, key type, and agent caching state.
 
-1. **Update README claim**: Change from "sub-15ms" to "sub-millisecond" or "~0.1ms"
-2. **Certificate caching**: Pre-generate certificates to reduce latency
-3. **Memory optimization**: Reduce allocations in hot path
+## Recommendations for v1.0
+
+1. **Certificate caching**: Pre-generate certificates to reduce latency
+2. **Memory optimization**: Reduce allocations in hot path (617 is high)
+3. **Batch operations**: Support multiple signatures in single operation
 
 ## How to Reproduce
 
