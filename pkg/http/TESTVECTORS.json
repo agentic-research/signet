@@ -1,0 +1,138 @@
+{
+  "vectors": [
+    {
+      "name": "valid_full_mode",
+      "description": "Valid request with full SIG1 token",
+      "header": "v1;m=full;t=SIG1.eyJpc3MiOiJkaWQ6c2lnbmV0OmV4YW1wbGUiLCJhdWQiOiJhcGkuZXhhbXBsZS5jb20iLCJleHAiOjE3MzAwMDAwMDAsImp0aSI6IkFCQ0RFRkdISUpLTE1OT1AiLCJjYXBfaWQiOiIxMjM0NTY3ODkwYWJjZGVmIiwiY25mX2tleSI6Imhhc2hfb2ZfZXBoZW1lcmFsX2tleSJ9.c2lnbmF0dXJlX2J5dGVz;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;s=ZXBoZW1lcmFsX3NpZ25hdHVyZQ;n=bm9uY2VfMTZfYnl0ZXM;ts=1730000000",
+      "method": "POST",
+      "path": "/api/v1/resource",
+      "body": "{\"data\":\"test\"}",
+      "expected": "valid",
+      "master_key": "ed25519:MC4CAQAwBQYDK2VwBCIEIGV4YW1wbGVfbWFzdGVyX2tleV8zMl9ieXRlcw",
+      "ephemeral_key": "ed25519:MC4CAQAwBQYDK2VwBCIEIGV4YW1wbGVfZXBoZW1lcmFsXzMyX2J5dGVz"
+    },
+    {
+      "name": "expired_token",
+      "description": "Token past expiration time",
+      "header": "v1;m=compact;t=eyJpc3MiOiJkaWQ6c2lnbmV0OmV4YW1wbGUiLCJleHAiOjE2MDAwMDAwMDB9;p=cHJvb2ZfYnl0ZXM;k=a2V5X2hhc2g;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;s=c2lnbmF0dXJl;n=bm9uY2U;ts=1730000000",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "token_expired"
+    },
+    {
+      "name": "replay_attack",
+      "description": "Reused nonce for same JTI",
+      "header": "v1;m=compact;t=eyJpc3MiOiJkaWQ6c2lnbmV0OmV4YW1wbGUifQ;p=cHJvb2Y;k=a2V5;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;s=c2ln;n=cmV1c2VkX25vbmNl;ts=1730000000",
+      "setup": "store_nonce:ABCDEFGHIJKLMNOP:reused_nonce",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "replay_detected"
+    },
+    {
+      "name": "revoked_capability",
+      "description": "Token with revoked capability in epoch",
+      "header": "v1;m=full;t=SIG1.eyJjYXBfdmVyIjoxMDAwfQ.c2ln;jti=UkVWT0tFRF9UT0tFTg;cap=cmV2b2tlZF9jYXBfaWQ;s=c2ln;n=bm9uY2U;ts=1730000000",
+      "epoch_state": {
+        "major_epoch": 1001,
+        "revoked": true
+      },
+      "expected": "error",
+      "error_code": 410,
+      "error_type": "capability_revoked"
+    },
+    {
+      "name": "clock_skew_exceeded",
+      "description": "Timestamp outside 60s window",
+      "header": "v1;m=compact;t=dG9rZW4;p=cHJvb2Y;k=a2V5;jti=Q0xPQ0tfU0tFV19URVNU;cap=Y2FwX2lk;s=c2ln;n=bm9uY2U;ts=1729999900",
+      "current_time": 1730000000,
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "clock_skew_exceeded"
+    },
+    {
+      "name": "monotonic_violation",
+      "description": "Timestamp goes backwards for JTI",
+      "header": "v1;m=compact;t=dG9rZW4;p=cHJvb2Y;k=a2V5;jti=TU9OT1RPTklDX1RFU1Q;cap=Y2FwX2lk;s=c2ln;n=bm9uY2U;ts=1729999999",
+      "setup": "set_last_ts:MONOTONIC_TEST:1730000000",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "monotonic_violation"
+    },
+    {
+      "name": "body_digest_mismatch",
+      "description": "POST body doesn't match digest",
+      "header": "v1;m=full;t=SIG1.dG9rZW4.c2ln;jti=Qk9EWV9URVNU;cap=Y2Fw;s=c2ln;n=bm9uY2U;ts=1730000000;bd=d3JvbmdfZGlnZXN0",
+      "method": "POST",
+      "body": "{\"actual\":\"body\"}",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "body_digest_mismatch"
+    },
+    {
+      "name": "invalid_signature",
+      "description": "Signature doesn't match canonical request",
+      "header": "v1;m=compact;t=dG9rZW4;p=cHJvb2Y;k=a2V5;jti=U0lHX1RFU1Q;cap=Y2Fw;s=YmFkX3NpZ25hdHVyZQ;n=bm9uY2U;ts=1730000000",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "invalid_signature"
+    },
+    {
+      "name": "missing_critical_field",
+      "description": "Required critical field not understood",
+      "header": "v1;m=compact;t=dG9rZW4;p=cHJvb2Y;k=a2V5;jti=Q1JJVF9URVNU;cap=Y2Fw;s=c2ln;n=bm9uY2U;ts=1730000000;crit=unknown_field;unknown_field=value",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "critical_field_unknown"
+    },
+    {
+      "name": "capability_hash_mismatch",
+      "description": "cap_id doesn't match token's cap_tokens",
+      "header": "v1;m=full;t=SIG1.eyJjYXBfdG9rZW5zIjpbMSwyLDNdLCJjYXBfaWQiOiJ3cm9uZ19oYXNoIn0.c2ln;jti=Q0FQX1RFU1Q;cap=d3JvbmdfaGFzaA;s=c2ln;n=bm9uY2U;ts=1730000000",
+      "expected": "error",
+      "error_code": 401,
+      "error_type": "capability_hash_mismatch"
+    },
+    {
+      "name": "stale_epoch_grace_period",
+      "description": "Epoch fetch failed but within grace period",
+      "header": "v1;m=full;t=SIG1.eyJleHAiOjE3MzAwMDAzMDB9.c2ln;jti=R1JBQ0VfVEVTVA;cap=Y2Fw;s=c2ln;n=bm9uY2U;ts=1730000000",
+      "epoch_state": {
+        "stale": true,
+        "major_epoch": 999
+      },
+      "expected": "valid",
+      "warning": "epoch_stale"
+    },
+    {
+      "name": "privacy_preserved_kid",
+      "description": "Ephemeral key ID is hashed",
+      "header": "v1;m=compact;t=dG9rZW4;p=cHJvb2Y;k=Ymxha2UzX2hhc2hfb2Zfa2V5;jti=UElEX1RFU1Q;cap=Y2Fw;s=c2ln;n=bm9uY2U;ts=1730000000",
+      "verify_kid_format": "blake3_hash",
+      "expected": "valid"
+    }
+  ],
+  "canonical_string_vectors": [
+    {
+      "name": "get_request",
+      "method": "GET",
+      "path": "/api/v1/resource",
+      "host": "api.example.com",
+      "timestamp": 1730000000,
+      "nonce": "bm9uY2VfMTZfYnl0ZXM",
+      "jti": "QUJDREVGR0hJSktMTU5PUA",
+      "expected": "GET\n/api/v1/resource\napi.example.com\n1730000000\nbm9uY2VfMTZfYnl0ZXM\nQUJDREVGR0hJSktMTU5PUA"
+    },
+    {
+      "name": "post_with_body",
+      "method": "POST",
+      "path": "/api/v1/resource",
+      "host": "api.example.com",
+      "timestamp": 1730000000,
+      "nonce": "bm9uY2VfMTZfYnl0ZXM",
+      "jti": "QUJDREVGR0hJSktMTU5PUA",
+      "body": "{\"data\":\"test\"}",
+      "body_digest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "expected": "POST\n/api/v1/resource\napi.example.com\n1730000000\nbm9uY2VfMTZfYnl0ZXM\nQUJDREVGR0hJSktMTU5PUA\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "test_vectors": [
+    {
+      "desc": "compact_ok",
+      "header": "v1;m=compact;t=dGVzdA;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": false
+    },
+    {
+      "desc": "replay_same_jti_nonce",
+      "header": "v1;m=compact;t=dGVzdA;jti=UkVQTEFZUkVQTEFZUkVQ;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=UkVQTEFZX05PTkNFXzE2;ts=1700000000",
+      "setup": "store_nonce:REPLAYREPLAYREPLAY:REPLAY_NONCE_16",
+      "want_error": true,
+      "error_type": "replay_detected"
+    },
+    {
+      "desc": "clock_skew_61s_future",
+      "header": "v1;m=compact;t=dGVzdA;jti=Q0xPQ0tTS0VXVEVTVDE2;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000061",
+      "current_time": 1700000000,
+      "want_error": true,
+      "error_type": "clock_skew_exceeded"
+    },
+    {
+      "desc": "clock_skew_61s_past",
+      "header": "v1;m=compact;t=dGVzdA;jti=Q0xPQ0tTS0VXVEVTVDI2;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1699999939",
+      "current_time": 1700000000,
+      "want_error": true,
+      "error_type": "clock_skew_exceeded"
+    },
+    {
+      "desc": "missing_jti",
+      "header": "v1;m=compact;t=dGVzdA;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": true,
+      "error_type": "missing_jti"
+    },
+    {
+      "desc": "missing_mode_fail_closed",
+      "header": "v1;t=dGVzdA;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": true,
+      "error_type": "missing_mode"
+    },
+    {
+      "desc": "invalid_jti_length_too_short",
+      "header": "v1;m=compact;t=dGVzdA;jti=c2hvcnQ;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": true,
+      "error_type": "invalid_jti_length"
+    },
+    {
+      "desc": "invalid_cap_id_length",
+      "header": "v1;m=compact;t=dGVzdA;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=c2hvcnQ;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": true,
+      "error_type": "invalid_cap_id_length"
+    },
+    {
+      "desc": "invalid_nonce_length",
+      "header": "v1;m=compact;t=dGVzdA;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=c2hvcnQ;ts=1700000000",
+      "want_error": true,
+      "error_type": "invalid_nonce_length"
+    },
+    {
+      "desc": "invalid_key_hash_length",
+      "header": "v1;m=compact;t=dGVzdA;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=c2hvcnQ;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": true,
+      "error_type": "invalid_key_hash_length"
+    },
+    {
+      "desc": "critical_field_not_understood",
+      "header": "v1;m=compact;t=dGVzdA;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000;crit=future_field",
+      "want_error": true,
+      "error_type": "critical_field_unknown"
+    },
+    {
+      "desc": "full_mode_with_sig1_token",
+      "header": "v1;m=full;t=U0lHMS5leUpoZFdRaU9pSXhNak0wTlRZM09Ea3dNVEl6TkRVMkluMC5zaWduYXR1cmU;jti=MTIzNDU2Nzg5MDEyMzQ1Ng;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1700000000",
+      "want_error": false,
+      "note": "Full mode doesn't require p= and k= fields"
+    },
+    {
+      "desc": "monotonic_timestamp_violation",
+      "header": "v1;m=compact;t=dGVzdA;jti=TU9OT1RPTklDVEVTVDE2;cap=MTIzNDU2Nzg5MDEyMzQ1Ng;p=dGVzdHA;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=dGVzdHM;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1699999999",
+      "setup": "set_last_timestamp:MONOTONICTEST16:1700000000",
+      "want_error": true,
+      "error_type": "monotonic_violation"
+    }
+  ]
+}

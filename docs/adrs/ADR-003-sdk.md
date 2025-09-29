@@ -42,12 +42,13 @@ Provide official SDKs that abstract cryptographic complexity while maintaining t
 
 The SDK implements automatic credential lifecycle management:
 
-```python
-class CredentialManager:
-    def __init__(self, config):
-        self.issuer_url = config.issuer_url
-        self.key_storage = PlatformKeyStorage()
-        self.cache = MemoryCache(ttl=300)  # 5 minutes
+```go
+type CredentialManager struct {
+    issuerURL   string
+    keyStorage  KeyStorage
+    cache       Cache
+    masterKey   crypto.Signer
+}
     
     def get_credential(self, scope):
         # Check cache first
@@ -118,12 +119,12 @@ The protocol assumes reasonably synchronized clocks (±60s). Systems with signif
 
 The SDK relies on well-audited cryptographic libraries:
 
-|Language  |Library                |Audit Status             |
+|Component |Library                |Audit Status             |
 |----------|-----------------------|-------------------------|
-|Go        |crypto/ed25519 (stdlib)|Go security team         |
-|Python    |cryptography.py        |FIPS 140-2 validated core|
-|JavaScript|tweetnacl              |Public audit 2017        |
-|Rust      |ed25519-dalek          |Security audit 2019      |
+|Core      |crypto/ed25519 (stdlib)|Go security team         |
+|CMS/PKCS#7|Custom implementation  |OpenSSL compatible       |
+|CBOR      |fxamacker/cbor/v2      |RFC 8949 compliant       |
+|X.509     |crypto/x509 (stdlib)   |Go security team         |
 
 **Note**: We do NOT implement cryptographic primitives ourselves.
 
@@ -131,42 +132,36 @@ The SDK relies on well-audited cryptographic libraries:
 
 ### Automatic Retry Logic
 
-```python
-class SignetClient:
-    @retry(max_attempts=3, backoff=exponential)
-    def authenticated_request(self, method, url, body=None):
-        credential = self.credential_manager.get_credential()
-        proof = self.generate_proof(method, url, body, credential)
-        
-        response = self.http_client.request(
-            method, url, 
-            headers={"Signet-Proof": proof},
-            body=body
-        )
-        
-        if response.status == 401 and "clock-skew" in response.headers:
-            self.adjust_clock_offset(response.headers["server-time"])
-            raise RetryableError("Clock adjusted")
-            
-        return response
+```go
+func (c *SignetClient) AuthenticatedRequest(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
+    credential, err := c.credentialManager.GetCredential(ctx)
+    if err != nil {
+        return nil, err
+    }
+
+    proof, err := c.GenerateProof(ctx, method, url, body, credential)
+    if err != nil {
+        return nil, err
+    }
+
+    req, _ := http.NewRequestWithContext(ctx, method, url, body)
+    req.Header.Set("Signet-Proof", proof)
+
+    return c.httpClient.Do(req)
+}
 ```
 
 ### Error Transparency
 
 SDKs MUST provide clear error messages for common failures:
 
-```python
-class SignetError(Exception):
-    pass
-
-class ClockSkewError(SignetError):
-    """Local clock differs from server by >60 seconds"""
-    
-class CapabilityError(SignetError):
-    """Token lacks required capabilities"""
-    
-class RevocationError(SignetError):
-    """Token has been revoked"""
+```go
+// Error types defined in pkg/errors
+var (
+    ErrClockSkew    = errors.New("local clock differs from server by >60 seconds")
+    ErrCapability   = errors.New("token lacks required capabilities")
+    ErrRevocation   = errors.New("token has been revoked")
+)
 ```
 
 ### Observability
@@ -301,11 +296,11 @@ Current implementation status across SDKs and features:
 
 | SDK | Core Protocol | PoP Generation | Key Storage | Caching | Error Handling | Status |
 |-----|--------------|---------------|-------------|---------|---------------|---------|
-| Go | ✅ Complete | ✅ Complete | ✅ Complete | ✅ Complete | ✅ Complete | **Production** |
-| Python | ✅ Complete | 🚧 In Progress | 🚧 In Progress | ⏳ Planned | 🚧 In Progress | **Beta** |
-| JavaScript/TS | 🚧 In Progress | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | **Alpha** |
-| Rust | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | ⏳ Planned | **Planned** |
-| WASM | 🔮 Experimental | 🔮 Experimental | N/A | ⏳ Planned | ⏳ Planned | **Experimental** |
+| pkg/signet | ✅ Complete | ✅ Complete | ✅ Complete | ⏳ Planned | ✅ Complete | **Production** |
+| pkg/crypto/epr | ✅ Complete | ✅ Complete | - | - | ✅ Complete | **Production** |
+| pkg/cms | ✅ Complete | - | - | - | ✅ Complete | **Production** |
+| pkg/errors | - | - | - | - | ✅ Complete | **Production** |
+| pkg/http | 🚧 In Progress | 🚧 In Progress | ⏳ Planned | ⏳ Planned | 🚧 In Progress | **Development** |
 
 ### Feature Maturity
 
