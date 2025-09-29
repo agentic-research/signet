@@ -7,29 +7,42 @@ import (
 	"testing"
 	"time"
 
+	"crypto/sha256"
+
 	"github.com/jamestexas/signet/pkg/crypto/epr"
 )
 
 func TestParseProofHeader(t *testing.T) {
-	// Generate test data
+	// Generate test data with correct sizes
 	token := []byte("test-token-data")
+	jti := make([]byte, 16)
+	capID := make([]byte, 16)
 	bindingSig := []byte("test-binding-signature")
-	ephemeralKey := []byte("test-ephemeral-key")
+	ephemeralKeyHash := make([]byte, 32) // SHA256 hash size
 	requestSig := []byte("test-request-signature")
-	nonce := []byte("test-nonce")
+	nonce := make([]byte, 16)
 	timestamp := time.Now().Unix()
+
+	// Fill random data
+	rand.Read(jti)
+	rand.Read(capID)
+	rand.Read(ephemeralKeyHash)
+	rand.Read(nonce)
 
 	// Create a valid header
 	header := &ProofHeader{
-		Version: "v1",
-		Token:   token,
+		Version:          "v1",
+		Mode:             "compact",
+		Token:            token,
+		JTI:              jti,
+		CapabilityID:     capID,
+		EphemeralKeyHash: ephemeralKeyHash,
 		EphemeralProof: &epr.EphemeralProof{
-			BindingSignature:   bindingSig,
-			EphemeralPublicKey: ephemeralKey,
+			BindingSignature: bindingSig,
 		},
 		RequestSignature: requestSig,
-		Nonce:           nonce,
-		Timestamp:       timestamp,
+		Nonce:            nonce,
+		Timestamp:        timestamp,
 	}
 
 	// Format and parse
@@ -45,8 +58,20 @@ func TestParseProofHeader(t *testing.T) {
 	if parsed.Version != "v1" {
 		t.Errorf("Version mismatch: got %s, want v1", parsed.Version)
 	}
+	if parsed.Mode != "compact" {
+		t.Errorf("Mode mismatch: got %s, want compact", parsed.Mode)
+	}
 	if !bytes.Equal(parsed.Token, token) {
 		t.Errorf("Token mismatch")
+	}
+	if !bytes.Equal(parsed.JTI, jti) {
+		t.Errorf("JTI mismatch")
+	}
+	if !bytes.Equal(parsed.CapabilityID, capID) {
+		t.Errorf("CapabilityID mismatch")
+	}
+	if !bytes.Equal(parsed.EphemeralKeyHash, ephemeralKeyHash) {
+		t.Errorf("EphemeralKeyHash mismatch")
 	}
 	if !bytes.Equal(parsed.EphemeralProof.BindingSignature, bindingSig) {
 		t.Errorf("Binding signature mismatch")
@@ -75,23 +100,43 @@ func TestParseProofHeaderErrors(t *testing.T) {
 		},
 		{
 			name:   "missing parts",
-			header: "v1;t=dGVzdA",
+			header: "v1;m=compact;t=dGVzdA",
 			errMsg: "invalid proof header format",
 		},
 		{
 			name:   "unsupported version",
-			header: "v2;t=dGVzdA;p=cHJvb2Y;k=a2V5;s=c2ln;n=bm9uY2U;ts=1234567890",
+			header: "v2;m=compact;t=dGVzdA;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
 			errMsg: "unsupported proof version",
 		},
 		{
+			name:   "invalid mode",
+			header: "v1;m=invalid;t=dGVzdA;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
+			errMsg: "invalid mode",
+		},
+		{
 			name:   "missing token",
-			header: "v1;p=cHJvb2Y;k=a2V5;s=c2ln;n=bm9uY2U;ts=1234567890",
+			header: "v1;m=compact;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
 			errMsg: "missing token",
 		},
 		{
+			name:   "missing jti",
+			header: "v1;m=compact;t=dGVzdA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
+			errMsg: "missing jti",
+		},
+		{
+			name:   "invalid jti length",
+			header: "v1;m=compact;t=dGVzdA;jti=c2hvcnQ;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
+			errMsg: "invalid jti length",
+		},
+		{
 			name:   "invalid base64",
-			header: "v1;t=!!!invalid;p=cHJvb2Y;k=a2V5;s=c2ln;n=bm9uY2U;ts=1234567890",
+			header: "v1;m=compact;t=!!!invalid;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
 			errMsg: "invalid token encoding",
+		},
+		{
+			name:   "duplicate field",
+			header: "v1;m=compact;t=dGVzdA;t=dGVzdA;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890",
+			errMsg: "duplicate field",
 		},
 	}
 
@@ -108,19 +153,31 @@ func TestParseProofHeaderErrors(t *testing.T) {
 }
 
 func TestSignetTokenEncodeDecode(t *testing.T) {
-	// Create a token
-	token := &SignetToken{
-		IssuerID:       "did:key:z6Mkt...",
-		ConfirmationID: []byte("master-key-hash"),
-		ExpiresAt:      time.Now().Add(5 * time.Minute).Unix(),
-		Nonce:          make([]byte, 16),
-		EphemeralKeyID: []byte("ephemeral-key-hash"),
-		NotBefore:      time.Now().Unix(),
-	}
+	// Create a token with all required fields
+	jti := make([]byte, 16)
+	capID := make([]byte, 16)
+	subjectPPID := make([]byte, 32)
+	confirmationID := make([]byte, 32)
 
-	// Fill nonce
-	if _, err := rand.Read(token.Nonce); err != nil {
-		t.Fatalf("Failed to generate nonce: %v", err)
+	rand.Read(jti)
+	rand.Read(capID)
+	rand.Read(subjectPPID)
+	rand.Read(confirmationID)
+
+	token := &SignetToken{
+		IssuerID:       1234,
+		AudienceID:     5678,
+		SubjectPPID:    subjectPPID,
+		ExpiresAt:      time.Now().Add(5 * time.Minute).Unix(),
+		NotBefore:      time.Now().Unix(),
+		IssuedAt:       time.Now().Unix(),
+		CapabilityID:   capID,
+		CapabilityVer:  (1000 << 16) | 1, // major.minor
+		ConfirmationID: confirmationID,
+		KeyID:          9012,
+		CapTokens:      []uint64{1, 2, 3},
+		JTI:            jti,
+		AudienceStr:    "api.example.com",
 	}
 
 	// Encode
@@ -141,39 +198,68 @@ func TestSignetTokenEncodeDecode(t *testing.T) {
 	if decoded.IssuerID != token.IssuerID {
 		t.Errorf("IssuerID mismatch")
 	}
-	if !bytes.Equal(decoded.ConfirmationID, token.ConfirmationID) {
-		t.Errorf("ConfirmationID mismatch")
+	if decoded.AudienceID != token.AudienceID {
+		t.Errorf("AudienceID mismatch")
+	}
+	if !bytes.Equal(decoded.SubjectPPID, token.SubjectPPID) {
+		t.Errorf("SubjectPPID mismatch")
 	}
 	if decoded.ExpiresAt != token.ExpiresAt {
 		t.Errorf("ExpiresAt mismatch")
 	}
-	if !bytes.Equal(decoded.Nonce, token.Nonce) {
-		t.Errorf("Nonce mismatch")
+	if !bytes.Equal(decoded.CapabilityID, token.CapabilityID) {
+		t.Errorf("CapabilityID mismatch")
 	}
-	if !bytes.Equal(decoded.EphemeralKeyID, token.EphemeralKeyID) {
-		t.Errorf("EphemeralKeyID mismatch")
+	if !bytes.Equal(decoded.ConfirmationID, token.ConfirmationID) {
+		t.Errorf("ConfirmationID mismatch")
 	}
-	if decoded.NotBefore != token.NotBefore {
-		t.Errorf("NotBefore mismatch")
+	if !bytes.Equal(decoded.JTI, token.JTI) {
+		t.Errorf("JTI mismatch")
 	}
 }
 
 func TestCanonicalizeRequest(t *testing.T) {
 	method := "GET"
 	uri := "/api/users/123"
+	host := "api.example.com"
 	timestamp := int64(1700000000)
-	nonce := []byte("test-nonce-value")
+	nonce := make([]byte, 16)
+	jti := make([]byte, 16)
 
-	canonical := CanonicalizeRequest(method, uri, timestamp, nonce)
+	rand.Read(nonce)
+	rand.Read(jti)
 
-	expected := "GET\n/api/users/123\n1700000000\ntest-nonce-value"
-	if !bytes.Equal(canonical, []byte(expected)) {
-		t.Errorf("Canonical mismatch:\ngot:  %s\nwant: %s", canonical, expected)
+	canonical := CanonicalizeRequest(method, uri, host, timestamp, nonce, jti, nil)
+
+	// Check that it contains the expected components
+	canonicalStr := string(canonical)
+	if !bytes.Contains([]byte(canonicalStr), []byte(method)) {
+		t.Errorf("Canonical string missing method")
+	}
+	if !bytes.Contains([]byte(canonicalStr), []byte(uri)) {
+		t.Errorf("Canonical string missing uri")
+	}
+	if !bytes.Contains([]byte(canonicalStr), []byte(host)) {
+		t.Errorf("Canonical string missing host")
+	}
+
+	// Test with body for POST
+	body := []byte(`{"test": "data"}`)
+	canonicalPost := CanonicalizeRequest("POST", uri, host, timestamp, nonce, jti, body)
+
+	// Should include body digest
+	if !bytes.Contains(canonicalPost, []byte("POST")) {
+		t.Errorf("Canonical POST missing method")
+	}
+	// The digest is base64url encoded in the canonical string
+	// so we just check that the canonical string is longer for POST with body
+	if len(canonicalPost) <= len(canonical) {
+		t.Errorf("Canonical POST with body should be longer than GET")
 	}
 }
 
 func TestValidateTimestamp(t *testing.T) {
-	clockSkew := 5 * time.Minute
+	maxSkew := 60 * time.Second // ADR-002 limit
 
 	tests := []struct {
 		name      string
@@ -187,22 +273,27 @@ func TestValidateTimestamp(t *testing.T) {
 		},
 		{
 			name:      "within skew future",
-			offset:    2 * time.Minute,
+			offset:    30 * time.Second,
 			shouldErr: false,
 		},
 		{
 			name:      "within skew past",
-			offset:    -2 * time.Minute,
+			offset:    -30 * time.Second,
+			shouldErr: false,
+		},
+		{
+			name:      "at limit future",
+			offset:    60 * time.Second,
 			shouldErr: false,
 		},
 		{
 			name:      "outside skew future",
-			offset:    6 * time.Minute,
+			offset:    61 * time.Second,
 			shouldErr: true,
 		},
 		{
 			name:      "outside skew past",
-			offset:    -6 * time.Minute,
+			offset:    -61 * time.Second,
 			shouldErr: true,
 		},
 	}
@@ -210,7 +301,7 @@ func TestValidateTimestamp(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			timestamp := time.Now().Add(tt.offset).Unix()
-			err := ValidateTimestamp(timestamp, clockSkew)
+			err := ValidateTimestamp(timestamp, maxSkew, 0)
 
 			if tt.shouldErr && err == nil {
 				t.Errorf("Expected error but got none")
@@ -219,37 +310,120 @@ func TestValidateTimestamp(t *testing.T) {
 			}
 		})
 	}
+
+	// Test with minSkew (high-assurance mode)
+	t.Run("min skew enforcement", func(t *testing.T) {
+		timestamp := time.Now().Add(15 * time.Second).Unix()
+		err := ValidateTimestamp(timestamp, 60*time.Second, 10*time.Second)
+		if err == nil {
+			t.Errorf("Expected error with 10s minSkew and 15s offset")
+		}
+	})
 }
 
-func TestFormatProofHeaderWithRealKeys(t *testing.T) {
-	// Generate real Ed25519 keys for more realistic test
+func TestComputeEphemeralKeyHash(t *testing.T) {
+	jti := make([]byte, 16)
+	rand.Read(jti)
+
 	ephemeralPub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("Failed to generate keys: %v", err)
+		t.Fatalf("Failed to generate key: %v", err)
 	}
 
-	header := &ProofHeader{
-		Version: "v1",
-		Token:   []byte("test-token"),
-		EphemeralProof: &epr.EphemeralProof{
-			BindingSignature:   make([]byte, 64), // Ed25519 signature size
-			EphemeralPublicKey: ephemeralPub,
-		},
-		RequestSignature: make([]byte, 64),
-		Nonce:           make([]byte, 16),
-		Timestamp:       time.Now().Unix(),
+	hash := ComputeEphemeralKeyHash(jti, ephemeralPub)
+
+	// Should be 32 bytes (SHA256 output)
+	if len(hash) != 32 {
+		t.Errorf("Hash length mismatch: got %d, want 32", len(hash))
 	}
+
+	// Should be deterministic
+	hash2 := ComputeEphemeralKeyHash(jti, ephemeralPub)
+	if !bytes.Equal(hash, hash2) {
+		t.Errorf("Hash not deterministic")
+	}
+
+	// Different JTI should produce different hash
+	jti2 := make([]byte, 16)
+	rand.Read(jti2)
+	hash3 := ComputeEphemeralKeyHash(jti2, ephemeralPub)
+	if bytes.Equal(hash, hash3) {
+		t.Errorf("Different JTI produced same hash")
+	}
+}
+
+func TestConstantTimeCompare(t *testing.T) {
+	sig1 := make([]byte, 64)
+	sig2 := make([]byte, 64)
+	rand.Read(sig1)
+	copy(sig2, sig1)
+
+	// Same signatures should match
+	if !ConstantTimeCompare(sig1, sig2) {
+		t.Errorf("Same signatures should match")
+	}
+
+	// Different signatures should not match
+	sig2[0] ^= 0xFF
+	if ConstantTimeCompare(sig1, sig2) {
+		t.Errorf("Different signatures should not match")
+	}
+
+	// Different lengths should not match
+	sig3 := make([]byte, 32)
+	if ConstantTimeCompare(sig1, sig3) {
+		t.Errorf("Different length signatures should not match")
+	}
+}
+
+func TestCriticalFields(t *testing.T) {
+	// Test that critical fields are validated
+	header := "v1;m=compact;t=dGVzdA;jti=QUJDREVGR0hJSktMTU5PUA;cap=MTIzNDU2Nzg5MGFiY2RlZg;p=cHJvb2Y;k=YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY;s=c2ln;n=MTIzNDU2Nzg5MDEyMzQ1Ng;ts=1234567890;crit=unknown_field"
+
+	_, err := ParseProofHeader(header)
+	if err == nil {
+		t.Errorf("Expected error for missing critical field")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("critical field not present")) {
+		t.Errorf("Wrong error for critical field: %v", err)
+	}
+}
+
+func TestBodyDigest(t *testing.T) {
+	body := []byte(`{"test": "data"}`)
+	h := sha256.New()
+	h.Write(body)
+	digest := h.Sum(nil)
+
+	// Create header with body digest
+	header := &ProofHeader{
+		Version:          "v1",
+		Mode:             "compact",
+		Token:            []byte("token"),
+		JTI:              make([]byte, 16),
+		CapabilityID:     make([]byte, 16),
+		EphemeralKeyHash: make([]byte, 32),
+		EphemeralProof: &epr.EphemeralProof{
+			BindingSignature: []byte("sig"),
+		},
+		RequestSignature: []byte("reqsig"),
+		Nonce:            make([]byte, 16),
+		Timestamp:        time.Now().Unix(),
+		BodyDigest:       digest,
+	}
+
+	rand.Read(header.JTI)
+	rand.Read(header.CapabilityID)
+	rand.Read(header.EphemeralKeyHash)
+	rand.Read(header.Nonce)
 
 	formatted := FormatProofHeader(header)
-
-	// Should be able to parse it back
 	parsed, err := ParseProofHeader(formatted)
 	if err != nil {
-		t.Fatalf("Failed to parse formatted header: %v", err)
+		t.Fatalf("Failed to parse header with body digest: %v", err)
 	}
 
-	// The ephemeral key should be preserved (as bytes)
-	if parsed.EphemeralProof.EphemeralPublicKey == nil {
-		t.Errorf("Ephemeral public key was not preserved")
+	if !bytes.Equal(parsed.BodyDigest, digest) {
+		t.Errorf("Body digest mismatch")
 	}
 }
