@@ -1,235 +1,134 @@
-# Signet
+# Signet: Ephemeral Proof-of-Possession Authentication
 
-A protocol and framework for machine-as-identity authentication, eliminating bearer tokens through cryptographic proof of possession.
+> Replacing bearer tokens with cryptographic proof-of-possession
+
+[![Go Version](https://img.shields.io/github/go-mod/go-version/jamestexas/signet)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)]()
+
+## What is Signet?
+
+Signet is a cryptographic authentication protocol that replaces traditional bearer tokens with ephemeral proof-of-possession. Instead of sharing secrets that can be stolen and replayed, Signet generates short-lived proofs that are cryptographically bound to each request.
+
+**Current Focus**: Git commit signing as a production-ready proof of concept.
 
 ## Current Status
 
 | Component | Status | Description |
-|-----------|--------|-------------|
-| **libsignet** | ✅ Production | Core protocol library with Ed25519, CBOR tokens, ephemeral proofs |
-| **signet-commit** | ✅ Production | Git commit signing with CMS/PKCS#7 (working today!) |
-| **Go SDK** | ✅ Production | Full-featured SDK with platform key storage |
-| **Python SDK** | 🚧 Beta | Core features complete, testing ongoing |
-| **JavaScript SDK** | 🚧 Alpha | Under active development |
-| **HTTP Middleware** | ⏳ Planned | Q4 2024 target |
+|---|---|---|
+| **`libsignet`** | ✅ Production | Core protocol, crypto, and proofs |
+| **`signet-commit`** | ✅ Production | Git signing tool (replaces GPG) |
+| **HTTP Wire Format** | ✅ Alpha | Secure header format implemented |
+| **HTTP Middleware** | 🚧 Development | Server/client adapters in progress |
 
-See [Feature Matrix](docs/FEATURE_MATRIX.md) for complete component status.
+## Quick Start: Git Commit Signing
 
-## What Works Today
-
-### ✅ Production Ready: signet-commit
-
-Replace GPG for Git commit signing with ephemeral X.509 certificates:
+Replace GPG with Signet for signing Git commits:
 
 ```bash
-# Install and build (macOS/Linux)
+# Build and install
 git clone https://github.com/jamestexas/signet.git
 cd signet
-go build -o signet-commit ./cmd/signet-commit
+make build
+sudo make install
 
-# Initialize master key
+# Configure Git to use Signet
 ./signet-commit --init
 
-# Configure Git
-git config --global gpg.format x509
-git config --global gpg.x509.program $(pwd)/signet-commit
-git config --global user.signingKey $(./signet-commit --export-key-id)
+# Sign a commit
+git commit -S -m "feat: my signed commit"
 
-# Sign commits!
-git commit -S -m "Signed with Signet"
-```
-
-**Unique Features:**
-- 🚀 First Go library with Ed25519 CMS/PKCS#7 support
-- ⚡ Sub-15ms signature generation
-- 🔒 Ephemeral certificates (5-minute lifetime)
-- 🌐 Completely offline operation
-- ✅ OpenSSL verification compatible
-
-### ✅ Production Ready: libsignet
-
-Core protocol library features:
-- **CBOR Token Structure**: Compact binary encoding (RFC 8949)
-- **Ed25519 Cryptography**: Modern elliptic curve signatures (RFC 8032)
-- **Ephemeral Proofs**: Privacy-preserving proof of possession
-- **Domain Separation**: Prevents cross-protocol attacks
-- **Key Zeroization**: Secure memory handling
-
-## Vision: Beyond Git Signing
-
-Signet aims to transform authentication into formal middleware where every request carries cryptographic proof of identity.
-
-### The Problem We're Solving
-
-Current authentication is fundamentally broken:
-- 🔓 Bearer tokens are "steal-and-use" credentials
-- 🌐 OAuth/JWT requires complex network dependencies
-- 🔑 Developers manage dozens of API keys and secrets
-- 🎭 "Zero Trust" just means checking tokens more often
-- 📝 Permissions are opaque strings instead of semantic capabilities
-
-### The Signet Solution
-
-**Core Concept**: Replace bearer tokens with ephemeral, cryptographic proofs tied to machine identity.
-
-```http
-# Future: Every HTTP request carries proof
-GET /api/users/me HTTP/1.1
-Host: api.example.com
-Authorization: Bearer SIG1.eyJpc3MiOiJkaWQ6a2V5Ono2TWt0Li4u...
-Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; proof=...
+# Verify signatures
+git log --show-signature
 ```
 
 ## Architecture
 
+Signet uses a two-step ephemeral proof system:
+
+1. **Master Key** → signs → **Ephemeral Certificate** (5 min lifetime)
+2. **Ephemeral Key** → signs → **Request/Commit**
+
+This provides forward secrecy and limits damage from key compromise.
+
+### Core Components
+
 ```
-┌─────────────────────────────────────────────┐
-│            Applications Layer                │
-│  signet-commit (✅) | signet-auth (🚧)      │
-├─────────────────────────────────────────────┤
-│               SDK Layer                      │
-│  Go (✅) | Python (🚧) | JS (🚧) | Rust (⏳) │
-├─────────────────────────────────────────────┤
-│         Core Protocol (libsignet)            │
-│  Token Structure | Crypto | Proofs | Certs   │
-├─────────────────────────────────────────────┤
-│            Infrastructure                    │
-│  Key Storage | Audit | Monitoring            │
-└─────────────────────────────────────────────┘
-```
-
-## Implementation Maturity
-
-### What's Built (Production Ready)
-
-| Component | Features | Status |
-|-----------|----------|--------|
-| **Token Structure** | CBOR encoding, integer keys, versioning | ✅ Complete |
-| **Cryptography** | Ed25519, key generation, domain separation | ✅ Complete |
-| **Proof System** | Ephemeral keys, timestamp validation, nonces | ✅ Complete |
-| **X.509 Certificates** | Generation, SKID, code signing extensions | ✅ Complete |
-| **CMS/PKCS#7** | Ed25519 support, ASN.1 encoding, OpenSSL compatible | ✅ Complete |
-| **Git Integration** | Commit signing, configuration, GPG replacement | ✅ Complete |
-
-### What's In Progress
-
-| Component | Target | Status |
-|-----------|--------|--------|
-| **Python SDK** | Q4 2024 | 🚧 Core complete, testing ongoing |
-| **JavaScript SDK** | Q4 2024 | 🚧 Architecture defined |
-| **COSE Integration** | Q4 2024 | 🚧 Design phase |
-| **signet-auth CLI** | Q4 2024 | 🚧 Alpha development |
-
-### What's Planned
-
-| Component | Target | Description |
-|-----------|--------|-------------|
-| **HTTP Middleware** | Q4 2024 | Express, FastAPI, Go net/http |
-| **Service Mesh** | Q1 2025 | Istio, Linkerd integration |
-| **True ZK Proofs** | Research | Ring signatures, zk-SNARKs |
-| **Post-Quantum** | Research | Dilithium, Kyber algorithms |
-
-## Installation
-
-### Prerequisites
-
-```bash
-# macOS
-brew install go gnupg
-
-# Ubuntu/Debian
-sudo apt install golang-go gnupg-agent
-
-# Fedora/RHEL
-sudo dnf install golang gnupg2
+pkg/
+├── signet/          # Core protocol (CBOR tokens, proofs)
+├── crypto/
+│   ├── keys/        # Ed25519 key management
+│   └── epr/         # Ephemeral Proof Routines
+├── cms/             # CMS/PKCS#7 implementation (unique Ed25519 support)
+├── attest/x509/     # Local CA for ephemeral certificates
+└── http/            # HTTP authentication (in development)
 ```
 
-### Build from Source
+## What Makes Signet Different?
 
-```bash
-git clone https://github.com/jamestexas/signet.git
-cd signet
-go build -o signet-commit ./cmd/signet-commit
-sudo cp signet-commit /usr/local/bin/  # Optional: install system-wide
-```
+### From Bearer Tokens
+- **Bearer tokens**: "Here's my secret" (can be stolen)
+- **Signet**: "Here's proof I have the secret" (can't be stolen)
 
-## Documentation
+### From OAuth/JWT
+- **OAuth**: Requires online token servers and complex flows
+- **Signet**: Works offline with local proof generation
 
-- **[Architecture Decision Records](docs/adrs/)** - Design decisions and rationale
-- **[Feature Matrix](docs/FEATURE_MATRIX.md)** - Complete implementation status
-- **[CMS Implementation](docs/CMS_IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details
-- **[Next Steps](NEXT_STEPS.md)** - Development roadmap
-- **[Investigation Log](INVESTIGATION_LOG.md)** - Development history and learnings
+### From mTLS
+- **mTLS**: Long-lived certificates, complex PKI
+- **Signet**: Ephemeral certificates, no external CA needed
+
+## Roadmap
+
+### Phase 1: Foundation (✅ Complete)
+- Core cryptographic protocol
+- Git commit signing implementation
+- CMS/PKCS#7 with Ed25519 (first in Go!)
+
+### Phase 2: HTTP Authentication (🚧 Current)
+- Wire format specification
+- Middleware adapters for popular frameworks
+- Reference client/server implementations
+
+### Phase 3: Ecosystem (📋 Planned)
+- Python SDK for FastAPI/Django
+- JavaScript SDK for Express/Next.js
+- Service mesh integration (Envoy/Istio)
+
+### Future Research
+- Zero-knowledge proofs for anonymous authentication
+- Post-quantum cryptography support
+- Hardware token integration
 
 ## Contributing
 
-We welcome contributions! Key areas where we need help:
+We welcome contributions! Current priorities:
 
-### Immediate Needs
-- 🐍 Python SDK completion
-- 📦 JavaScript/TypeScript SDK
-- 📝 Documentation improvements
-- 🧪 Cross-platform testing
+- **HTTP Middleware**: Help build adapters for Go web frameworks (Gin, Echo, Chi)
+- **Documentation**: Improve setup guides and examples
+- **Testing**: Expand test coverage and add integration tests
 
-### Research Areas
-- 🔐 True zero-knowledge proofs
-- 🛡️ Post-quantum cryptography
-- 🌐 Service mesh integration
-- 🔧 Hardware security module support
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## Security
 
-## Why Signet?
+Signet is alpha software under active development. While the core cryptographic primitives are well-tested, the protocol has not undergone formal security audit.
 
-### For Developers
-- ✅ No more managing bearer tokens or API keys
-- ✅ Automatic credential management
-- ✅ Works offline
-- ✅ Git signing that just works
+**For production use**: Currently recommended only for Git commit signing. Wait for v1.0 before using for authentication.
 
-### For Security Teams
-- ✅ Cryptographic proof on every request
-- ✅ No steal-and-use credentials
-- ✅ Complete audit trail
-- ✅ Instant revocation capability
-
-### For Operations
-- ✅ Sub-millisecond verification
-- ✅ No network dependencies
-- ✅ Progressive enhancement
-- ✅ Standards-based (CBOR, Ed25519, X.509)
-
-## Project Status
-
-This is an active research project with production-ready components:
-- **signet-commit**: Ready for daily use
-- **libsignet**: Stable API, production quality
-- **Protocol**: Specification evolving based on implementation experience
+Found a security issue? Email security@[domain] (private disclosure) or open an issue.
 
 ## License
 
-Apache 2.0 - See [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
-Built to complement the [Sigstore](https://sigstore.dev) ecosystem with offline-first, machine-as-identity authentication.
-
-## Get Started
-
-Try signet-commit today:
-
-```bash
-# Quick test
-echo "test" | ./signet-commit --detach-sign
-
-# Real usage
-git commit -S -m "My first Signet commit!"
-```
-
-Join the revolution in making authentication invisible, secure, and user-controlled.
+Built on established standards:
+- [RFC 8032](https://tools.ietf.org/html/rfc8032): Ed25519 signatures
+- [RFC 8949](https://tools.ietf.org/html/rfc8949): CBOR encoding
+- [RFC 8410](https://tools.ietf.org/html/rfc8410): Ed25519 in X.509
 
 ---
 
-**Questions?** Open an [issue](https://github.com/jamestexas/signet/issues)
-**Ideas?** Start a [discussion](https://github.com/jamestexas/signet/discussions)
-**Ready to contribute?** Check our [roadmap](NEXT_STEPS.md)
+**Status**: Alpha | **Focus**: Git signing works today, HTTP authentication coming soon
