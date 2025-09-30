@@ -187,6 +187,43 @@ func EncodeDIDAsSubject(did string) pkix.Name {
 	}
 }
 
+// IssueClientCertificate creates a client identity certificate
+// signed by the master key for the provided device public key
+func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePublicKey ed25519.PublicKey) (*x509.Certificate, error) {
+	// Create CA (issuer) certificate template
+	issuerTemplate := ca.CreateCACertificateTemplate()
+	if issuerTemplate == nil {
+		return nil, errors.New("failed to create issuer template")
+	}
+
+	// Add Subject Key Identifier for the device key
+	template.SubjectKeyId = generateSubjectKeyID(devicePublicKey)
+
+	// Add Authority Key Identifier (points to master key)
+	issuerTemplate.SubjectKeyId = generateSubjectKeyID(ca.masterKey.Public())
+	template.AuthorityKeyId = issuerTemplate.SubjectKeyId
+
+	// Issue the certificate: master key signs for device key
+	certDER, err := x509.CreateCertificate(
+		rand.Reader,
+		template,        // certificate being created
+		issuerTemplate,  // CA certificate (master key)
+		devicePublicKey, // public key being certified
+		ca.masterKey,    // CA private key for signing
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the certificate to return
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, err
+	}
+
+	return cert, nil
+}
+
 // generateSubjectKeyID generates a Subject Key Identifier for a public key
 // Uses SHA-1 hash as per RFC 5280 (method 1)
 func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
