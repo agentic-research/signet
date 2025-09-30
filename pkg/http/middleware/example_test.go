@@ -34,11 +34,11 @@ func Example_simpleUsage() {
 		}
 
 		// Access authenticated request information
-		w.Write([]byte("Hello, authenticated user! Token: " + authCtx.TokenID))
+		_, _ = w.Write([]byte("Hello, authenticated user! Token: " + authCtx.TokenID))
 	}))
 
 	// Use the handler
-	http.ListenAndServe(":8080", handler)
+	_ = http.ListenAndServe(":8080", handler)
 }
 
 // Example_distributedSetup demonstrates setup for distributed systems
@@ -81,20 +81,20 @@ func Example_distributedSetup() {
 
 	// Public endpoints (skipped by middleware)
 	app.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"status": "healthy"}`))
+		_, _ = w.Write([]byte(`{"status": "healthy"}`))
 	})
 
 	// Protected endpoints
 	app.Handle("/api/", auth(http.HandlerFunc(apiHandler)))
 	app.Handle("/admin/", auth(http.HandlerFunc(adminHandler)))
 
-	http.ListenAndServe(":8080", app)
+	_ = http.ListenAndServe(":8080", app)
 }
 
 func apiHandler(w http.ResponseWriter, r *http.Request) {
 	authCtx, _ := middleware.GetAuthContext(r)
 	log.Printf("API request from token %s with purpose %s", authCtx.TokenID, authCtx.Purpose)
-	w.Write([]byte("API response"))
+	_, _ = w.Write([]byte("API response"))
 }
 
 func adminHandler(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +106,7 @@ func adminHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write([]byte("Admin response"))
+	_, _ = w.Write([]byte("Admin response"))
 }
 
 // CustomLogger implements middleware.Logger for integration with your logging system
@@ -159,10 +159,10 @@ func Example_withObservability() {
 	)
 
 	handler := auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Authenticated with observability"))
+		_, _ = w.Write([]byte("Authenticated with observability"))
 	}))
 
-	http.ListenAndServe(":8080", handler)
+	_ = http.ListenAndServe(":8080", handler)
 }
 
 // CustomRequestBuilder implements custom request canonicalization
@@ -189,10 +189,10 @@ func Example_customCanonical() {
 	)
 
 	handler := auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Custom canonical request"))
+		_, _ = w.Write([]byte("Custom canonical request"))
 	}))
 
-	http.ListenAndServe(":8080", handler)
+	_ = http.ListenAndServe(":8080", handler)
 }
 
 // DynamicKeyProvider fetches keys from an external authority

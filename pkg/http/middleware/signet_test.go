@@ -280,7 +280,7 @@ func TestSignetMiddleware_ExpiredToken(t *testing.T) {
 	}
 
 	// Store expired token
-	config.tokenStore.Store(context.Background(), record)
+	_, _ = config.tokenStore.Store(context.Background(), record)
 
 	middleware := SignetMiddleware(
 		WithMasterKey(masterPub),
@@ -360,7 +360,7 @@ func TestSignetMiddleware_ClockSkew(t *testing.T) {
 	record, ephemeralPriv := generateTestToken(t, masterPriv, "test-purpose")
 
 	// Store token
-	config.tokenStore.Store(context.Background(), record)
+	_, _ = config.tokenStore.Store(context.Background(), record)
 
 	middleware := SignetMiddleware(
 		WithMasterKey(masterPub),
