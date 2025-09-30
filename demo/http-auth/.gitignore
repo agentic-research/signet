@@ -1,3 +1,8 @@
-# Ignore compiled binaries
-server
-client/main
+# Ignore compiled binaries (but not directories)
+/server
+/client/main
+/demo-server
+/demo-client
+/signet-demo-server
+/signet-demo-client
+*.exe

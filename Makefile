@@ -27,9 +27,9 @@ docker-test: docker-build
 docker-shell: docker-build
 	docker run --rm -it -v "$(PWD):/workspace" -w /workspace signet-test bash
 
-# Integration test in Docker with live code mounting
+# Integration test in Docker (builds for Linux, runs in isolated container)
 integration-test: docker-build
-	docker run --rm -v "$(PWD):/workspace" -w /workspace signet-test ./test_integration.sh
+	docker run --rm signet-test
 
 # Clean build artifacts
 clean:

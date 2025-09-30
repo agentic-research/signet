@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ../..
+      dockerfile: demo/http-auth/Dockerfile
+    container_name: signet-demo-server
+    ports:
+      - "8080:8080"
+    command: ["/app/demo-server"]
+    networks:
+      - signet-demo
+
+  client:
+    build:
+      context: ../..
+      dockerfile: demo/http-auth/Dockerfile
+    container_name: signet-demo-client
+    depends_on:
+      - server
+    command: ["/app/demo-client"]
+    networks:
+      - signet-demo
+    environment:
+      - SERVER_URL=http://server:8080
+
+networks:
+  signet-demo:
+    driver: bridge
