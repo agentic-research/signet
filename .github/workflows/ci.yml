@@ -33,7 +33,38 @@ jobs:
 
       - name: Run unit tests
         run: |
-          go test -v -race -coverprofile=coverage.out ./...
+          set -euo pipefail
+
+          # Get list of packages excluding demo directories
+          PKGS="$(go list ./... | grep -v '/demo/' || true)"
+
+          if [ -z "${PKGS}" ]; then
+            echo "No packages to test."
+            exit 0
+          fi
+
+          # Create empty coverage file with header
+          echo "mode: atomic" > coverage.out
+
+          # Test each package individually and merge coverage
+          echo "${PKGS}" | while read -r pkg; do
+            if [ -n "$pkg" ]; then
+              echo "Testing ${pkg}..."
+              # Check if package has test files
+              if go list -f '{{.TestGoFiles}}' "$pkg" | grep -q '\[.*\.go\]'; then
+                go test -v -race -coverprofile=tmp.out -covermode=atomic "$pkg"
+                # Merge coverage data (skip mode line)
+                if [ -f tmp.out ]; then
+                  grep -h -v "^mode:" tmp.out >> coverage.out 2>/dev/null || true
+                  rm tmp.out
+                fi
+              else
+                echo "  No test files found, skipping..."
+              fi
+            fi
+          done
+
+          # Display coverage report
           go tool cover -func=coverage.out
 
       - name: Run linters

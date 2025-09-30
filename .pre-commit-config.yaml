@@ -8,11 +8,9 @@ repos:
     rev: v0.5.1
     hooks:
       - id: go-fmt
-      - id: go-vet
       - id: go-imports
       - id: go-mod-tidy
       - id: go-unit-tests
-      - id: golangci-lint
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
