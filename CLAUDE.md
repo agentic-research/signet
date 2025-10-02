@@ -17,7 +17,7 @@ go test -v ./pkg/cms         # Test specific package
 
 # Integration testing
 make integration-test         # Run in Docker (recommended)
-./test_integration.sh        # Run locally (requires permissions)
+./scripts/testing/test_integration.sh  # Run locally (requires permissions)
 
 # Quick development cycle
 make clean build test        # Clean, rebuild, and test
