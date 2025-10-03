@@ -28,6 +28,7 @@ func main() {
 		homeFlag      = flag.String("home", "", "Signet home directory (default: ~/.signet)")
 		verifyFlag    = flag.String("verify", "", "Verify signature from file")
 		_             = flag.String("bsau", "", "GPG compatibility flag (ignored)")
+		_             = flag.Bool("S", false, "GPG compatibility flag (ignored)")
 		statusFd      = flag.Int("status-fd", 0, "File descriptor for GPG status output")
 		_             = flag.Bool("detach-sign", false, "Create detached signature (default)")
 	)

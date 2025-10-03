@@ -13,6 +13,9 @@ A protocol and framework for machine-as-identity authentication, eliminating bea
 
 **For production use:** Wait for v1.0 or help us get there!
 
+<!-- START doctoc -->
+<!-- END doctoc -->
+
 ## ⚠️ Project Status: v0.0.1 - Early Experimental Release
 
 | Component | Status | Description |

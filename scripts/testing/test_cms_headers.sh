@@ -25,28 +25,30 @@ sed '1d;$d' test_signature_original.pem | base64 -d > test_signature.der
 # Test 1: Try with CMS header
 echo "3. Testing with CMS header..."
 echo "-----BEGIN CMS-----" > test_signature_cms.pem
-base64 test_signature.der >> test_signature_cms.pem
+base64 < test_signature.der >> test_signature_cms.pem
 echo "-----END CMS-----" >> test_signature_cms.pem
 
 echo "Attempting OpenSSL verification with CMS header:"
-if openssl cms -verify -inform PEM -in test_signature_cms.pem -noverify -out /dev/null 2>&1; then
+if openssl cms -verify -binary -inform PEM -in test_signature_cms.pem -noverify -content test_message.txt -out /dev/null 2>&1; then
     echo "✓ SUCCESS: OpenSSL can parse with CMS header!"
 else
     echo "✗ FAILED: OpenSSL cannot parse with CMS header"
+    exit 1
 fi
 echo
 
 # Test 2: Try with PKCS7 header
 echo "4. Testing with PKCS7 header..."
 echo "-----BEGIN PKCS7-----" > test_signature_pkcs7.pem
-base64 test_signature.der >> test_signature_pkcs7.pem
+base64 < test_signature.der >> test_signature_pkcs7.pem
 echo "-----END PKCS7-----" >> test_signature_pkcs7.pem
 
 echo "Attempting OpenSSL verification with PKCS7 header:"
-if openssl cms -verify -inform PEM -in test_signature_pkcs7.pem -noverify -out /dev/null 2>&1; then
+if openssl cms -verify -binary -inform PEM -in test_signature_pkcs7.pem -noverify -content test_message.txt -out /dev/null 2>&1; then
     echo "✓ SUCCESS: OpenSSL can parse with PKCS7 header!"
 else
     echo "✗ FAILED: OpenSSL cannot parse with PKCS7 header"
+    exit 1
 fi
 echo
 
@@ -56,16 +58,18 @@ if openssl pkcs7 -in test_signature_pkcs7.pem -inform PEM -print_certs 2>&1 | gr
     echo "✓ SUCCESS: OpenSSL pkcs7 command can parse with PKCS7 header!"
 else
     echo "✗ FAILED: OpenSSL pkcs7 command cannot parse"
+    exit 1
 fi
 echo
 
 # Test the DER directly
 echo "6. Testing DER format directly..."
-if openssl cms -verify -inform DER -in test_signature.der -noverify -out /dev/null 2>&1; then
+if openssl cms -verify -binary -inform DER -in test_signature.der -noverify -content test_message.txt -out /dev/null 2>&1; then
     echo "✓ SUCCESS: OpenSSL can parse DER directly!"
 else
     echo "✗ FAILED: OpenSSL cannot parse DER directly"
     echo "This suggests the ASN.1 structure itself might have issues"
+    exit 1
 fi
 echo
 

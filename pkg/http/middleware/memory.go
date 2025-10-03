@@ -49,7 +49,11 @@ func (s *MemoryTokenStore) Store(ctx context.Context, record *TokenRecord) (stri
 	defer s.mu.Unlock()
 
 	// Generate token ID from ephemeral key hash
-	tokenID := hex.EncodeToString(record.Token.EphemeralKeyID[:min(8, len(record.Token.EphemeralKeyID))])
+	if len(record.Token.JTI) == 0 {
+		return "", fmt.Errorf("token missing jti")
+	}
+
+	tokenID := hex.EncodeToString(record.Token.JTI[:min(8, len(record.Token.JTI))])
 	s.tokens[tokenID] = record
 
 	return tokenID, nil

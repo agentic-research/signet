@@ -32,7 +32,7 @@ func getServerURL() string {
 	if url := os.Getenv("SERVER_URL"); url != "" {
 		return url
 	}
-	return "http://localhost:8080"
+	return "http://localhost:8081"
 }
 
 // requestToken gets a new token from the server with proper ephemeral binding
@@ -63,6 +63,8 @@ func requestToken(purpose string) (*TokenInfo, error) {
 		EphemeralPrivate string `json:"ephemeral_private"`
 		BindingSignature string `json:"binding_signature"`
 		MasterPublic     string `json:"master_public"`
+		CapabilityID     string `json:"capability_id"`
+		TokenJTI         string `json:"token_jti"`
 		ExpiresAt        int64  `json:"expires_at"`
 		Purpose          string `json:"purpose"`
 	}
@@ -96,7 +98,7 @@ func requestToken(purpose string) (*TokenInfo, error) {
 
 // createSignetProof creates a proof using the ephemeral private key
 func createSignetProof(tokenInfo *TokenInfo, timestamp int64) string {
-	// Use the token's nonce
+	// Use the token's nonce (legacy flow - will be client-generated in future revisions)
 	nonce := tokenInfo.Token.Nonce
 
 	// Create canonical request representation (must match server's canonicalization)
@@ -109,8 +111,11 @@ func createSignetProof(tokenInfo *TokenInfo, timestamp int64) string {
 
 	// Create proof header value
 	// Format: v1;m=compact;jti=<base64>;ts=<timestamp>;n=<base64_nonce>;s=<base64_sig>
-	proof := fmt.Sprintf("v1;m=compact;jti=%s;ts=%d;n=%s;s=%s",
-		base64.RawURLEncoding.EncodeToString(tokenInfo.Token.EphemeralKeyID[:16]), // Use first 16 bytes as JTI
+	jtiB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.Token.JTI)
+	capB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.Token.CapabilityID)
+	proof := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;ts=%d;n=%s;s=%s",
+		jtiB64,
+		capB64,
 		timestamp,
 		base64.RawURLEncoding.EncodeToString(nonce),
 		base64.RawURLEncoding.EncodeToString(signature))

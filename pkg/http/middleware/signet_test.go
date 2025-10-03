@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jamestexas/signet/pkg/crypto/epr"
+	signethttp "github.com/jamestexas/signet/pkg/http"
 	"github.com/jamestexas/signet/pkg/signet"
 )
 
@@ -76,13 +77,16 @@ func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose stri
 	masterKeyHash := sha256.Sum256(masterPriv.Public().(ed25519.PublicKey))
 
 	nonce := []byte("test-nonce-12345")
-	token := signet.NewToken(
+	token, err := signet.NewToken(
 		"test-issuer",
 		masterKeyHash[:],
 		ephemeralKeyHash[:],
 		nonce,
 		5*time.Minute,
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	record := &TokenRecord{
 		Token:              token,
@@ -114,12 +118,9 @@ func createSignedRequest(t *testing.T, method, path string, record *TokenRecord,
 	signature := ed25519.Sign(ephemeralPriv, []byte(canonical))
 
 	// Build proof header
-	jti := make([]byte, 16) // JTI must be exactly 16 bytes
-	copy(jti, record.Token.EphemeralKeyID[:min(16, len(record.Token.EphemeralKeyID))])
-
-	proofHeader := fmt.Sprintf("v1;m=compact;t=token;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
-		base64.RawURLEncoding.EncodeToString(jti),
-		base64.RawURLEncoding.EncodeToString([]byte("cap")),
+	proofHeader := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
+		base64.RawURLEncoding.EncodeToString(record.Token.JTI),
+		base64.RawURLEncoding.EncodeToString(record.Token.CapabilityID),
 		base64.RawURLEncoding.EncodeToString(signature),
 		base64.RawURLEncoding.EncodeToString(nonce),
 		timestamp,
@@ -261,13 +262,22 @@ func TestSignetMiddleware_ExpiredToken(t *testing.T) {
 	ephemeralKeyHash := sha256.Sum256(ephemeralPub)
 	masterKeyHash := sha256.Sum256(masterPub)
 
+	capabilityID := make([]byte, 16)
+	copy(capabilityID, ephemeralKeyHash[:16])
+	jti := make([]byte, 16)
+	copy(jti, ephemeralKeyHash[:16])
+
 	token := &signet.Token{
 		IssuerID:       "test",
 		ConfirmationID: masterKeyHash[:],
 		EphemeralKeyID: ephemeralKeyHash[:],
-		Nonce:          []byte("nonce"),
+		SubjectPPID:    ephemeralKeyHash[:],
+		CapabilityID:   capabilityID,
+		JTI:            jti,
+		Nonce:          nil,
 		ExpiresAt:      time.Now().Add(-1 * time.Hour).Unix(),
 		NotBefore:      time.Now().Add(-2 * time.Hour).Unix(),
+		IssuedAt:       time.Now().Add(-3 * time.Hour).Unix(),
 	}
 
 	record := &TokenRecord{
@@ -385,12 +395,18 @@ func TestSignetMiddleware_ClockSkew(t *testing.T) {
 
 	signature := ed25519.Sign(ephemeralPriv, []byte(canonical))
 
-	jti := make([]byte, 16) // JTI must be exactly 16 bytes
-	copy(jti, record.Token.EphemeralKeyID[:min(16, len(record.Token.EphemeralKeyID))])
+	tokenBytes, err := record.Token.Marshal()
+	if err != nil {
+		t.Fatalf("marshal token: %v", err)
+	}
+	keyHash := signethttp.ComputeEphemeralKeyHash(record.Token.JTI, record.EphemeralPublicKey)
 
-	proofHeader := fmt.Sprintf("v1;m=compact;t=token;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
-		base64.RawURLEncoding.EncodeToString(jti),
-		base64.RawURLEncoding.EncodeToString([]byte("cap")),
+	proofHeader := fmt.Sprintf("v1;m=compact;t=%s;jti=%s;cap=%s;p=%s;k=%s;s=%s;n=%s;ts=%d",
+		base64.RawURLEncoding.EncodeToString(tokenBytes),
+		base64.RawURLEncoding.EncodeToString(record.Token.JTI),
+		base64.RawURLEncoding.EncodeToString(record.Token.CapabilityID),
+		base64.RawURLEncoding.EncodeToString(record.BindingSignature),
+		base64.RawURLEncoding.EncodeToString(keyHash),
 		base64.RawURLEncoding.EncodeToString(signature),
 		base64.RawURLEncoding.EncodeToString(nonce),
 		futureTimestamp,
@@ -402,8 +418,8 @@ func TestSignetMiddleware_ClockSkew(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("Expected clock skew rejection (400), got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected clock skew rejection (401), got %d", rec.Code)
 	}
 }
 
@@ -418,13 +434,22 @@ func TestMemoryTokenStore(t *testing.T) {
 	ephPub, _, _ := ed25519.GenerateKey(nil)
 	ephKeyHash := sha256.Sum256(ephPub)
 
+	capabilityID := make([]byte, 16)
+	copy(capabilityID, ephKeyHash[:16])
+	jti := make([]byte, 16)
+	copy(jti, ephKeyHash[:16])
+
 	token := &signet.Token{
 		IssuerID:       "test",
 		ConfirmationID: []byte("conf"),
 		EphemeralKeyID: ephKeyHash[:],
-		Nonce:          []byte("nonce"),
+		SubjectPPID:    ephKeyHash[:],
+		CapabilityID:   capabilityID,
+		JTI:            jti,
+		Nonce:          []byte("nonce-nonce-1234"),
 		ExpiresAt:      time.Now().Add(5 * time.Minute).Unix(),
 		NotBefore:      time.Now().Unix(),
+		IssuedAt:       time.Now().Unix(),
 	}
 
 	record := &TokenRecord{

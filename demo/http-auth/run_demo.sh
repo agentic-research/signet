@@ -10,20 +10,37 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Check if Docker is available and user preference
-USE_DOCKER=false
+# Parse arguments
+MODE="simple"
+FORCE_LOCAL=false
+for arg in "$@"; do
+    case "$arg" in
+        --middleware)
+            MODE="middleware"
+            ;;
+        --local)
+            FORCE_LOCAL=true
+            ;;
+    esac
+done
+
+# Check Docker availability
+DOCKER_AVAILABLE=false
 if command -v docker &> /dev/null && command -v docker-compose &> /dev/null; then
-    if [[ "$1" == "--local" ]]; then
-        echo -e "${YELLOW}Running locally (--local flag provided)${NC}"
-        USE_DOCKER=false
-    else
-        echo -e "${GREEN}Docker detected. Using Docker for demo.${NC}"
-        echo -e "${YELLOW}Use './run_demo.sh --local' to run without Docker${NC}"
-        echo ""
-        USE_DOCKER=true
-    fi
+    DOCKER_AVAILABLE=true
+fi
+
+if $DOCKER_AVAILABLE && ! $FORCE_LOCAL; then
+    echo -e "${GREEN}Docker detected. Using Docker for demo.${NC}"
+    echo -e "${YELLOW}Use './run_demo.sh --local' to run without Docker${NC}"
+    echo ""
+    USE_DOCKER=true
 else
-    echo -e "${YELLOW}Docker not found. Running locally.${NC}"
+    if ! $DOCKER_AVAILABLE && ! $FORCE_LOCAL; then
+        echo -e "${YELLOW}Docker not found. Running locally.${NC}"
+    else
+        echo -e "${YELLOW}Running locally (--local flag provided)${NC}"
+    fi
     USE_DOCKER=false
 fi
 
@@ -44,11 +61,15 @@ if $USE_DOCKER; then
 
 else
     # Local execution
-    echo -e "${YELLOW}Building server...${NC}"
-    go build -o demo-server server/main.go || { echo -e "${RED}Failed to build server${NC}"; exit 1; }
+    echo -e "${YELLOW}Building server (${MODE})...${NC}"
+    if [[ "$MODE" == "middleware" ]]; then
+        go build -o demo-server ./server-with-middleware || { echo -e "${RED}Failed to build middleware server${NC}"; exit 1; }
+    else
+        go build -o demo-server . || { echo -e "${RED}Failed to build simple server${NC}"; exit 1; }
+    fi
 
     echo -e "${YELLOW}Building client...${NC}"
-    go build -o demo-client client/main.go || { echo -e "${RED}Failed to build client${NC}"; exit 1; }
+    go build -o demo-client ./client || { echo -e "${RED}Failed to build client${NC}"; exit 1; }
 
     # Start the server in background
     echo -e "${GREEN}Starting Signet auth server on :8080...${NC}"

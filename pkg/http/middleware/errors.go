@@ -78,7 +78,7 @@ func errorToHTTPStatus(err error) int {
 	case errors.Is(err, ErrTokenNotYetValid):
 		return http.StatusUnauthorized
 	case errors.Is(err, ErrClockSkew):
-		return http.StatusBadRequest
+		return http.StatusUnauthorized
 	case errors.Is(err, ErrReplayDetected):
 		return http.StatusUnauthorized
 	case errors.Is(err, ErrInvalidSignature):

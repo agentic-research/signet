@@ -170,8 +170,8 @@ func TestSignetTokenEncodeDecode(t *testing.T) {
 	rand.Read(confirmationID)
 
 	token := &SignetToken{
-		IssuerID:       1234,
-		AudienceID:     5678,
+		IssuerID:       "issuer-1234",
+		AudienceID:     "aud-5678",
 		SubjectPPID:    subjectPPID,
 		ExpiresAt:      time.Now().Add(5 * time.Minute).Unix(),
 		NotBefore:      time.Now().Unix(),
@@ -179,7 +179,7 @@ func TestSignetTokenEncodeDecode(t *testing.T) {
 		CapabilityID:   capID,
 		CapabilityVer:  (1000 << 16) | 1, // major.minor
 		ConfirmationID: confirmationID,
-		KeyID:          9012,
+		KeyID:          []byte("key-9012"),
 		CapTokens:      []uint64{1, 2, 3},
 		JTI:            jti,
 		AudienceStr:    "api.example.com",
