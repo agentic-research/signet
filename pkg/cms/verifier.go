@@ -1,4 +1,28 @@
 // Package cms implements CMS/PKCS#7 signature verification with Ed25519 support.
+//
+// This package provides RFC 5652 compliant verification of CMS/PKCS#7 signatures
+// using Ed25519 keys, which is unique among Go CMS implementations.
+//
+// Example usage:
+//
+//	// Read CMS signature and data
+//	cmsData, _ := os.ReadFile("signature.p7s")
+//	originalData, _ := os.ReadFile("document.txt")
+//
+//	// Setup verification options
+//	opts := cms.VerifyOptions{
+//		Roots: systemRootPool, // Optional: uses system roots if nil
+//	}
+//
+//	// Verify the signature
+//	chain, err := cms.Verify(cmsData, originalData, opts)
+//	if err != nil {
+//		log.Fatal("Verification failed:", err)
+//	}
+//
+//	// The first certificate is the signer
+//	signerCert := chain[0]
+//	fmt.Printf("Signed by: %s\n", signerCert.Subject)
 package cms
 
 import (
@@ -13,6 +37,12 @@ import (
 	"time"
 
 	signetErrors "github.com/jamestexas/signet/pkg/errors"
+)
+
+// Object Identifiers for weak algorithms that should be rejected
+var (
+	oidMD5  = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 5}
+	oidSHA1 = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
 )
 
 // ASN.1 structures for CMS/PKCS#7 parsing
@@ -38,7 +68,7 @@ type encapsulatedContentInfo struct {
 
 type signerInfo struct {
 	Version            int
-	SID                issuerAndSerialNumber
+	SID                asn1.RawValue // Can be issuerAndSerialNumber or subjectKeyIdentifier
 	DigestAlgorithm    pkix.AlgorithmIdentifier
 	SignedAttrs        asn1.RawValue `asn1:"optional,tag:0"`
 	SignatureAlgorithm pkix.AlgorithmIdentifier
@@ -55,6 +85,7 @@ type VerifyOptions struct {
 	Roots         *x509.CertPool     // Trusted root certificates
 	Intermediates *x509.CertPool     // Intermediate certificates
 	CurrentTime   time.Time          // Time for validation (default: time.Now())
+	TimeFunc      func() time.Time   // Optional time source for testing (overrides CurrentTime)
 	KeyUsages     []x509.ExtKeyUsage // Required key usages
 }
 
@@ -70,9 +101,9 @@ type VerifyOptions struct {
 //   - opts: Verification options including trusted roots
 //
 // Returns:
-//   - The signer's X.509 certificate if verification succeeds
+//   - The validated certificate chain (signer cert first, then intermediates)
 //   - An error if verification fails at any step
-func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certificate, error) {
+func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Certificate, error) {
 	// Step 1: Parse ContentInfo
 	var ci contentInfo
 	rest, err := asn1.Unmarshal(cmsSignature, &ci)
@@ -103,6 +134,29 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 	}
 
 	// Step 3: Validate structure
+	// Check SignedData version (RFC 5652: should be 1 for issuerAndSerialNumber)
+	if sd.Version != 1 {
+		return nil, signetErrors.NewValidationError("SignedData.Version",
+			fmt.Sprintf("%d", sd.Version), "expected version 1 (issuerAndSerialNumber)", nil)
+	}
+
+	// Check and validate all digest algorithms (reject weak algorithms)
+	for _, alg := range sd.DigestAlgorithms {
+		if alg.Algorithm.Equal(oidMD5) {
+			return nil, signetErrors.NewValidationError("DigestAlgorithm",
+				"MD5", "weak algorithm not supported", nil)
+		}
+		if alg.Algorithm.Equal(oidSHA1) {
+			return nil, signetErrors.NewValidationError("DigestAlgorithm",
+				"SHA-1", "weak algorithm not supported", nil)
+		}
+		// Only SHA-256 is currently supported
+		if !alg.Algorithm.Equal(oidSHA256) {
+			return nil, signetErrors.NewValidationError("DigestAlgorithm",
+				alg.Algorithm.String(), "only SHA-256 is supported", nil)
+		}
+	}
+
 	// Check for zero signers
 	if len(sd.SignerInfos) == 0 {
 		return nil, signetErrors.NewValidationError("SignerInfos", "0", "expected exactly 1", nil)
@@ -138,53 +192,50 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 	}
 
 	// Extract certificate bytes from IMPLICIT [0] field
-	certBytes := extractImplicitContent(sd.Certificates.FullBytes)
+	certBytes := unwrapContext0(sd.Certificates.FullBytes)
 	if certBytes == nil {
 		return nil, signetErrors.NewValidationError("Certificates", "",
 			"failed to extract certificate content", nil)
 	}
 
-	// The standard CMS format uses SET OF certificates, where certBytes should be: 31 <len> <cert1> [<cert2> ...]
-	// For backward compatibility, we also support a single certificate without SET wrapper (older signer.go versions).
+	// Parse certificates using proper ASN.1 unmarshaling
 	var allCerts []*x509.Certificate
 	var signerCert *x509.Certificate
 
 	// Check if this is a SET OF certificates (standard format)
 	if len(certBytes) > 0 && certBytes[0] == 0x31 {
-		// Parse SET OF certificates manually
-		// Skip the SET tag and length to get to the content
+		// Extract content from the SET wrapper
 		setContent := extractSetContent(certBytes)
 		if setContent == nil {
 			return nil, signetErrors.NewValidationError("Certificates", "",
 				"failed to extract SET content", nil)
 		}
 
-		// Parse certificates from the SET content
+		// Try to parse as multiple certificates in the SET
 		remaining := setContent
 		for len(remaining) > 0 {
-			// Try to parse a certificate
-			parsedCert, err := x509.ParseCertificate(remaining)
-			if err == nil {
-				// Successfully parsed a single certificate that fills the entire SET
-				allCerts = append(allCerts, parsedCert)
-				if matchesSID(si.SID, parsedCert) {
-					signerCert = parsedCert
+			// Try to parse a certificate from the remaining bytes
+			var rawCert asn1.RawValue
+			rest, err := asn1.Unmarshal(remaining, &rawCert)
+			if err != nil {
+				// If ASN.1 parsing fails, try direct certificate parsing
+				// (some implementations put a single certificate directly in the SET)
+				parsedCert, err := x509.ParseCertificate(remaining)
+				if err == nil {
+					allCerts = append(allCerts, parsedCert)
+					if matchesSID(si.SID, parsedCert) {
+						signerCert = parsedCert
+					}
 				}
 				break
 			}
 
-			// If that didn't work, try parsing as ASN.1 structure to get individual certificates
-			var rawCert asn1.RawValue
-			rest, err := asn1.Unmarshal(remaining, &rawCert)
-			if err != nil {
-				break // No more certificates
-			}
-
 			// Parse the certificate
-			parsedCert, err = x509.ParseCertificate(rawCert.FullBytes)
+			parsedCert, err := x509.ParseCertificate(rawCert.FullBytes)
 			if err != nil {
+				// Skip malformed certificates but continue processing
 				remaining = rest
-				continue // Skip malformed certificates
+				continue
 			}
 			allCerts = append(allCerts, parsedCert)
 
@@ -242,11 +293,14 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 	if len(opts.KeyUsages) > 0 {
 		verifyOpts.KeyUsages = opts.KeyUsages
 	}
-	if verifyOpts.CurrentTime.IsZero() {
+	// Use TimeFunc if provided, otherwise CurrentTime, otherwise time.Now()
+	if opts.TimeFunc != nil {
+		verifyOpts.CurrentTime = opts.TimeFunc()
+	} else if verifyOpts.CurrentTime.IsZero() {
 		verifyOpts.CurrentTime = time.Now()
 	}
 
-	_, err = signerCert.Verify(verifyOpts)
+	chains, err := signerCert.Verify(verifyOpts)
 	if err != nil {
 		return nil, signetErrors.NewValidationError("certificate", "",
 			fmt.Sprintf("chain validation failed: %v", err), err)
@@ -284,7 +338,9 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 		// Calculate expected digest
 		h := sha256.Sum256(detachedData)
 
-		// Constant-time comparison to prevent timing attacks
+		// Constant-time comparison for defense in depth
+		// Note: This is not strictly necessary for comparing public digests,
+		// but we keep it for consistency and defensive programming
 		if subtle.ConstantTimeCompare(messageDigest, h[:]) != 1 {
 			return nil, signetErrors.NewSignatureError("cms",
 				"message digest mismatch", nil)
@@ -300,7 +356,7 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 		// But the signature was calculated over: 31 <len> <content>
 
 		// Extract content from IMPLICIT [0] (skip tag and length)
-		content := extractImplicitContent(si.SignedAttrs.FullBytes)
+		content := unwrapContext0(si.SignedAttrs.FullBytes)
 		if content == nil {
 			return nil, signetErrors.NewValidationError("SignedAttributes", "",
 				"failed to extract content from IMPLICIT tag", nil)
@@ -326,7 +382,18 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 			"Ed25519 verification failed", nil)
 	}
 
-	return signerCert, nil
+	// Build the certificate chain with signer cert first
+	var certChain []*x509.Certificate
+	certChain = append(certChain, signerCert)
+
+	// Add any chain certificates returned from Verify (if available)
+	// Take the first chain if multiple are found
+	if len(chains) > 0 && len(chains[0]) > 1 {
+		// Skip the first cert as it's the signer cert we already added
+		certChain = append(certChain, chains[0][1:]...)
+	}
+
+	return certChain, nil
 }
 
 // Helper Functions
@@ -386,9 +453,9 @@ func extractSetContent(data []byte) []byte {
 	return data[pos : pos+length]
 }
 
-// extractImplicitContent extracts content from an IMPLICIT [0] tagged field
+// unwrapContext0 extracts content from a CONTEXT SPECIFIC [0] tagged field
 // by skipping the tag and length bytes to get the raw content
-func extractImplicitContent(data []byte) []byte {
+func unwrapContext0(data []byte) []byte {
 	if len(data) < 2 {
 		return nil
 	}
@@ -463,30 +530,70 @@ func wrapAsSet(content []byte) []byte {
 }
 
 // parseSignedAttributes parses IMPLICIT [0] SignedAttrs back into attribute structures
+//
+// IMPORTANT: The IMPLICIT [0] tag replaces the SET OF tag, so the content we extract
+// is the concatenated attributes without the outer SET wrapper. We must parse them
+// individually, not as a SET OF structure.
+//
+// The structure in the CMS is:
+//
+//	SignedAttrs [0] IMPLICIT SET OF Attribute
+//
+// Which becomes:
+//
+//	A0 <len> <attr1> <attr2> ...  (the SET tag 31 is replaced by A0)
+//
+// After unwrapping the IMPLICIT [0], we have just the concatenated attributes.
 func parseSignedAttributes(signedAttrs []byte) ([]attribute, error) {
 	// Extract content from IMPLICIT [0]
-	content := extractImplicitContent(signedAttrs)
+	content := unwrapContext0(signedAttrs)
 	if content == nil {
 		return nil, fmt.Errorf("failed to extract content from IMPLICIT [0]")
 	}
 
-	// Parse attributes from the content
+	// Parse individual attributes from the concatenated content
+	// Note: The content is NOT a SET anymore, it's just concatenated attributes
 	var attrs []attribute
-	for len(content) > 0 {
+	remaining := content
+	for len(remaining) > 0 {
 		var attr attribute
-		rest, err := asn1.Unmarshal(content, &attr)
+		rest, err := asn1.Unmarshal(remaining, &attr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal attribute: %w", err)
 		}
 		attrs = append(attrs, attr)
-		content = rest
+		remaining = rest
+	}
+
+	if len(attrs) == 0 {
+		return nil, fmt.Errorf("no attributes found in SignedAttrs")
 	}
 
 	return attrs, nil
 }
 
-// matchesSID verifies that SignerIdentifier matches certificate's issuer and serial
-func matchesSID(sid issuerAndSerialNumber, cert *x509.Certificate) bool {
+// matchesSID verifies that SignerIdentifier matches certificate
+// Supports both issuerAndSerialNumber and subjectKeyIdentifier
+func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
+	// Check if this is a subjectKeyIdentifier (IMPLICIT [0] OCTET STRING)
+	if sidRaw.Tag == 0 && sidRaw.Class == 2 {
+		// This is a subjectKeyIdentifier
+		var keyID []byte
+		rest, err := asn1.Unmarshal(sidRaw.Bytes, &keyID)
+		if err != nil || len(rest) > 0 {
+			return false
+		}
+		// Compare with certificate's SubjectKeyId
+		return len(cert.SubjectKeyId) > 0 && string(keyID) == string(cert.SubjectKeyId)
+	}
+
+	// Otherwise, try to parse as issuerAndSerialNumber
+	var sid issuerAndSerialNumber
+	rest, err := asn1.Unmarshal(sidRaw.FullBytes, &sid)
+	if err != nil || len(rest) > 0 {
+		return false
+	}
+
 	// Compare serial numbers
 	if sid.SerialNumber.Cmp(cert.SerialNumber) != 0 {
 		return false

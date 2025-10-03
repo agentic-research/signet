@@ -188,7 +188,7 @@ func TestVerifyRoundTripSuccess(t *testing.T) {
 	}
 
 	// Check that we got the right certificate back
-	if !bytes.Equal(verifiedCert.Raw, leafCert.Raw) {
+	if !bytes.Equal(verifiedCert[0].Raw, leafCert.Raw) {
 		t.Error("Verified certificate does not match signer certificate")
 	}
 }
@@ -481,7 +481,7 @@ func TestExtractImplicitContent(t *testing.T) {
 				tc.input = append(tc.input, tc.expected...)
 			}
 
-			result := extractImplicitContent(tc.input)
+			result := unwrapContext0(tc.input)
 			if tc.wantNil {
 				if result != nil {
 					t.Errorf("Expected nil, got %v", result)
@@ -563,7 +563,7 @@ func TestImplicitTagReconstruction(t *testing.T) {
 	}
 
 	// Extract content from IMPLICIT
-	content := extractImplicitContent(implicitBytes)
+	content := unwrapContext0(implicitBytes)
 	if content == nil {
 		t.Fatal("Failed to extract content from IMPLICIT")
 	}
@@ -630,12 +630,20 @@ func TestVerifyNoSignedAttributes(t *testing.T) {
 	signature := ed25519.Sign(leafKey, h[:])
 
 	// Manually build SignerInfo without SignedAttrs
+	// Marshal issuerAndSerialNumber to RawValue
+	sidBytes, err := asn1.Marshal(issuerAndSerialNumber{
+		Issuer:       leafCert.Issuer.ToRDNSequence(),
+		SerialNumber: leafCert.SerialNumber,
+	})
+	if err != nil {
+		t.Fatalf("Failed to marshal SID: %v", err)
+	}
+	var sidRaw asn1.RawValue
+	asn1.Unmarshal(sidBytes, &sidRaw)
+
 	si := signerInfo{
-		Version: 1,
-		SID: issuerAndSerialNumber{
-			Issuer:       leafCert.Issuer.ToRDNSequence(),
-			SerialNumber: leafCert.SerialNumber,
-		},
+		Version:         1,
+		SID:             sidRaw,
 		DigestAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
 		// SignedAttrs omitted
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
@@ -695,7 +703,7 @@ func TestVerifyNoSignedAttributes(t *testing.T) {
 		t.Fatalf("Verification failed for CMS without SignedAttributes: %v", err)
 	}
 
-	if !bytes.Equal(verifiedCert.Raw, leafCert.Raw) {
+	if !bytes.Equal(verifiedCert[0].Raw, leafCert.Raw) {
 		t.Error("Verified certificate does not match signer certificate")
 	}
 }
@@ -1001,12 +1009,20 @@ func TestVerifyWithoutSignedAttributesManual(t *testing.T) {
 	directSignature := ed25519.Sign(privateKey, dataHash[:])
 
 	// Manually construct SignerInfo WITHOUT SignedAttrs
+	// Marshal issuerAndSerialNumber to RawValue
+	sidBytes, err := asn1.Marshal(issuerAndSerialNumber{
+		Issuer:       cert.Issuer.ToRDNSequence(),
+		SerialNumber: cert.SerialNumber,
+	})
+	if err != nil {
+		t.Fatalf("Failed to marshal SID: %v", err)
+	}
+	var sidRaw asn1.RawValue
+	asn1.Unmarshal(sidBytes, &sidRaw)
+
 	signer := signerInfo{
-		Version: 1,
-		SID: issuerAndSerialNumber{
-			Issuer:       cert.Issuer.ToRDNSequence(),
-			SerialNumber: cert.SerialNumber,
-		},
+		Version:         1,
+		SID:             sidRaw,
 		DigestAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidSHA256},
 		// SignedAttrs is intentionally omitted (nil/empty)
 		SignatureAlgorithm: pkix.AlgorithmIdentifier{Algorithm: oidEd25519},
@@ -1074,7 +1090,7 @@ func TestVerifyWithoutSignedAttributesManual(t *testing.T) {
 	}
 
 	// Ensure we got the correct certificate back
-	if !bytes.Equal(verifiedCert.Raw, cert.Raw) {
+	if !bytes.Equal(verifiedCert[0].Raw, cert.Raw) {
 		t.Error("Verified certificate does not match signer certificate")
 	}
 
@@ -1188,12 +1204,20 @@ func TestVerifyMultipleSigners(t *testing.T) {
 
 	// Create SignerInfo 1
 	sig1 := ed25519.Sign(leafKey1, signedAttrsForSigning)
+	// Marshal issuerAndSerialNumber to RawValue for SID
+	sid1Bytes, err := asn1.Marshal(issuerAndSerialNumber{
+		Issuer:       leafCert1.Issuer.ToRDNSequence(),
+		SerialNumber: leafCert1.SerialNumber,
+	})
+	if err != nil {
+		t.Fatalf("Failed to marshal SID1: %v", err)
+	}
+	var sid1Raw asn1.RawValue
+	asn1.Unmarshal(sid1Bytes, &sid1Raw)
+
 	signerInfo1 := signerInfo{
 		Version: 1,
-		SID: issuerAndSerialNumber{
-			Issuer:       leafCert1.Issuer.ToRDNSequence(),
-			SerialNumber: leafCert1.SerialNumber,
-		},
+		SID:     sid1Raw,
 		DigestAlgorithm: pkix.AlgorithmIdentifier{
 			Algorithm: oidSHA256,
 		},
@@ -1208,12 +1232,20 @@ func TestVerifyMultipleSigners(t *testing.T) {
 
 	// Create SignerInfo 2
 	sig2 := ed25519.Sign(leafKey2, signedAttrsForSigning)
+	// Marshal issuerAndSerialNumber to RawValue for SID
+	sid2Bytes, err := asn1.Marshal(issuerAndSerialNumber{
+		Issuer:       leafCert2.Issuer.ToRDNSequence(),
+		SerialNumber: leafCert2.SerialNumber,
+	})
+	if err != nil {
+		t.Fatalf("Failed to marshal SID2: %v", err)
+	}
+	var sid2Raw asn1.RawValue
+	asn1.Unmarshal(sid2Bytes, &sid2Raw)
+
 	signerInfo2 := signerInfo{
 		Version: 1,
-		SID: issuerAndSerialNumber{
-			Issuer:       leafCert2.Issuer.ToRDNSequence(),
-			SerialNumber: leafCert2.SerialNumber,
-		},
+		SID:     sid2Raw,
 		DigestAlgorithm: pkix.AlgorithmIdentifier{
 			Algorithm: oidSHA256,
 		},
@@ -1310,7 +1342,7 @@ func TestVerifyMultipleSigners(t *testing.T) {
 	rootPool.AddCert(rootCert)
 	opts := VerifyOptions{Roots: rootPool}
 
-	_, err := Verify(multiSignerCMS, testData, opts)
+	_, err = Verify(multiSignerCMS, testData, opts)
 	if err == nil {
 		t.Fatal("Verification should have failed with multiple signers")
 	}
@@ -1330,7 +1362,7 @@ func TestVerifyMultipleSigners(t *testing.T) {
 
 // reconstructSignedAttributes is a helper function needed for TestVerifyWithMultipleSignersEnhanced
 func reconstructSignedAttributes(signedAttrs asn1.RawValue) ([]byte, error) {
-	content := extractImplicitContent(signedAttrs.FullBytes)
+	content := unwrapContext0(signedAttrs.FullBytes)
 	if content == nil {
 		return nil, fmt.Errorf("failed to extract content from IMPLICIT tag")
 	}
@@ -1511,7 +1543,7 @@ func TestVerifyGoldenVector(t *testing.T) {
 			t.Errorf("Failed to verify golden vector signature: %v", err)
 		}
 
-		if !bytes.Equal(verifiedCert.Raw, goldenCert.Raw) {
+		if !bytes.Equal(verifiedCert[0].Raw, goldenCert.Raw) {
 			t.Errorf("Verified certificate doesn't match expected certificate")
 		}
 	*/
