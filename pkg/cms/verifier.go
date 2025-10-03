@@ -300,9 +300,18 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 		verifyOpts.CurrentTime = time.Now()
 	}
 
+	// NOTE: Certificate revocation checking (CRL/OCSP) is intentionally not performed here.
+	// Signet follows an offline-first design principle where:
+	// - Short-lived certificates (5 minutes) minimize the window for compromised keys
+	// - Epoch-based revocation happens at the token level (see ADR-001)
+	// - Network dependencies would break offline operation
+	// If certificate revocation is critical for your use case, implement it at the CA level
+	// or use the VerifyOptions hooks to add custom revocation checking.
 	chains, err := signerCert.Verify(verifyOpts)
 	if err != nil {
-		return nil, signetErrors.NewValidationError("certificate", "",
+		// Include certificate details for debugging
+		certInfo := fmt.Sprintf("subject=%s, serial=%s", signerCert.Subject, signerCert.SerialNumber)
+		return nil, signetErrors.NewValidationError("certificate", certInfo,
 			fmt.Sprintf("chain validation failed: %v", err), err)
 	}
 
@@ -398,6 +407,54 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 
 // Helper Functions
 
+// parseASN1Length parses ASN.1 DER/BER length encoding from data starting at offset
+// Returns the length value and new position after length bytes, or error if invalid
+// This function properly validates bounds to prevent panics from malformed input
+func parseASN1Length(data []byte, offset int) (length int, newPos int, err error) {
+	if offset >= len(data) {
+		return 0, 0, fmt.Errorf("offset %d exceeds data length %d", offset, len(data))
+	}
+
+	pos := offset
+	firstByte := data[pos]
+
+	if firstByte < 0x80 {
+		// Short form: length is in single byte (0-127)
+		length = int(firstByte)
+		newPos = pos + 1
+	} else if firstByte == 0x80 {
+		// Indefinite length - not supported in DER
+		return 0, 0, fmt.Errorf("indefinite length encoding not supported")
+	} else {
+		// Long form: firstByte & 0x7f tells us number of length bytes
+		numBytes := int(firstByte & 0x7f)
+		if numBytes > 4 {
+			// We don't support lengths requiring more than 4 bytes (>4GB)
+			return 0, 0, fmt.Errorf("length encoding with %d bytes not supported", numBytes)
+		}
+
+		pos++
+		if len(data) < pos+numBytes {
+			return 0, 0, fmt.Errorf("insufficient data for %d-byte length: need %d, have %d",
+				numBytes, pos+numBytes, len(data))
+		}
+
+		// Parse the length value
+		length = 0
+		for i := 0; i < numBytes; i++ {
+			length = (length << 8) | int(data[pos+i])
+		}
+		newPos = pos + numBytes
+	}
+
+	// Critical: Validate length doesn't exceed remaining data
+	if newPos+length > len(data) {
+		return 0, 0, fmt.Errorf("length %d exceeds remaining data %d", length, len(data)-newPos)
+	}
+
+	return length, newPos, nil
+}
+
 // extractSetContent extracts content from a SET (tag 0x31)
 // by skipping the tag and length bytes to get the raw content
 func extractSetContent(data []byte) []byte {
@@ -410,46 +467,13 @@ func extractSetContent(data []byte) []byte {
 		return nil
 	}
 
-	// Parse length
-	pos := 1
-	length := 0
-
-	if data[pos] < 0x80 {
-		// Short form: length is in single byte
-		length = int(data[pos])
-		pos++
-	} else if data[pos] == 0x81 {
-		// Long form with 1 byte
-		if len(data) < pos+2 {
-			return nil
-		}
-		length = int(data[pos+1])
-		pos += 2
-	} else if data[pos] == 0x82 {
-		// Long form with 2 bytes
-		if len(data) < pos+3 {
-			return nil
-		}
-		length = int(data[pos+1])<<8 | int(data[pos+2])
-		pos += 3
-	} else if data[pos] == 0x83 {
-		// Long form with 3 bytes
-		if len(data) < pos+4 {
-			return nil
-		}
-		length = int(data[pos+1])<<16 | int(data[pos+2])<<8 | int(data[pos+3])
-		pos += 4
-	} else {
-		// Unsupported length encoding
+	// Parse length using shared function with proper bounds checking
+	length, pos, err := parseASN1Length(data, 1)
+	if err != nil {
 		return nil
 	}
 
-	// Verify we have enough data
-	if len(data) < pos+length {
-		return nil
-	}
-
-	// Return the content bytes
+	// Return the content bytes (already validated by parseASN1Length)
 	return data[pos : pos+length]
 }
 
@@ -465,46 +489,13 @@ func unwrapContext0(data []byte) []byte {
 		return nil
 	}
 
-	// Parse length
-	pos := 1
-	length := 0
-
-	if data[pos] < 0x80 {
-		// Short form: length is in single byte
-		length = int(data[pos])
-		pos++
-	} else if data[pos] == 0x81 {
-		// Long form with 1 byte
-		if len(data) < pos+2 {
-			return nil
-		}
-		length = int(data[pos+1])
-		pos += 2
-	} else if data[pos] == 0x82 {
-		// Long form with 2 bytes
-		if len(data) < pos+3 {
-			return nil
-		}
-		length = int(data[pos+1])<<8 | int(data[pos+2])
-		pos += 3
-	} else if data[pos] == 0x83 {
-		// Long form with 3 bytes
-		if len(data) < pos+4 {
-			return nil
-		}
-		length = int(data[pos+1])<<16 | int(data[pos+2])<<8 | int(data[pos+3])
-		pos += 4
-	} else {
-		// Unsupported length encoding
+	// Parse length using shared function with proper bounds checking
+	length, pos, err := parseASN1Length(data, 1)
+	if err != nil {
 		return nil
 	}
 
-	// Verify we have enough data
-	if len(data) < pos+length {
-		return nil
-	}
-
-	// Return the content bytes
+	// Return the content bytes (already validated by parseASN1Length)
 	return data[pos : pos+length]
 }
 
@@ -572,8 +563,39 @@ func parseSignedAttributes(signedAttrs []byte) ([]attribute, error) {
 	return attrs, nil
 }
 
+// constantTimeCompareBigInt performs constant-time comparison of two big integers
+// Returns true if they are equal, false otherwise
+func constantTimeCompareBigInt(a, b *big.Int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Get byte representations
+	aBytes := a.Bytes()
+	bBytes := b.Bytes()
+
+	// For constant-time comparison, we need equal-length byte slices
+	// Pad the shorter one with leading zeros
+	maxLen := len(aBytes)
+	if len(bBytes) > maxLen {
+		maxLen = len(bBytes)
+	}
+
+	// Create padded versions
+	aPadded := make([]byte, maxLen)
+	bPadded := make([]byte, maxLen)
+	copy(aPadded[maxLen-len(aBytes):], aBytes)
+	copy(bPadded[maxLen-len(bBytes):], bBytes)
+
+	return subtle.ConstantTimeCompare(aPadded, bPadded) == 1
+}
+
 // matchesSID verifies that SignerIdentifier matches certificate
 // Supports both issuerAndSerialNumber and subjectKeyIdentifier
+// Uses constant-time comparison for cryptographic values to prevent timing attacks
 func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
 	// Check if this is a subjectKeyIdentifier (IMPLICIT [0] OCTET STRING)
 	if sidRaw.Tag == 0 && sidRaw.Class == 2 {
@@ -583,8 +605,11 @@ func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
 		if err != nil || len(rest) > 0 {
 			return false
 		}
-		// Compare with certificate's SubjectKeyId
-		return len(cert.SubjectKeyId) > 0 && string(keyID) == string(cert.SubjectKeyId)
+		// Use constant-time comparison for key IDs
+		if len(cert.SubjectKeyId) == 0 || len(keyID) != len(cert.SubjectKeyId) {
+			return false
+		}
+		return subtle.ConstantTimeCompare(keyID, cert.SubjectKeyId) == 1
 	}
 
 	// Otherwise, try to parse as issuerAndSerialNumber
@@ -594,12 +619,12 @@ func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
 		return false
 	}
 
-	// Compare serial numbers
-	if sid.SerialNumber.Cmp(cert.SerialNumber) != 0 {
+	// Use constant-time comparison for serial numbers
+	if !constantTimeCompareBigInt(sid.SerialNumber, cert.SerialNumber) {
 		return false
 	}
 
-	// Compare issuers
+	// Compare issuers (these are public values, but we maintain consistency)
 	certIssuer := cert.Issuer.ToRDNSequence()
 	if len(sid.Issuer) != len(certIssuer) {
 		return false
