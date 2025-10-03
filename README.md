@@ -23,6 +23,33 @@ A protocol and framework for machine-as-identity authentication, eliminating bea
 
 See [Feature Matrix](docs/FEATURE_MATRIX.md) for the full ecosystem vision (note: aspirational roadmap).
 
+## Repository Tooling Map
+
+### Command-Line Tools
+
+| Tool | Path | Status | Summary |
+|------|------|--------|---------|
+| **signet-commit** | [`cmd/signet-commit`](./cmd/signet-commit) | 🔨 Alpha | Git signing CLI; wraps CMS + ephemeral cert flow. See its [README](./cmd/signet-commit/README.md). |
+| **sigsign** | [`cmd/sigsign`](./cmd/sigsign) | 🧪 Experimental | General-purpose signer built on the same primitives; currently shares logic with `signet-commit` and still CLI-only. |
+| **signet-authority** | [`cmd/signet-authority`](./cmd/signet-authority) | 🚧 Prototype | Fulcio-style OIDC bridge that mints X.509 client certs. Requires OIDC config; see its [README](./cmd/signet-authority/README.md). |
+
+### Libraries & Packages
+
+| Package | Path | Status | Purpose |
+|---------|------|--------|---------|
+| **pkg/cms** | [`pkg/cms`](./pkg/cms) | ✅ Working | OpenSSL-compatible Ed25519 CMS/PKCS#7 implementation. |
+| **pkg/crypto/epr** | [`pkg/crypto/epr`](./pkg/crypto/epr) | ✅ Working | Two-step ephemeral proof generation & verification used across middleware and demos. |
+| **pkg/attest/x509** | [`pkg/attest/x509`](./pkg/attest/x509) | ✅ Working | 5-minute local CA for ephemeral certs. |
+| **pkg/signet** | [`pkg/signet`](./pkg/signet) | ✅ Working | CBOR token structure with deterministic encoding. |
+| **pkg/http/header** | [`pkg/http/header`](./pkg/http/header) | ✅ Working | Hardened `Signet-Proof` header parser with strict validation. |
+| **pkg/http/middleware** | [`pkg/http/middleware`](./pkg/http/middleware) | 🧪 Experimental | Full two-step verification middleware with pluggable stores and request canonicalization; tests cover replay, skew, and signature paths. |
+| **pkg/crypto/cose** | [`pkg/crypto/cose`](./pkg/crypto/cose) | 📝 Planned | Stub for future COSE Sign1 signing/verification; no implementation yet. |
+
+### Demos & Scripts
+
+- **HTTP Auth Demo** – [`demo/http-auth`](./demo/http-auth): Shows full two-step verification flow (server + client) and replay prevention.
+- **Testing Scripts** – [`scripts/testing`](./scripts/testing): OpenSSL interop and CMS validation helpers used by CI/local development.
+
 ## What Works Today
 
 ### 🧪 Working Demo: HTTP Authentication with Replay Protection
@@ -71,6 +98,12 @@ git commit -S -m "Signed with Signet"
 - 🔒 Ephemeral certificates (5-minute lifetime)
 - 🌐 Completely offline operation
 - ✅ OpenSSL verification compatible
+
+### 🧰 Additional Tooling
+
+- **sigsign CLI** ([`cmd/sigsign`](./cmd/sigsign)): General-purpose signer that reuses the local CA + CMS stack. `verify` subcommand is still stubbed; use OpenSSL for now.
+- **Signet Authority** ([`cmd/signet-authority`](./cmd/signet-authority)): Prototype OIDC bridge that issues short-lived client certs. Useful for experimenting with machine identity flows.
+- **HTTP Middleware** ([`pkg/http/middleware`](./pkg/http/middleware)): End-to-end two-step verification middleware with memory/Redis stores. Ready for integration once token issuance wiring is complete.
 
 ### ✅ Production Ready: libsignet
 
@@ -182,7 +215,7 @@ sudo cp signet-commit /usr/local/bin/  # Optional: install system-wide
 - **[Feature Matrix](docs/FEATURE_MATRIX.md)** - Complete implementation status
 - **[CMS Implementation](docs/CMS_IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details
 - **[Next Steps](NEXT_STEPS.md)** - Development roadmap
-- **[Investigation Log](INVESTIGATION_LOG.md)** - Development history and learnings
+- **[Implementation Status](docs/IMPLEMENTATION_STATUS.md)** - Honest snapshot of what's wired up today
 
 ## Contributing
 
@@ -276,5 +309,11 @@ This project is developed with AI assistance (Claude) for rapid prototyping and 
 - Documentation writing
 - Test case development
 - Performance optimization suggestions
+
+## Notes & TODOs
+
+- TODO: Deduplicate shared logic between `signet-commit` and `sigsign` (both maintain their own CLI plumbing around the same signing flow).
+- TODO: Flesh out `pkg/crypto/cose` with a concrete COSE Sign1 implementation (currently a stub interface).
+- TODO: Either author `docs/INVESTIGATION_LOG.md` or replace references in other docs to avoid dead links.
 
 The human maintainer reviews all AI-generated code for correctness, security, and architectural consistency.
