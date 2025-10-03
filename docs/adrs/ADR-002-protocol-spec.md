@@ -1,9 +1,10 @@
 # ADR-0002: Signet Protocol Specification v1.0
 
 **Status:** Draft
-**Type:** Protocol Specification
+
 **Date:** 2025-09-27
-**Authors:** James Gardner
+
+**Authors:** James Gardner / @jamestexas
 
 ## Abstract
 
