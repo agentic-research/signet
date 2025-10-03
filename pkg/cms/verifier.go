@@ -39,6 +39,18 @@ import (
 	signetErrors "github.com/jamestexas/signet/pkg/errors"
 )
 
+// ASN.1 tag constants for better readability
+const (
+	tagSequence         = 0x30 // SEQUENCE tag
+	tagSet              = 0x31 // SET tag
+	tagContextSpecific0 = 0xA0 // CONTEXT SPECIFIC [0] tag
+	tagOctetString      = 0x04 // OCTET STRING tag
+	tagInteger          = 0x02 // INTEGER tag
+	tagBitString        = 0x03 // BIT STRING tag
+	tagSetTag           = 17   // SET tag value (for compound check)
+	asn1ClassContext    = 2    // Context-specific class
+)
+
 // Object Identifiers for weak algorithms that should be rejected
 var (
 	oidMD5  = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 5}
@@ -89,22 +101,8 @@ type VerifyOptions struct {
 	KeyUsages     []x509.ExtKeyUsage // Required key usages
 }
 
-// Verify parses and validates a detached CMS/PKCS#7 signature
-//
-// This function implements RFC 5652 (CMS) verification for Ed25519 signatures.
-// It validates the signature structure, certificate chain, message digest,
-// and cryptographic signature.
-//
-// Parameters:
-//   - cmsSignature: DER-encoded CMS/PKCS#7 signature
-//   - detachedData: The original data that was signed
-//   - opts: Verification options including trusted roots
-//
-// Returns:
-//   - The validated certificate chain (signer cert first, then intermediates)
-//   - An error if verification fails at any step
-func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Certificate, error) {
-	// Step 1: Parse ContentInfo
+// parseContentInfo parses and validates the outer ContentInfo structure
+func parseContentInfo(cmsSignature []byte) (*contentInfo, error) {
 	var ci contentInfo
 	rest, err := asn1.Unmarshal(cmsSignature, &ci)
 	if err != nil {
@@ -117,15 +115,19 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 		return nil, signetErrors.NewValidationError("ContentType", ci.ContentType.String(),
 			"expected SignedData OID", nil)
 	}
+	return &ci, nil
+}
 
-	// Step 2: Parse SignedData from EXPLICIT [0] content
-	if ci.Content.Tag != 0 || ci.Content.Class != 2 || !ci.Content.IsCompound {
+// parseSignedData parses and validates the SignedData structure
+func parseSignedData(ci *contentInfo) (*signedData, error) {
+	// Parse SignedData from EXPLICIT [0] content
+	if ci.Content.Tag != 0 || ci.Content.Class != asn1ClassContext || !ci.Content.IsCompound {
 		return nil, signetErrors.NewValidationError("Content", "",
 			"invalid EXPLICIT tag", nil)
 	}
 
 	var sd signedData
-	rest, err = asn1.Unmarshal(ci.Content.Bytes, &sd)
+	rest, err := asn1.Unmarshal(ci.Content.Bytes, &sd)
 	if err != nil {
 		return nil, signetErrors.NewValidationError("SignedData", "", "failed to parse", err)
 	}
@@ -133,31 +135,37 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 		return nil, signetErrors.NewValidationError("SignedData", "", "trailing data", nil)
 	}
 
-	// Step 3: Validate structure
 	// Check SignedData version (RFC 5652: should be 1 for issuerAndSerialNumber)
 	if sd.Version != 1 {
 		return nil, signetErrors.NewValidationError("SignedData.Version",
 			fmt.Sprintf("%d", sd.Version), "expected version 1 (issuerAndSerialNumber)", nil)
 	}
 
-	// Check and validate all digest algorithms (reject weak algorithms)
+	return &sd, nil
+}
+
+// validateDigestAlgorithms checks all digest algorithms and ensures they're supported
+func validateDigestAlgorithms(sd *signedData) error {
 	for _, alg := range sd.DigestAlgorithms {
 		if alg.Algorithm.Equal(oidMD5) {
-			return nil, signetErrors.NewValidationError("DigestAlgorithm",
+			return signetErrors.NewValidationError("DigestAlgorithm",
 				"MD5", "weak algorithm not supported", nil)
 		}
 		if alg.Algorithm.Equal(oidSHA1) {
-			return nil, signetErrors.NewValidationError("DigestAlgorithm",
+			return signetErrors.NewValidationError("DigestAlgorithm",
 				"SHA-1", "weak algorithm not supported", nil)
 		}
 		// Only SHA-256 is currently supported
 		if !alg.Algorithm.Equal(oidSHA256) {
-			return nil, signetErrors.NewValidationError("DigestAlgorithm",
+			return signetErrors.NewValidationError("DigestAlgorithm",
 				alg.Algorithm.String(), "only SHA-256 is supported", nil)
 		}
 	}
+	return nil
+}
 
-	// Check for zero signers
+// validateSignerInfo validates the SignerInfo structure and algorithms
+func validateSignerInfo(sd *signedData) (*signerInfo, error) {
 	if len(sd.SignerInfos) == 0 {
 		return nil, signetErrors.NewValidationError("SignerInfos", "0", "expected exactly 1", nil)
 	}
@@ -165,12 +173,27 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 		return nil, signetErrors.NewValidationError("SignerInfos",
 			fmt.Sprintf("%d", len(sd.SignerInfos)), "expected exactly 1", nil)
 	}
-	si := sd.SignerInfos[0]
 
-	// Verify digest algorithm
+	si := &sd.SignerInfos[0]
+
+	// Verify digest algorithm is supported
 	if !si.DigestAlgorithm.Algorithm.Equal(oidSHA256) {
 		return nil, signetErrors.NewValidationError("DigestAlgorithm",
 			si.DigestAlgorithm.Algorithm.String(), "expected SHA-256", nil)
+	}
+
+	// RFC 5652 Section 5.1: Verify signer's digest algorithm is in SignedData digest algorithms
+	digestAlgFound := false
+	for _, alg := range sd.DigestAlgorithms {
+		if alg.Algorithm.Equal(si.DigestAlgorithm.Algorithm) {
+			digestAlgFound = true
+			break
+		}
+	}
+	if !digestAlgFound {
+		return nil, signetErrors.NewValidationError("DigestAlgorithm",
+			si.DigestAlgorithm.Algorithm.String(),
+			"signer's digest algorithm not in SignedData.DigestAlgorithms (RFC 5652 violation)", nil)
 	}
 
 	// Verify signature algorithm
@@ -179,22 +202,26 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 			si.SignatureAlgorithm.Algorithm.String(), "expected Ed25519", nil)
 	}
 
-	// Step 4: Validate and extract certificate
+	return si, nil
+}
+
+// extractCertificates extracts and parses certificates from the SignedData structure
+func extractCertificates(sd *signedData, si *signerInfo) ([]*x509.Certificate, *x509.Certificate, error) {
 	if len(sd.Certificates.FullBytes) == 0 {
-		return nil, signetErrors.NewValidationError("Certificates", "",
+		return nil, nil, signetErrors.NewValidationError("Certificates", "",
 			"no certificates found", nil)
 	}
 
 	// The certificates field is an IMPLICIT [0] containing the certificate bytes
-	if sd.Certificates.FullBytes[0] != 0xA0 {
-		return nil, signetErrors.NewValidationError("Certificates", "",
+	if sd.Certificates.FullBytes[0] != tagContextSpecific0 {
+		return nil, nil, signetErrors.NewValidationError("Certificates", "",
 			"invalid IMPLICIT [0] tag", nil)
 	}
 
 	// Extract certificate bytes from IMPLICIT [0] field
 	certBytes := unwrapContext0(sd.Certificates.FullBytes)
 	if certBytes == nil {
-		return nil, signetErrors.NewValidationError("Certificates", "",
+		return nil, nil, signetErrors.NewValidationError("Certificates", "",
 			"failed to extract certificate content", nil)
 	}
 
@@ -203,17 +230,22 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 	var signerCert *x509.Certificate
 
 	// Check if this is a SET OF certificates (standard format)
-	if len(certBytes) > 0 && certBytes[0] == 0x31 {
+	if len(certBytes) > 0 && certBytes[0] == tagSet {
 		// Extract content from the SET wrapper
 		setContent := extractSetContent(certBytes)
 		if setContent == nil {
-			return nil, signetErrors.NewValidationError("Certificates", "",
+			return nil, nil, signetErrors.NewValidationError("Certificates", "",
 				"failed to extract SET content", nil)
 		}
 
 		// Try to parse as multiple certificates in the SET
 		remaining := setContent
+		parseErrors := 0
+		totalAttempts := 0
+
 		for len(remaining) > 0 {
+			totalAttempts++
+
 			// Try to parse a certificate from the remaining bytes
 			var rawCert asn1.RawValue
 			rest, err := asn1.Unmarshal(remaining, &rawCert)
@@ -226,6 +258,8 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 					if matchesSID(si.SID, parsedCert) {
 						signerCert = parsedCert
 					}
+				} else {
+					parseErrors++
 				}
 				break
 			}
@@ -233,7 +267,8 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 			// Parse the certificate
 			parsedCert, err := x509.ParseCertificate(rawCert.FullBytes)
 			if err != nil {
-				// Skip malformed certificates but continue processing
+				// Track parsing failure but continue to try other certificates
+				parseErrors++
 				remaining = rest
 				continue
 			}
@@ -247,15 +282,21 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 			remaining = rest
 		}
 
+		// Fail if ALL certificates are malformed (potential attack)
+		if totalAttempts > 0 && parseErrors == totalAttempts {
+			return nil, nil, signetErrors.NewValidationError("Certificates", "",
+				fmt.Sprintf("all %d certificate(s) are malformed - potential attack", totalAttempts), nil)
+		}
+
 		if len(allCerts) == 0 {
-			return nil, signetErrors.NewValidationError("Certificates", "",
+			return nil, nil, signetErrors.NewValidationError("Certificates", "",
 				"no valid certificates found in SET", nil)
 		}
 	} else {
 		// Try to parse as a single certificate (backward compatibility with older signer.go)
 		cert, err := x509.ParseCertificate(certBytes)
 		if err != nil {
-			return nil, signetErrors.NewValidationError("Certificates", "",
+			return nil, nil, signetErrors.NewValidationError("Certificates", "",
 				"failed to parse certificate", err)
 		}
 		allCerts = append(allCerts, cert)
@@ -265,13 +306,15 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 	}
 
 	if signerCert == nil {
-		return nil, signetErrors.NewValidationError("Certificate", "",
+		return nil, nil, signetErrors.NewValidationError("Certificate", "",
 			"no certificate matches SignerIdentifier", nil)
 	}
 
-	// Step 5: Match SignerIdentifier to certificate (already verified above)
+	return allCerts, signerCert, nil
+}
 
-	// Step 6: Always validate certificate chain
+// verifyCertificateChain validates the certificate chain using the provided options
+func verifyCertificateChain(signerCert *x509.Certificate, allCerts []*x509.Certificate, opts VerifyOptions) ([][]*x509.Certificate, error) {
 	// If opts.Roots is nil, the system's default roots will be used
 	// Add any additional certificates from the CMS as intermediates
 	verifyOpts := x509.VerifyOptions{
@@ -315,50 +358,58 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 			fmt.Sprintf("chain validation failed: %v", err), err)
 	}
 
-	// Step 7: Verify message digest (if SignedAttrs present)
-	if len(si.SignedAttrs.FullBytes) > 0 {
-		// Parse signed attributes
-		attrs, err := parseSignedAttributes(si.SignedAttrs.FullBytes)
-		if err != nil {
-			return nil, signetErrors.NewValidationError("SignedAttributes", "",
-				"failed to parse", err)
-		}
+	return chains, nil
+}
 
-		// Find and verify message digest
-		var messageDigest []byte
-		var foundDigest bool
-		for _, attr := range attrs {
-			if attr.Type.Equal(oidAttributeMessageDigest) {
-				messageDigest, err = extractDigestFromAttribute(attr.Value)
-				if err != nil {
-					return nil, signetErrors.NewValidationError("MessageDigest", "",
-						"failed to extract", err)
-				}
-				foundDigest = true
-				break
+// verifyMessageDigest verifies the message digest in signed attributes if present
+func verifyMessageDigest(si *signerInfo, detachedData []byte) error {
+	if len(si.SignedAttrs.FullBytes) == 0 {
+		return nil // No signed attributes, nothing to verify
+	}
+
+	// Parse signed attributes
+	attrs, err := parseSignedAttributes(si.SignedAttrs.FullBytes)
+	if err != nil {
+		return signetErrors.NewValidationError("SignedAttributes", "",
+			"failed to parse", err)
+	}
+
+	// Find and verify message digest
+	var messageDigest []byte
+	var foundDigest bool
+	for _, attr := range attrs {
+		if attr.Type.Equal(oidAttributeMessageDigest) {
+			messageDigest, err = extractDigestFromAttribute(attr.Value)
+			if err != nil {
+				return signetErrors.NewValidationError("MessageDigest", "",
+					"failed to extract", err)
 			}
-		}
-
-		if !foundDigest {
-			return nil, signetErrors.NewValidationError("MessageDigest", "",
-				"attribute not found in SignedAttributes", nil)
-		}
-
-		// Calculate expected digest
-		h := sha256.Sum256(detachedData)
-
-		// Constant-time comparison for defense in depth
-		// Note: This is not strictly necessary for comparing public digests,
-		// but we keep it for consistency and defensive programming
-		if subtle.ConstantTimeCompare(messageDigest, h[:]) != 1 {
-			return nil, signetErrors.NewSignatureError("cms",
-				"message digest mismatch", nil)
+			foundDigest = true
+			break
 		}
 	}
 
-	// Step 8: Reconstruct data for signature verification
-	var dataToVerify []byte
+	if !foundDigest {
+		return signetErrors.NewValidationError("MessageDigest", "",
+			"attribute not found in SignedAttributes", nil)
+	}
 
+	// Calculate expected digest
+	h := sha256.Sum256(detachedData)
+
+	// Constant-time comparison for defense in depth
+	// Note: This is not strictly necessary for comparing public digests,
+	// but we keep it for consistency and defensive programming
+	if subtle.ConstantTimeCompare(messageDigest, h[:]) != 1 {
+		return signetErrors.NewSignatureError("cms",
+			"message digest mismatch", nil)
+	}
+
+	return nil
+}
+
+// prepareDataForVerification prepares the data that needs to be verified based on whether signed attributes are present
+func prepareDataForVerification(si *signerInfo, detachedData []byte) ([]byte, error) {
 	if len(si.SignedAttrs.FullBytes) > 0 {
 		// CRITICAL: Reconstruct the SET OF that was signed
 		// SignedAttrs is stored as IMPLICIT [0]: A0 <len> <content>
@@ -372,23 +423,94 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Cert
 		}
 
 		// Re-wrap with SET OF tag (0x31) for verification
-		dataToVerify = wrapAsSet(content)
-	} else {
-		// No SignedAttrs: signature is over content hash directly
-		h := sha256.Sum256(detachedData)
-		dataToVerify = h[:]
+		return wrapAsSet(content), nil
 	}
 
-	// Step 9: Verify Ed25519 signature
+	// No SignedAttrs: signature is over content hash directly
+	h := sha256.Sum256(detachedData)
+	return h[:], nil
+}
+
+// performSignatureVerification verifies the Ed25519 signature
+func performSignatureVerification(signerCert *x509.Certificate, dataToVerify []byte, signature []byte) error {
 	pubKey, ok := signerCert.PublicKey.(ed25519.PublicKey)
 	if !ok {
-		return nil, signetErrors.NewKeyError("verify", "public",
+		return signetErrors.NewKeyError("verify", "public",
 			fmt.Errorf("expected Ed25519 key, got %T", signerCert.PublicKey))
 	}
 
-	if !ed25519.Verify(pubKey, dataToVerify, si.Signature) {
-		return nil, signetErrors.NewSignatureError("cms",
+	if !ed25519.Verify(pubKey, dataToVerify, signature) {
+		return signetErrors.NewSignatureError("cms",
 			"Ed25519 verification failed", nil)
+	}
+
+	return nil
+}
+
+// Verify parses and validates a detached CMS/PKCS#7 signature
+//
+// This function implements RFC 5652 (CMS) verification for Ed25519 signatures.
+// It validates the signature structure, certificate chain, message digest,
+// and cryptographic signature.
+//
+// Parameters:
+//   - cmsSignature: DER-encoded CMS/PKCS#7 signature
+//   - detachedData: The original data that was signed
+//   - opts: Verification options including trusted roots
+//
+// Returns:
+//   - The validated certificate chain (signer cert first, then intermediates)
+//   - An error if verification fails at any step
+func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) ([]*x509.Certificate, error) {
+	// Step 1: Parse ContentInfo
+	ci, err := parseContentInfo(cmsSignature)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: Parse SignedData
+	sd, err := parseSignedData(ci)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 3: Validate digest algorithms
+	if err := validateDigestAlgorithms(sd); err != nil {
+		return nil, err
+	}
+
+	// Step 4: Validate SignerInfo
+	si, err := validateSignerInfo(sd)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 5: Extract and validate certificates
+	allCerts, signerCert, err := extractCertificates(sd, si)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 6: Verify certificate chain
+	chains, err := verifyCertificateChain(signerCert, allCerts, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 7: Verify message digest (if SignedAttrs present)
+	if err := verifyMessageDigest(si, detachedData); err != nil {
+		return nil, err
+	}
+
+	// Step 8: Prepare data for signature verification
+	dataToVerify, err := prepareDataForVerification(si, detachedData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 9: Verify Ed25519 signature
+	if err := performSignatureVerification(signerCert, dataToVerify, si.Signature); err != nil {
+		return nil, err
 	}
 
 	// Build the certificate chain with signer cert first
@@ -439,16 +561,24 @@ func parseASN1Length(data []byte, offset int) (length int, newPos int, err error
 				numBytes, pos+numBytes, len(data))
 		}
 
-		// Parse the length value
+		// Parse the length value with overflow protection
 		length = 0
 		for i := 0; i < numBytes; i++ {
+			// Check for integer overflow on 32-bit systems
+			// On 32-bit systems, int max is 2^31-1 (2147483647)
+			prevLength := length
 			length = (length << 8) | int(data[pos+i])
+
+			// Detect overflow: if length wrapped around to negative or decreased
+			if length < 0 || (prevLength > 0 && length < prevLength) {
+				return 0, 0, fmt.Errorf("integer overflow in length encoding")
+			}
 		}
 		newPos = pos + numBytes
 	}
 
 	// Critical: Validate length doesn't exceed remaining data
-	if newPos+length > len(data) {
+	if newPos+length > len(data) || newPos+length < 0 { // Check for overflow in addition
 		return 0, 0, fmt.Errorf("length %d exceeds remaining data %d", length, len(data)-newPos)
 	}
 
@@ -462,8 +592,8 @@ func extractSetContent(data []byte) []byte {
 		return nil
 	}
 
-	// Verify SET tag (0x31)
-	if data[0] != 0x31 {
+	// Verify SET tag
+	if data[0] != tagSet {
 		return nil
 	}
 
@@ -484,8 +614,8 @@ func unwrapContext0(data []byte) []byte {
 		return nil
 	}
 
-	// Verify IMPLICIT [0] tag (0xA0)
-	if data[0] != 0xA0 {
+	// Verify IMPLICIT [0] tag
+	if data[0] != tagContextSpecific0 {
 		return nil
 	}
 
@@ -501,7 +631,7 @@ func unwrapContext0(data []byte) []byte {
 
 // wrapAsSet wraps content with a SET OF tag (0x31) and proper length encoding
 func wrapAsSet(content []byte) []byte {
-	result := []byte{0x31} // SET tag
+	result := []byte{tagSet} // SET tag
 
 	// Add length encoding
 	length := len(content)
@@ -598,7 +728,7 @@ func constantTimeCompareBigInt(a, b *big.Int) bool {
 // Uses constant-time comparison for cryptographic values to prevent timing attacks
 func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
 	// Check if this is a subjectKeyIdentifier (IMPLICIT [0] OCTET STRING)
-	if sidRaw.Tag == 0 && sidRaw.Class == 2 {
+	if sidRaw.Tag == 0 && sidRaw.Class == asn1ClassContext {
 		// This is a subjectKeyIdentifier
 		var keyID []byte
 		rest, err := asn1.Unmarshal(sidRaw.Bytes, &keyID)
@@ -654,7 +784,7 @@ func matchesSID(sidRaw asn1.RawValue, cert *x509.Certificate) bool {
 // extractDigestFromAttribute extracts the digest value from an attribute's SET wrapper
 func extractDigestFromAttribute(value asn1.RawValue) ([]byte, error) {
 	// The value should be a SET containing an OCTET STRING
-	if value.Tag != 17 || !value.IsCompound {
+	if value.Tag != tagSetTag || !value.IsCompound {
 		return nil, fmt.Errorf("expected SET, got tag %d", value.Tag)
 	}
 
