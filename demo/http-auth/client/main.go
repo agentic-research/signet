@@ -32,7 +32,7 @@ func getServerURL() string {
 	if url := os.Getenv("SERVER_URL"); url != "" {
 		return url
 	}
-	return "http://localhost:8081"
+	return "http://localhost:8080"
 }
 
 // requestToken gets a new token from the server with proper ephemeral binding
