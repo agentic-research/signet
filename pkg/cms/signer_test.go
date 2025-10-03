@@ -3,6 +3,7 @@ package cms
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -346,6 +347,123 @@ func TestGoldenVector(t *testing.T) {
 
 	if parsedAttrs != 3 { // contentType, signingTime, messageDigest
 		t.Errorf("Expected 3 attributes, parsed %d", parsedAttrs)
+	}
+}
+
+// TestSignDataCertificatesImplicitEncoding ensures the certificates field is encoded as [0] IMPLICIT
+// with the raw certificate bytes directly following the context-specific tag (no nested SET).
+func TestSignDataCertificatesImplicitEncoding(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate Ed25519 keypair: %v", err)
+	}
+
+	now := time.Now().UTC()
+	serial := big.NewInt(0)
+	serial.SetUint64(0xBEEF)
+
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "Signet Regression"},
+		Issuer:                pkix.Name{CommonName: "Signet Regression"},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(5 * time.Minute),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		SignatureAlgorithm:    x509.PureEd25519,
+		PublicKeyAlgorithm:    x509.Ed25519,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pub, priv)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse certificate: %v", err)
+	}
+
+	data := []byte("cms regression test message")
+	signature, err := SignData(data, cert, priv)
+	if err != nil {
+		t.Fatalf("SignData failed: %v", err)
+	}
+
+	var ci struct {
+		ContentType asn1.ObjectIdentifier
+		Content     asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+	if _, err := asn1.Unmarshal(signature, &ci); err != nil {
+		t.Fatalf("failed to unmarshal ContentInfo: %v", err)
+	}
+	if !ci.ContentType.Equal(oidSignedData) {
+		t.Fatalf("unexpected content type: %v", ci.ContentType)
+	}
+
+	var sdRaw asn1.RawValue
+	if _, err := asn1.Unmarshal(ci.Content.Bytes, &sdRaw); err != nil {
+		t.Fatalf("failed to unmarshal SignedData: %v", err)
+	}
+	if sdRaw.Tag != asn1.TagSequence {
+		t.Fatalf("SignedData should be a SEQUENCE, got tag %d", sdRaw.Tag)
+	}
+
+	content := sdRaw.Bytes
+	var version int
+	content, err = asn1.Unmarshal(content, &version)
+	if err != nil {
+		t.Fatalf("failed to read version: %v", err)
+	}
+
+	// digestAlgorithms
+	var digestAlgs asn1.RawValue
+	content, err = asn1.Unmarshal(content, &digestAlgs)
+	if err != nil {
+		t.Fatalf("failed to read digestAlgorithms: %v", err)
+	}
+
+	// encapContentInfo
+	var encap asn1.RawValue
+	content, err = asn1.Unmarshal(content, &encap)
+	if err != nil {
+		t.Fatalf("failed to read encapContentInfo: %v", err)
+	}
+
+	// certificates (context-specific [0] IMPLICIT)
+	var certsRaw asn1.RawValue
+	content, err = asn1.Unmarshal(content, &certsRaw)
+	if err != nil {
+		t.Fatalf("failed to read certificates: %v", err)
+	}
+
+	if certsRaw.Class != 2 || certsRaw.Tag != 0 {
+		t.Fatalf("expected context-specific tag [0], got class=%d tag=%d", certsRaw.Class, certsRaw.Tag)
+	}
+	if !certsRaw.IsCompound {
+		t.Fatal("certificates field should be constructed (compound)")
+	}
+
+	if len(certsRaw.Bytes) == 0 {
+		t.Fatal("certificates payload is empty")
+	}
+	if certsRaw.Bytes[0] != 0x30 {
+		t.Fatalf("expected certificate payload to start with SEQUENCE (0x30), got 0x%02x", certsRaw.Bytes[0])
+	}
+
+	if !bytes.Equal(certsRaw.Bytes, certDER) {
+		t.Fatal("certificate payload does not match generated certificate DER")
+	}
+
+	if _, err := x509.ParseCertificate(certsRaw.Bytes); err != nil {
+		t.Fatalf("failed to parse certificate payload: %v", err)
+	}
+
+	// Ensure signerInfos still present
+	var signerInfos asn1.RawValue
+	_, err = asn1.Unmarshal(content, &signerInfos)
+	if err != nil {
+		t.Fatalf("failed to read signerInfos: %v", err)
 	}
 }
 

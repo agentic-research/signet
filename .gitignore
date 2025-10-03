@@ -69,3 +69,6 @@ test.txt
 #
 # Internal documentation (keep locally but don't push)
 INVESTIGATION_LOG.md
+
+# Local client binary for http-auth
+demo/http-auth/client/client
