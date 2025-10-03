@@ -103,6 +103,10 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 	}
 
 	// Step 3: Validate structure
+	// Check for zero signers
+	if len(sd.SignerInfos) == 0 {
+		return nil, signetErrors.NewValidationError("SignerInfos", "0", "expected exactly 1", nil)
+	}
 	if len(sd.SignerInfos) != 1 {
 		return nil, signetErrors.NewValidationError("SignerInfos",
 			fmt.Sprintf("%d", len(sd.SignerInfos)), "expected exactly 1", nil)
@@ -121,7 +125,7 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 			si.SignatureAlgorithm.Algorithm.String(), "expected Ed25519", nil)
 	}
 
-	// Step 4: Extract certificate
+	// Step 4: Validate and extract certificate
 	if len(sd.Certificates.FullBytes) == 0 {
 		return nil, signetErrors.NewValidationError("Certificates", "",
 			"no certificates found", nil)
@@ -140,40 +144,46 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 			"failed to extract certificate content", nil)
 	}
 
-	// The signer.go implementation puts a single certificate directly in the IMPLICIT [0] field,
-	// not a SET OF certificates. We need to handle both cases for compatibility.
+	// The standard CMS format uses SET OF certificates, where certBytes should be: 31 <len> <cert1> [<cert2> ...]
+	// For backward compatibility, we also support a single certificate without SET wrapper (older signer.go versions).
 	var allCerts []*x509.Certificate
 	var signerCert *x509.Certificate
 
-	// First, try to parse as a single certificate (what signer.go produces)
-	cert, err := x509.ParseCertificate(certBytes)
-	if err == nil {
-		// Successfully parsed as single certificate
-		allCerts = append(allCerts, cert)
-		if matchesSID(si.SID, cert) {
-			signerCert = cert
-		}
-	} else {
-		// Try to parse as a SET OF certificates (standard CMS format)
-		var certs []asn1.RawValue
-		rest, err = asn1.Unmarshal(certBytes, &certs)
-		if err != nil {
+	// Check if this is a SET OF certificates (standard format)
+	if len(certBytes) > 0 && certBytes[0] == 0x31 {
+		// Parse SET OF certificates manually
+		// Skip the SET tag and length to get to the content
+		setContent := extractSetContent(certBytes)
+		if setContent == nil {
 			return nil, signetErrors.NewValidationError("Certificates", "",
-				"failed to parse certificate(s)", err)
-		}
-		if len(rest) > 0 {
-			return nil, signetErrors.NewValidationError("Certificates", "",
-				"trailing data after certificate set", nil)
-		}
-		if len(certs) == 0 {
-			return nil, signetErrors.NewValidationError("Certificates", "",
-				"no certificates in set", nil)
+				"failed to extract SET content", nil)
 		}
 
-		// Parse all certificates and find the signer's certificate
-		for _, rawCert := range certs {
-			parsedCert, err := x509.ParseCertificate(rawCert.FullBytes)
+		// Parse certificates from the SET content
+		remaining := setContent
+		for len(remaining) > 0 {
+			// Try to parse a certificate
+			parsedCert, err := x509.ParseCertificate(remaining)
+			if err == nil {
+				// Successfully parsed a single certificate that fills the entire SET
+				allCerts = append(allCerts, parsedCert)
+				if matchesSID(si.SID, parsedCert) {
+					signerCert = parsedCert
+				}
+				break
+			}
+
+			// If that didn't work, try parsing as ASN.1 structure to get individual certificates
+			var rawCert asn1.RawValue
+			rest, err := asn1.Unmarshal(remaining, &rawCert)
 			if err != nil {
+				break // No more certificates
+			}
+
+			// Parse the certificate
+			parsedCert, err = x509.ParseCertificate(rawCert.FullBytes)
+			if err != nil {
+				remaining = rest
 				continue // Skip malformed certificates
 			}
 			allCerts = append(allCerts, parsedCert)
@@ -182,6 +192,24 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 			if matchesSID(si.SID, parsedCert) {
 				signerCert = parsedCert
 			}
+
+			remaining = rest
+		}
+
+		if len(allCerts) == 0 {
+			return nil, signetErrors.NewValidationError("Certificates", "",
+				"no valid certificates found in SET", nil)
+		}
+	} else {
+		// Try to parse as a single certificate (backward compatibility with older signer.go)
+		cert, err := x509.ParseCertificate(certBytes)
+		if err != nil {
+			return nil, signetErrors.NewValidationError("Certificates", "",
+				"failed to parse certificate", err)
+		}
+		allCerts = append(allCerts, cert)
+		if matchesSID(si.SID, cert) {
+			signerCert = cert
 		}
 	}
 
@@ -189,7 +217,6 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 		return nil, signetErrors.NewValidationError("Certificate", "",
 			"no certificate matches SignerIdentifier", nil)
 	}
-	cert = signerCert
 
 	// Step 5: Match SignerIdentifier to certificate (already verified above)
 
@@ -219,7 +246,7 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 		verifyOpts.CurrentTime = time.Now()
 	}
 
-	_, err = cert.Verify(verifyOpts)
+	_, err = signerCert.Verify(verifyOpts)
 	if err != nil {
 		return nil, signetErrors.NewValidationError("certificate", "",
 			fmt.Sprintf("chain validation failed: %v", err), err)
@@ -288,10 +315,10 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 	}
 
 	// Step 9: Verify Ed25519 signature
-	pubKey, ok := cert.PublicKey.(ed25519.PublicKey)
+	pubKey, ok := signerCert.PublicKey.(ed25519.PublicKey)
 	if !ok {
 		return nil, signetErrors.NewKeyError("verify", "public",
-			fmt.Errorf("expected Ed25519 key, got %T", cert.PublicKey))
+			fmt.Errorf("expected Ed25519 key, got %T", signerCert.PublicKey))
 	}
 
 	if !ed25519.Verify(pubKey, dataToVerify, si.Signature) {
@@ -299,10 +326,65 @@ func Verify(cmsSignature, detachedData []byte, opts VerifyOptions) (*x509.Certif
 			"Ed25519 verification failed", nil)
 	}
 
-	return cert, nil
+	return signerCert, nil
 }
 
 // Helper Functions
+
+// extractSetContent extracts content from a SET (tag 0x31)
+// by skipping the tag and length bytes to get the raw content
+func extractSetContent(data []byte) []byte {
+	if len(data) < 2 {
+		return nil
+	}
+
+	// Verify SET tag (0x31)
+	if data[0] != 0x31 {
+		return nil
+	}
+
+	// Parse length
+	pos := 1
+	length := 0
+
+	if data[pos] < 0x80 {
+		// Short form: length is in single byte
+		length = int(data[pos])
+		pos++
+	} else if data[pos] == 0x81 {
+		// Long form with 1 byte
+		if len(data) < pos+2 {
+			return nil
+		}
+		length = int(data[pos+1])
+		pos += 2
+	} else if data[pos] == 0x82 {
+		// Long form with 2 bytes
+		if len(data) < pos+3 {
+			return nil
+		}
+		length = int(data[pos+1])<<8 | int(data[pos+2])
+		pos += 3
+	} else if data[pos] == 0x83 {
+		// Long form with 3 bytes
+		if len(data) < pos+4 {
+			return nil
+		}
+		length = int(data[pos+1])<<16 | int(data[pos+2])<<8 | int(data[pos+3])
+		pos += 4
+	} else {
+		// Unsupported length encoding
+		return nil
+	}
+
+	// Verify we have enough data
+	if len(data) < pos+length {
+		return nil
+	}
+
+	// Return the content bytes
+	return data[pos : pos+length]
+}
 
 // extractImplicitContent extracts content from an IMPLICIT [0] tagged field
 // by skipping the tag and length bytes to get the raw content

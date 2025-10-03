@@ -301,23 +301,32 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	encapBytes, _ := asn1.Marshal(encapContent)
 	sdBuf.Write(encapBytes)
 
-	// Certificates [0] IMPLICIT
+	// Certificates [0] IMPLICIT SET OF Certificate
+	// For better interoperability with standard CMS tools, we now wrap the certificate
+	// in a SET OF structure, even when there's only one certificate.
+	// This matches the standard CMS format: A0 <len> 31 <len> <cert>
+	//
+	// Build the SET OF certificates first
+	certSetHeader := makeSetHeader(len(cert.Raw))
+	certSet := append(certSetHeader, cert.Raw...)
+
+	// Wrap in IMPLICIT [0] tag
 	certHeader := []byte{0xA0} // context-specific, constructed, tag 0
-	if len(cert.Raw) < 128 {
-		certHeader = append(certHeader, byte(len(cert.Raw)))
+	if len(certSet) < 128 {
+		certHeader = append(certHeader, byte(len(certSet)))
 	} else {
-		certLen := len(cert.Raw)
-		if certLen < 256 {
-			certHeader = append(certHeader, 0x81, byte(certLen))
-		} else if certLen < 65536 {
-			certHeader = append(certHeader, 0x82, byte(certLen>>8), byte(certLen))
+		certSetLen := len(certSet)
+		if certSetLen < 256 {
+			certHeader = append(certHeader, 0x81, byte(certSetLen))
+		} else if certSetLen < 65536 {
+			certHeader = append(certHeader, 0x82, byte(certSetLen>>8), byte(certSetLen))
 		} else {
-			// Certificate is too large (>= 65536 bytes)
-			return nil, signetErrors.NewValidationError("certificate size", fmt.Sprintf("%d bytes", certLen), "exceeds maximum size of 65535 bytes", nil)
+			// Certificate set is too large (>= 65536 bytes)
+			return nil, signetErrors.NewValidationError("certificate set size", fmt.Sprintf("%d bytes", certSetLen), "exceeds maximum size of 65535 bytes", nil)
 		}
 	}
 	sdBuf.Write(certHeader)
-	sdBuf.Write(cert.Raw)
+	sdBuf.Write(certSet)
 
 	// SignerInfos (SET OF SignerInfo)
 	siSetHeader := makeSetHeader(len(signerInfo))
