@@ -75,3 +75,4 @@ INVESTIGATION_LOG.md
 # Local client binary for http-auth
 demo/http-auth/client/client
 /signet
+/signet-commit

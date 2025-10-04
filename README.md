@@ -33,7 +33,7 @@ See [Feature Matrix](docs/FEATURE_MATRIX.md) for the full ecosystem vision (note
 
 | Tool | Path | Status | Summary |
 |------|------|--------|---------|
-| **signet** | [`cmd/signet`](./cmd/signet) | 🔨 Alpha | Modern Cobra-based CLI with Git commit signing. Includes backward-compatible `signet-commit` mode. |
+| **signet** | [`cmd/signet`](./cmd/signet) | 🔨 Alpha | Modern Cobra-based CLI with Git commit signing and future subcommands. |
 | **sigsign** | [`cmd/sigsign`](./cmd/sigsign) | 🧪 Experimental | General-purpose signer built on the same primitives; currently shares logic with `signet` and still CLI-only. |
 | **signet-authority** | [`cmd/signet-authority`](./cmd/signet-authority) | 🚧 Prototype | Fulcio-style OIDC bridge that mints X.509 client certs. Requires OIDC config; see its [README](./cmd/signet-authority/README.md). |
 
@@ -83,16 +83,16 @@ Replace GPG for Git commit signing with ephemeral X.509 certificates using our m
 # Install and build (macOS/Linux)
 git clone https://github.com/jamestexas/signet.git
 cd signet
-make build  # Builds 'signet' + backward-compatible 'signet-commit' symlink
+make build  # Builds 'signet' binary
 
 # Initialize master key (with colorized output!)
 ./signet commit --init
 # ✓ Signet initialized successfully
 #   Master key stored in: ~/.signet
 
-# Configure Git (using signet-commit for compatibility)
+# Configure Git to use signet
 git config --global gpg.format x509
-git config --global gpg.x509.program $(pwd)/signet-commit
+git config --global gpg.x509.program "$(pwd)/signet commit"
 git config --global user.signingKey $(./signet commit --export-key-id)
 
 # Sign commits!
@@ -219,8 +219,8 @@ sudo dnf install golang gnupg2
 ```bash
 git clone https://github.com/jamestexas/signet.git
 cd signet
-make build  # Builds 'signet' + 'signet-commit' symlink
-make install  # Optional: install system-wide (requires sudo)
+make build   # Builds 'signet' binary
+make install # Optional: install system-wide (requires sudo)
 ```
 
 The `signet` binary provides a modern CLI interface:
@@ -330,7 +330,7 @@ Try Signet today:
 
 # Configure Git (one-time setup)
 git config --global gpg.format x509
-git config --global gpg.x509.program $(pwd)/signet-commit
+git config --global gpg.x509.program "$(pwd)/signet commit"
 git config --global user.signingKey $(./signet commit --export-key-id)
 
 # Sign your commits!

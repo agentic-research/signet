@@ -11,7 +11,6 @@ echo "=== Signet Integration Test ==="
 if [ ! -f "./signet" ]; then
     echo "Building signet..."
     go build -o signet ./cmd/signet
-    ln -sf signet signet-commit
 fi
 
 # Store original directory
@@ -42,8 +41,7 @@ git commit -m "Initial commit"
 
 echo "--- Step 2: Initialize Signet ---"
 SIGNET_HOME="$TEST_DIR/.signet"
-# Use signet-commit symlink for backward compatibility
-SIGNET_CMD_PATH="$ORIGINAL_DIR/signet-commit"
+SIGNET_CMD_PATH="$ORIGINAL_DIR/signet"
 
 # Initialize signet
 echo "Initializing signet with home: $SIGNET_HOME"

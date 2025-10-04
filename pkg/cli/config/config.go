@@ -7,6 +7,11 @@ import (
 	"path/filepath"
 )
 
+const (
+	// DefaultCertificateValidityMinutes is the default duration for ephemeral certificates
+	DefaultCertificateValidityMinutes = 5
+)
+
 // Config holds the configuration for Signet CLI
 type Config struct {
 	// Home is the path to the .signet directory
@@ -29,7 +34,7 @@ func Default() *Config {
 		Home:                       home,
 		KeyPath:                    filepath.Join(home, "master.key"),
 		IssuerDID:                  "did:key:signet",
-		CertificateValidityMinutes: 5,
+		CertificateValidityMinutes: DefaultCertificateValidityMinutes,
 	}
 }
 
@@ -79,7 +84,7 @@ func New(home string) *Config {
 		Home:                       home,
 		KeyPath:                    filepath.Join(home, "master.key"),
 		IssuerDID:                  "did:key:signet",
-		CertificateValidityMinutes: 5,
+		CertificateValidityMinutes: DefaultCertificateValidityMinutes,
 	}
 }
 
@@ -101,8 +106,8 @@ func (c *Config) Validate() error {
 		return errors.New("key path cannot be empty")
 	}
 
-	if c.CertificateValidityMinutes < 1 || c.CertificateValidityMinutes > 60 {
-		return errors.New("certificate validity must be between 1 and 60 minutes")
+	if c.CertificateValidityMinutes < 1 || c.CertificateValidityMinutes > DefaultCertificateValidityMinutes {
+		return fmt.Errorf("certificate validity must be between 1 and %d minutes", DefaultCertificateValidityMinutes)
 	}
 
 	return nil

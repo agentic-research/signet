@@ -65,25 +65,26 @@ func Initialize(signetPath string) error {
 
 // LoadMasterKey loads the master key from the given path
 func LoadMasterKey(keyPath string) (*keys.Ed25519Signer, error) {
-	// Read key file
+
+	// Check permissions BEFORE reading
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat key file: %w", err)
+	}
+
+	// Verify permissions first
+	mode := info.Mode()
+	if mode.Perm()&0077 != 0 { // Check group/other bits are zero
+		return nil, fmt.Errorf("insecure key file permissions: %v (expected 0600)", mode.Perm())
+	}
+
+	// Then read
 	keyData, err := os.ReadFile(keyPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, errors.New("master key not found")
 		}
 		return nil, fmt.Errorf("failed to read key file: %w", err)
-	}
-
-	// Verify permissions
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat key file: %w", err)
-	}
-
-	// Check that only owner can read/write
-	mode := info.Mode()
-	if mode.Perm() != 0600 {
-		return nil, fmt.Errorf("insecure key file permissions: %v (expected 0600)", mode.Perm())
 	}
 
 	// Decode PEM

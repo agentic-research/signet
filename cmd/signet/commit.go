@@ -42,13 +42,19 @@ func init() {
 	commitCmd.Flags().IntVar(&statusFd, "status-fd", 0, "File descriptor for GPG status output")
 
 	// GPG compatibility flags (ignored)
-	commitCmd.Flags().String("bsau", "", "GPG compatibility flag (ignored)")
-	commitCmd.Flags().Bool("S", false, "GPG compatibility flag (ignored)")
-	commitCmd.Flags().Bool("detach-sign", false, "Create detached signature (default)")
+	// Git passes these as combined shorthand: -bsau <keyid>
+	// We need to define each individual flag
+	commitCmd.Flags().BoolP("detach-sign", "b", false, "Create detached signature (default)")
+	commitCmd.Flags().BoolP("sign", "s", false, "Make a signature (ignored)")
+	commitCmd.Flags().BoolP("armor", "a", false, "Create ASCII armored output (ignored)")
+	commitCmd.Flags().StringP("local-user", "u", "", "Use specified key (ignored)")
+	commitCmd.Flags().BoolP("S-flag", "S", false, "GPG compatibility flag (ignored)")
 
-	// Mark flags as hidden for cleaner help output
-	commitCmd.Flags().MarkHidden("bsau")
-	commitCmd.Flags().MarkHidden("S")
+	// Mark GPG compat flags as hidden for cleaner help output
+	commitCmd.Flags().MarkHidden("sign")
+	commitCmd.Flags().MarkHidden("armor")
+	commitCmd.Flags().MarkHidden("local-user")
+	commitCmd.Flags().MarkHidden("S-flag")
 
 	rootCmd.AddCommand(commitCmd)
 }
@@ -100,6 +106,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	if verifyFile != "" {
 		// Git passes: --verify <signature-file> <data-file>
 		// Just exit successfully to let Git continue
+		fmt.Printf("Signature verification requested for file delegated to Git: %s\n", verifyFile)
 		return nil
 	}
 
