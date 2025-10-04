@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jamestexas/signet/pkg/crypto/keys"
 	signetErrors "github.com/jamestexas/signet/pkg/errors"
 )
 
@@ -35,8 +36,12 @@ type ProofResponse struct {
 	// Proof is the ephemeral proof of possession
 	Proof *EphemeralProof
 
-	// EphemeralPrivateKey is the private key (caller should secure/destroy)
-	EphemeralPrivateKey crypto.PrivateKey
+	// EphemeralPrivateKey is the private key wrapped with automatic cleanup.
+	// Caller MUST call Destroy() when done, typically with defer:
+	//   resp, err := generator.GenerateProof(...)
+	//   if err != nil { return err }
+	//   defer resp.EphemeralPrivateKey.Destroy()
+	EphemeralPrivateKey *keys.SecurePrivateKey
 }
 
 // Generator generates ephemeral proofs of possession
@@ -69,11 +74,12 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 		return nil, signetErrors.ErrMasterKeyRequired
 	}
 
-	// 1. Generate ephemeral key pair
-	ephemeralPub, ephemeralPriv, err := ed25519.GenerateKey(rand.Reader)
+	// 1. Generate ephemeral key pair with secure wrapper
+	ephemeralPub, secPriv, err := keys.GenerateSecureKeyPair()
 	if err != nil {
 		return nil, signetErrors.NewKeyError("generate", "ephemeral", err)
 	}
+	// Note: Caller is responsible for calling secPriv.Destroy()
 
 	// 2. Create domain-separated message with validity period
 	expiresAt := time.Now().Add(request.ValidityPeriod).Unix()
@@ -82,6 +88,8 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 	// 3. Sign the message with master key to create BindingSignature
 	bindingSignature, err := g.masterSigner.Sign(rand.Reader, message, crypto.Hash(0))
 	if err != nil {
+		// Clean up ephemeral key on error
+		secPriv.Destroy()
 		return nil, signetErrors.NewSignatureError("binding", "master key signing failed", err)
 	}
 
@@ -92,7 +100,7 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 
 	return &ProofResponse{
 		Proof:               proof,
-		EphemeralPrivateKey: ephemeralPriv,
+		EphemeralPrivateKey: secPriv,
 	}, nil
 }
 

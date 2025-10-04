@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -60,6 +61,7 @@ func (l *testLogger) Error(msg string, args ...interface{}) {
 }
 
 // generateTestToken creates a valid token with ephemeral binding
+// IMPORTANT: The ephemeral key is NOT destroyed automatically. The caller must handle cleanup.
 func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose string) (*TokenRecord, ed25519.PrivateKey) {
 	// Generate ephemeral proof
 	generator := epr.NewGenerator(masterPriv)
@@ -73,7 +75,20 @@ func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose stri
 
 	// Create token
 	ephemeralPub := proofResp.Proof.EphemeralPublicKey.(ed25519.PublicKey)
-	ephemeralPriv := proofResp.EphemeralPrivateKey.(ed25519.PrivateKey)
+	ephemeralPriv := proofResp.EphemeralPrivateKey.Key()
+	if ephemeralPriv == nil {
+		t.Fatal("ephemeralPriv is nil")
+	}
+	// NOTE: Not destroying here since caller needs the key for signing
+	// The key would be zeroed before use if we defer here
+
+	// Verify key consistency
+	// Verify public key matches
+	derivedPub := ephemeralPriv.Public().(ed25519.PublicKey)
+	if !bytes.Equal(derivedPub, ephemeralPub) {
+		t.Fatal("public keys don't match")
+	}
+
 	ephemeralKeyHash := sha256.Sum256(ephemeralPub)
 	masterKeyHash := sha256.Sum256(masterPriv.Public().(ed25519.PublicKey))
 
@@ -259,7 +274,11 @@ func TestSignetMiddleware_ExpiredToken(t *testing.T) {
 	})
 
 	ephemeralPub := proofResp.Proof.EphemeralPublicKey.(ed25519.PublicKey)
-	ephemeralPriv := proofResp.EphemeralPrivateKey.(ed25519.PrivateKey)
+	ephemeralPriv := proofResp.EphemeralPrivateKey.Key()
+	if ephemeralPriv == nil {
+		t.Fatal("ephemeralPriv is nil")
+	}
+	defer proofResp.EphemeralPrivateKey.Destroy()
 	ephemeralKeyHash := sha256.Sum256(ephemeralPub)
 	masterKeyHash := sha256.Sum256(masterPub)
 

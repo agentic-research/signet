@@ -145,6 +145,8 @@ func issueTokenHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error": "Failed to issue token"}`, http.StatusInternalServerError)
 		return
 	}
+	// Ensure ephemeral key is zeroed when handler completes
+	defer proofResp.EphemeralPrivateKey.Destroy()
 
 	// Create token with ephemeral key binding
 	ephemeralPub := proofResp.Proof.EphemeralPublicKey.(ed25519.PublicKey)
@@ -191,7 +193,7 @@ func issueTokenHandler(w http.ResponseWriter, r *http.Request) {
 		"token_id":          tokenID,
 		"token":             base64.RawURLEncoding.EncodeToString(tokenBytes),
 		"ephemeral_public":  base64.RawURLEncoding.EncodeToString(ephemeralPub),
-		"ephemeral_private": base64.RawURLEncoding.EncodeToString(proofResp.EphemeralPrivateKey.(ed25519.PrivateKey)),
+		"ephemeral_private": base64.RawURLEncoding.EncodeToString(proofResp.EphemeralPrivateKey.Key()),
 		"binding_signature": base64.RawURLEncoding.EncodeToString(proofResp.Proof.BindingSignature),
 		"master_public":     base64.RawURLEncoding.EncodeToString(serverMasterPub),
 		"expires_at":        token.ExpiresAt,
