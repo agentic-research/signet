@@ -3,6 +3,7 @@ package cose
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"testing"
 )
 
@@ -310,4 +311,119 @@ func TestLargePayload(t *testing.T) {
 	if recovered[0] != largePayload[0] || recovered[len(recovered)-1] != largePayload[len(largePayload)-1] {
 		t.Error("payload content mismatch")
 	}
+}
+
+// TestConcurrentSigners tests that multiple goroutines can use different signers concurrently
+func TestConcurrentSigners(t *testing.T) {
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- true }()
+
+			// Each goroutine gets its own key pair and signer
+			_, priv, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Errorf("goroutine %d: failed to generate key: %v", id, err)
+				return
+			}
+
+			signer, err := NewEd25519Signer(priv)
+			if err != nil {
+				t.Errorf("goroutine %d: failed to create signer: %v", id, err)
+				return
+			}
+			defer signer.Destroy()
+
+			// Sign a payload
+			payload := []byte(fmt.Sprintf("message from goroutine %d", id))
+			sig, err := signer.Sign(payload)
+			if err != nil {
+				t.Errorf("goroutine %d: failed to sign: %v", id, err)
+				return
+			}
+
+			if len(sig) == 0 {
+				t.Errorf("goroutine %d: signature is empty", id)
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+}
+
+// TestConcurrentVerifiers tests that a single verifier can be used concurrently
+func TestConcurrentVerifiers(t *testing.T) {
+	// Create a signer and sign a message
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	signer, _ := NewEd25519Signer(priv)
+	defer signer.Destroy()
+
+	payload := []byte("test message for concurrent verification")
+	sig, _ := signer.Sign(payload)
+
+	// Create a single verifier
+	verifier, err := NewEd25519Verifier(pub)
+	if err != nil {
+		t.Fatalf("failed to create verifier: %v", err)
+	}
+
+	// Use it from multiple goroutines
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- true }()
+
+			// Verify the signature
+			recovered, err := verifier.Verify(sig)
+			if err != nil {
+				t.Errorf("goroutine %d: verification failed: %v", id, err)
+				return
+			}
+
+			if string(recovered) != string(payload) {
+				t.Errorf("goroutine %d: payload mismatch", id)
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+}
+
+// TestSignerDestroy tests that a destroyed signer cannot be used
+func TestSignerDestroy(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer, _ := NewEd25519Signer(priv)
+
+	// First sign should work
+	_, err := signer.Sign([]byte("test"))
+	if err != nil {
+		t.Fatalf("first sign failed: %v", err)
+	}
+
+	// Destroy the signer
+	signer.Destroy()
+
+	// Second sign should fail
+	_, err = signer.Sign([]byte("test"))
+	if err == nil {
+		t.Error("expected error after Destroy(), got nil")
+	}
+
+	// Multiple destroys should be safe
+	signer.Destroy()
+	signer.Destroy()
 }

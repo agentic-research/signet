@@ -1,6 +1,7 @@
 package signet
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -16,7 +17,12 @@ const (
 	SIG1Separator = "."
 )
 
-// SIG1 represents a Signet token in SIG1 wire format
+// SIG1 represents a Signet token in SIG1 wire format.
+//
+// Format: SIG1.<base64url(CBOR)>.<base64url(COSE_Sign1)>
+//
+// The structure contains the decoded token, the COSE signature bytes,
+// and the original wire format string for reference.
 type SIG1 struct {
 	// Token is the decoded Signet token
 	Token *Token
@@ -87,16 +93,24 @@ func DecodeSIG1(sig1 string) (*SIG1, error) {
 		return nil, fmt.Errorf("invalid SIG1 prefix: expected %q, got %q", SIG1Prefix, parts[0])
 	}
 
+	// Validate parts are not empty
+	if parts[1] == "" {
+		return nil, fmt.Errorf("payload part is empty")
+	}
+	if parts[2] == "" {
+		return nil, fmt.Errorf("signature part is empty")
+	}
+
 	// Decode payload
 	cborPayload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode payload: %w", err)
+		return nil, fmt.Errorf("invalid payload encoding: %w", err)
 	}
 
 	// Decode signature
 	coseSign1, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode signature: %w", err)
+		return nil, fmt.Errorf("invalid signature encoding: %w", err)
 	}
 
 	// Unmarshal token from CBOR
@@ -136,8 +150,8 @@ func VerifySIG1(sig1 string, verifier cose.Verifier) (*Token, error) {
 		return nil, fmt.Errorf("failed to marshal token for comparison: %w", err)
 	}
 
-	// Verify payloads match
-	if string(recoveredPayload) != string(expectedPayload) {
+	// Verify payloads match using constant-time comparison to prevent timing attacks
+	if len(recoveredPayload) != len(expectedPayload) || subtle.ConstantTimeCompare(recoveredPayload, expectedPayload) != 1 {
 		return nil, fmt.Errorf("payload mismatch: signature is valid but payload differs")
 	}
 

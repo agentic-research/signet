@@ -10,13 +10,16 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-// Ed25519Signer implements COSE Sign1 signing with Ed25519
+// Ed25519Signer implements COSE Sign1 signing with Ed25519.
+// The private key is securely managed and automatically zeroed when Destroy() is called.
 type Ed25519Signer struct {
 	privateKey ed25519.PrivateKey
 	signer     cose.Signer
+	destroyed  bool
 }
 
-// Ed25519Verifier implements COSE Sign1 verification with Ed25519
+// Ed25519Verifier implements COSE Sign1 verification with Ed25519.
+// Verifiers are safe for concurrent use.
 type Ed25519Verifier struct {
 	publicKey ed25519.PublicKey
 	verifier  cose.Verifier
@@ -37,11 +40,30 @@ func NewEd25519Signer(privateKey ed25519.PrivateKey) (*Ed25519Signer, error) {
 	return &Ed25519Signer{
 		privateKey: privateKey,
 		signer:     signer,
+		destroyed:  false,
 	}, nil
 }
 
-// Sign creates a COSE Sign1 message from the payload
+// Destroy securely zeros the private key from memory.
+// After calling Destroy, the signer cannot be used.
+// This is idempotent - calling multiple times is safe.
+func (s *Ed25519Signer) Destroy() {
+	if s != nil && !s.destroyed {
+		// Zero each byte of the private key
+		for i := range s.privateKey {
+			s.privateKey[i] = 0
+		}
+		s.destroyed = true
+	}
+}
+
+// Sign creates a COSE Sign1 message from the payload.
+// Note: nil payloads are rejected, but empty payloads ([]byte{}) are allowed
+// as they represent valid zero-length data to sign.
 func (s *Ed25519Signer) Sign(payload []byte) ([]byte, error) {
+	if s.destroyed {
+		return nil, fmt.Errorf("signer has been destroyed")
+	}
 	if payload == nil {
 		return nil, fmt.Errorf("payload cannot be nil")
 	}
@@ -100,13 +122,13 @@ func (v *Ed25519Verifier) Verify(coseSign1 []byte) ([]byte, error) {
 	return msg.Payload, nil
 }
 
-// Signer interface for COSE signing (backward compatibility with existing code)
+// Signer interface for COSE signing
 type Signer interface {
 	// Sign creates a COSE Sign1 message from the payload
 	Sign(payload []byte) ([]byte, error)
 }
 
-// Verifier interface for COSE verification (backward compatibility with existing code)
+// Verifier interface for COSE verification
 type Verifier interface {
 	// Verify verifies a COSE Sign1 message and returns the payload
 	Verify(coseSign1 []byte) (payload []byte, err error)
