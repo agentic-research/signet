@@ -1,0 +1,429 @@
+package cose
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"fmt"
+	"testing"
+)
+
+func TestEd25519SignerVerifier(t *testing.T) {
+	// Generate test key pair
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+
+	// Create signer
+	signer, err := NewEd25519Signer(priv)
+	if err != nil {
+		t.Fatalf("failed to create signer: %v", err)
+	}
+
+	// Create verifier
+	verifier, err := NewEd25519Verifier(pub)
+	if err != nil {
+		t.Fatalf("failed to create verifier: %v", err)
+	}
+
+	// Test data
+	testPayload := []byte("test message for COSE Sign1")
+
+	// Sign the payload
+	coseSign1, err := signer.Sign(testPayload)
+	if err != nil {
+		t.Fatalf("failed to sign: %v", err)
+	}
+
+	if len(coseSign1) == 0 {
+		t.Fatal("COSE Sign1 message is empty")
+	}
+
+	t.Logf("COSE Sign1 length: %d bytes", len(coseSign1))
+
+	// Verify the signature and recover payload
+	recoveredPayload, err := verifier.Verify(coseSign1)
+	if err != nil {
+		t.Fatalf("failed to verify: %v", err)
+	}
+
+	// Check payload matches
+	if string(recoveredPayload) != string(testPayload) {
+		t.Errorf("payload mismatch: got %q, want %q", recoveredPayload, testPayload)
+	}
+}
+
+func TestEd25519SignerInvalidKey(t *testing.T) {
+	// Test with invalid key size
+	invalidKey := make([]byte, 32) // Should be 64
+
+	_, err := NewEd25519Signer(invalidKey)
+	if err == nil {
+		t.Error("expected error for invalid key size, got nil")
+	}
+}
+
+func TestEd25519VerifierInvalidKey(t *testing.T) {
+	// Test with invalid key size
+	invalidKey := make([]byte, 64) // Should be 32
+
+	_, err := NewEd25519Verifier(invalidKey)
+	if err == nil {
+		t.Error("expected error for invalid key size, got nil")
+	}
+}
+
+func TestSignNilPayload(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	signer, err := NewEd25519Signer(priv)
+	if err != nil {
+		t.Fatalf("failed to create signer: %v", err)
+	}
+
+	_, err = signer.Sign(nil)
+	if err == nil {
+		t.Error("expected error for nil payload, got nil")
+	}
+}
+
+func TestVerifyInvalidSignature(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	verifier, err := NewEd25519Verifier(pub)
+	if err != nil {
+		t.Fatalf("failed to create verifier: %v", err)
+	}
+
+	// Try to verify garbage data
+	invalidCOSE := []byte("not a valid COSE message")
+	_, err = verifier.Verify(invalidCOSE)
+	if err == nil {
+		t.Error("expected error for invalid COSE message, got nil")
+	}
+}
+
+func TestVerifyNilMessage(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	verifier, err := NewEd25519Verifier(pub)
+	if err != nil {
+		t.Fatalf("failed to create verifier: %v", err)
+	}
+
+	_, err = verifier.Verify(nil)
+	if err == nil {
+		t.Error("expected error for nil message, got nil")
+	}
+}
+
+func TestVerifyWithWrongKey(t *testing.T) {
+	// Generate two different key pairs
+	pub1, priv1, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate first key pair: %v", err)
+	}
+
+	pub2, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate second key pair: %v", err)
+	}
+
+	// Sign with first key
+	signer, err := NewEd25519Signer(priv1)
+	if err != nil {
+		t.Fatalf("failed to create signer: %v", err)
+	}
+
+	coseSign1, err := signer.Sign([]byte("test"))
+	if err != nil {
+		t.Fatalf("failed to sign: %v", err)
+	}
+
+	// Try to verify with second key (should fail)
+	verifier, err := NewEd25519Verifier(pub2)
+	if err != nil {
+		t.Fatalf("failed to create verifier: %v", err)
+	}
+
+	_, err = verifier.Verify(coseSign1)
+	if err == nil {
+		t.Error("expected verification to fail with wrong key, got success")
+	}
+
+	// Verify with correct key (should succeed)
+	verifier1, err := NewEd25519Verifier(pub1)
+	if err != nil {
+		t.Fatalf("failed to create verifier with correct key: %v", err)
+	}
+
+	payload, err := verifier1.Verify(coseSign1)
+	if err != nil {
+		t.Errorf("verification with correct key failed: %v", err)
+	}
+	if string(payload) != "test" {
+		t.Errorf("payload mismatch: got %q, want %q", payload, "test")
+	}
+}
+
+func TestNewSignerInterface(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	// Test with EdDSA algorithm
+	signer, err := NewSigner(priv, "EdDSA")
+	if err != nil {
+		t.Fatalf("NewSigner failed: %v", err)
+	}
+
+	payload := []byte("test")
+	sig, err := signer.Sign(payload)
+	if err != nil {
+		t.Fatalf("Sign failed: %v", err)
+	}
+	if len(sig) == 0 {
+		t.Error("signature is empty")
+	}
+
+	// Test with empty algorithm (should default to EdDSA)
+	signer2, err := NewSigner(priv, "")
+	if err != nil {
+		t.Fatalf("NewSigner with empty algorithm failed: %v", err)
+	}
+
+	sig2, err := signer2.Sign(payload)
+	if err != nil {
+		t.Fatalf("Sign with default algorithm failed: %v", err)
+	}
+	if len(sig2) == 0 {
+		t.Error("signature is empty")
+	}
+
+	// Test with unsupported algorithm
+	_, err = NewSigner(priv, "RS256")
+	if err == nil {
+		t.Error("expected error for unsupported algorithm, got nil")
+	}
+
+	// Test with wrong key type
+	_, err = NewSigner("not a key", "EdDSA")
+	if err == nil {
+		t.Error("expected error for wrong key type, got nil")
+	}
+}
+
+func TestNewVerifierInterface(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	// Create signature
+	signer, _ := NewEd25519Signer(priv)
+	coseSign1, _ := signer.Sign([]byte("test"))
+
+	// Test verifier interface
+	verifier, err := NewVerifier(pub)
+	if err != nil {
+		t.Fatalf("NewVerifier failed: %v", err)
+	}
+
+	payload, err := verifier.Verify(coseSign1)
+	if err != nil {
+		t.Fatalf("Verify failed: %v", err)
+	}
+	if string(payload) != "test" {
+		t.Errorf("payload mismatch: got %q, want %q", payload, "test")
+	}
+
+	// Test with wrong key type
+	_, err = NewVerifier("not a key")
+	if err == nil {
+		t.Error("expected error for wrong key type, got nil")
+	}
+}
+
+func TestEmptyPayload(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	signer, _ := NewEd25519Signer(priv)
+	verifier, _ := NewEd25519Verifier(pub)
+
+	// Empty payload should work
+	emptyPayload := []byte{}
+	coseSign1, err := signer.Sign(emptyPayload)
+	if err != nil {
+		t.Fatalf("failed to sign empty payload: %v", err)
+	}
+
+	recovered, err := verifier.Verify(coseSign1)
+	if err != nil {
+		t.Fatalf("failed to verify empty payload: %v", err)
+	}
+
+	if len(recovered) != 0 {
+		t.Errorf("expected empty payload, got %d bytes", len(recovered))
+	}
+}
+
+func TestLargePayload(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	signer, _ := NewEd25519Signer(priv)
+	verifier, _ := NewEd25519Verifier(pub)
+
+	// Test with large payload (1MB)
+	largePayload := make([]byte, 1024*1024)
+	rand.Read(largePayload)
+
+	coseSign1, err := signer.Sign(largePayload)
+	if err != nil {
+		t.Fatalf("failed to sign large payload: %v", err)
+	}
+
+	recovered, err := verifier.Verify(coseSign1)
+	if err != nil {
+		t.Fatalf("failed to verify large payload: %v", err)
+	}
+
+	if len(recovered) != len(largePayload) {
+		t.Errorf("payload size mismatch: got %d, want %d", len(recovered), len(largePayload))
+	}
+
+	// Just check first and last bytes to avoid full comparison of 1MB
+	if recovered[0] != largePayload[0] || recovered[len(recovered)-1] != largePayload[len(largePayload)-1] {
+		t.Error("payload content mismatch")
+	}
+}
+
+// TestConcurrentSigners tests that multiple goroutines can use different signers concurrently
+func TestConcurrentSigners(t *testing.T) {
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- true }()
+
+			// Each goroutine gets its own key pair and signer
+			_, priv, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Errorf("goroutine %d: failed to generate key: %v", id, err)
+				return
+			}
+
+			signer, err := NewEd25519Signer(priv)
+			if err != nil {
+				t.Errorf("goroutine %d: failed to create signer: %v", id, err)
+				return
+			}
+			defer signer.Destroy()
+
+			// Sign a payload
+			payload := []byte(fmt.Sprintf("message from goroutine %d", id))
+			sig, err := signer.Sign(payload)
+			if err != nil {
+				t.Errorf("goroutine %d: failed to sign: %v", id, err)
+				return
+			}
+
+			if len(sig) == 0 {
+				t.Errorf("goroutine %d: signature is empty", id)
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+}
+
+// TestConcurrentVerifiers tests that a single verifier can be used concurrently
+func TestConcurrentVerifiers(t *testing.T) {
+	// Create a signer and sign a message
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	signer, _ := NewEd25519Signer(priv)
+	defer signer.Destroy()
+
+	payload := []byte("test message for concurrent verification")
+	sig, _ := signer.Sign(payload)
+
+	// Create a single verifier
+	verifier, err := NewEd25519Verifier(pub)
+	if err != nil {
+		t.Fatalf("failed to create verifier: %v", err)
+	}
+
+	// Use it from multiple goroutines
+	const numGoroutines = 10
+	done := make(chan bool, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- true }()
+
+			// Verify the signature
+			recovered, err := verifier.Verify(sig)
+			if err != nil {
+				t.Errorf("goroutine %d: verification failed: %v", id, err)
+				return
+			}
+
+			if string(recovered) != string(payload) {
+				t.Errorf("goroutine %d: payload mismatch", id)
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+}
+
+// TestSignerDestroy tests that a destroyed signer cannot be used
+func TestSignerDestroy(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer, _ := NewEd25519Signer(priv)
+
+	// First sign should work
+	_, err := signer.Sign([]byte("test"))
+	if err != nil {
+		t.Fatalf("first sign failed: %v", err)
+	}
+
+	// Destroy the signer
+	signer.Destroy()
+
+	// Second sign should fail
+	_, err = signer.Sign([]byte("test"))
+	if err == nil {
+		t.Error("expected error after Destroy(), got nil")
+	}
+
+	// Multiple destroys should be safe
+	signer.Destroy()
+	signer.Destroy()
+}
