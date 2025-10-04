@@ -92,7 +92,7 @@ All tools built on production-ready primitives:
 
 | Package | Purpose |
 |---------|---------|
-| [`pkg/cms`](./pkg/cms) | Ed25519 CMS/PKCS#7 (first Go implementation) |
+| [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) |
 | [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format |
 | [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification |
 | [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates |

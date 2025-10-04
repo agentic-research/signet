@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jamestexas/go-cms/pkg/cms"
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
-	"github.com/jamestexas/signet/pkg/cms"
 )
 
 const (

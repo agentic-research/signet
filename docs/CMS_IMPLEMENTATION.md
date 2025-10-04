@@ -168,9 +168,13 @@ Our implementation includes comprehensive tests:
 
 ## Code Location
 
-Implementation: [`pkg/cms/signer.go`](../pkg/cms/signer.go)
-Tests: [`pkg/cms/signer_test.go`](../pkg/cms/signer_test.go)
+**Note**: The CMS implementation has been extracted to a standalone library:
+- Repository: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
+- Implementation: [`pkg/cms/signer.go`](https://github.com/jamestexas/go-cms/blob/main/pkg/cms/signer.go)
+- Tests: [`pkg/cms/signer_test.go`](https://github.com/jamestexas/go-cms/blob/main/pkg/cms/signer_test.go)
+
+This library is the first open-source Go implementation to support Ed25519 in CMS format, filling a critical gap in the ecosystem.
 
 ---
 
-*This implementation represents a significant contribution to the Go ecosystem as the first library to support Ed25519 in CMS format.*
+*This document describes the CMS implementation used by Signet. The implementation is maintained as a separate library at github.com/jamestexas/go-cms.*

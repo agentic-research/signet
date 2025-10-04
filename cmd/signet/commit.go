@@ -10,11 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/jamestexas/go-cms/pkg/cms"
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/config"
 	"github.com/jamestexas/signet/pkg/cli/keystore"
 	"github.com/jamestexas/signet/pkg/cli/styles"
-	"github.com/jamestexas/signet/pkg/cms"
 )
 
 var (
