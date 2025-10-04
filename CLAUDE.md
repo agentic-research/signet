@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Core Development Tasks
 ```bash
-# Build the main binary
-make build                    # Creates ./signet-commit binary
-go build -o signet-commit ./cmd/signet-commit
+# Build the unified binary
+make build                    # Creates ./signet binary
+go build -o signet ./cmd/signet
 
 # Run tests
 make test                     # Unit tests
@@ -46,13 +46,14 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 - `pkg/crypto/epr/`: Ephemeral Proof Routines - two-step verification (master signs ephemeral, ephemeral signs request)
 - `pkg/crypto/keys/`: Ed25519 key management and signing interfaces
 - `pkg/attest/x509/`: Local CA for generating short-lived certificates (5-minute default)
+- `pkg/cli/`: Shared CLI utilities (keystore, config, Lipgloss styling)
 - **Note**: CMS/PKCS#7 implementation has been extracted to [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
 
-**signet-commit (cmd/signet-commit/)** - Git commit signing implementation:
-- `main.go`: GPG-compatible interface for git integration
-- `keystore.go`: Secure master key storage in `~/.signet/`
-- `signer.go`: CMS signature generation with ephemeral certificates
-- `config.go`: Git configuration management
+**signet (cmd/signet/)** - Unified CLI with Cobra and Lipgloss:
+- `main.go` & `root.go`: Root command and global configuration
+- `commit.go`: Git commit signing (GPG drop-in replacement)
+- `sign.go`: Universal file signing with ephemeral certificates
+- `authority.go`: OIDC certificate authority server
 
 ### Key Design Patterns
 
@@ -86,18 +87,57 @@ Tokens use CBOR with integer keys for deterministic serialization:
 6: NotBefore (int64) - Unix timestamp
 ```
 
-### Git Integration
-The tool acts as a drop-in replacement for GPG:
+### CLI Structure
+The unified `signet` binary provides three subcommands:
+
+**signet commit** - Git commit signing (GPG drop-in replacement):
 ```bash
+# Initialize
+signet commit --init
+
+# Configure Git
 git config --global gpg.format x509
-git config --global gpg.x509.program $(pwd)/signet-commit
-git config --global user.signingKey $(./signet-commit --export-key-id)
+git config --global gpg.x509.program $(which signet)
+git config --global user.signingKey $(signet commit --export-key-id)
+```
+
+**signet sign** - Universal file signing:
+```bash
+# Initialize (shares keystore with commit)
+signet sign --init
+
+# Sign any file
+signet sign document.pdf
+signet sign -o custom.sig data.json
+```
+
+**signet authority** - OIDC certificate authority:
+```bash
+# Run server with config
+signet authority --config config.json
+
+# See help for configuration format
+signet authority --help
 ```
 
 ## Current State
 
-- **Alpha/Experimental**: signet-commit, libsignet core, CMS/PKCS#7 signing
-- **In Progress**: Python SDK, JavaScript SDK, COSE integration
-- **Planned**: HTTP middleware, service mesh integration, true ZK proofs
+**What Works (Alpha):**
+- `signet commit`: Git signing with ephemeral certificates (GPG replacement)
+- `signet sign`: Universal file signing with CMS/PKCS#7 format
+- `signet authority`: OIDC-based certificate authority (experimental)
+- Unified Cobra-based CLI with Lipgloss styling
+- Shared keystore and configuration across subcommands
+
+**In Progress:**
+- Signature verification (currently delegates to Git/OpenSSL)
+- Python SDK, JavaScript SDK
+- COSE integration for wire format v1
+
+**Planned:**
+- HTTP middleware for service-to-service authentication
+- Service mesh integration
+- True ZK proofs for privacy-preserving authentication
+- Certificate revocation and renewal
 
 The codebase prioritizes correctness and security over features. All cryptographic operations use standard libraries (golang.org/x/crypto) with careful attention to memory zeroization and timing attacks.
