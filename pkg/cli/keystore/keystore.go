@@ -108,6 +108,9 @@ func LoadMasterKey(keyPath string) (*keys.Ed25519Signer, error) {
 		block.Bytes[i] = 0
 	}
 
+	// Note: privateKey is NOT zeroed here because NewEd25519Signer stores a reference
+	// to the same underlying array. The caller must call Destroy() on the returned
+	// signer to zero the private key when done.
 	return keys.NewEd25519Signer(privateKey), nil
 }
 
@@ -143,6 +146,11 @@ func GetKeyID(keyPath string) (string, error) {
 	// Zero the seed after use
 	for i := range block.Bytes {
 		block.Bytes[i] = 0
+	}
+
+	// Zero the private key after extracting public key
+	for i := range privateKey {
+		privateKey[i] = 0
 	}
 
 	// Return hex-encoded public key as ID
