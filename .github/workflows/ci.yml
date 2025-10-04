@@ -106,8 +106,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          go test -bench=. -benchmem -benchtime=10s ./pkg/cms | tee bench.txt
-          go test -bench=. -benchmem -benchtime=10s ./pkg/attest/x509 | tee -a bench.txt
+          go test -bench=. -benchmem -benchtime=10s ./pkg/attest/x509 | tee bench.txt
 
           # Show benchmark results in PR
           echo "### Benchmark Results" >> $GITHUB_STEP_SUMMARY

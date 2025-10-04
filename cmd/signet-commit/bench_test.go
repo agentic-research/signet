@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jamestexas/go-cms/pkg/cms"
 	"github.com/jamestexas/signet/pkg/attest/x509"
-	"github.com/jamestexas/signet/pkg/cms"
 )
 
 // BenchmarkEndToEndSigning measures the complete signing flow

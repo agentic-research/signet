@@ -13,7 +13,6 @@ go build -o signet-commit ./cmd/signet-commit
 # Run tests
 make test                     # Unit tests
 go test -v ./...             # Unit tests with verbose output
-go test -v ./pkg/cms         # Test specific package
 
 # Integration testing
 make integration-test         # Run in Docker (recommended)
@@ -46,8 +45,8 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 - `pkg/signet/`: CBOR token structures with integer keys for deterministic serialization
 - `pkg/crypto/epr/`: Ephemeral Proof Routines - two-step verification (master signs ephemeral, ephemeral signs request)
 - `pkg/crypto/keys/`: Ed25519 key management and signing interfaces
-- `pkg/cms/`: CMS/PKCS#7 implementation with Ed25519 support (unique to this project)
 - `pkg/attest/x509/`: Local CA for generating short-lived certificates (5-minute default)
+- **Note**: CMS/PKCS#7 implementation has been extracted to [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
 
 **signet-commit (cmd/signet-commit/)** - Git commit signing implementation:
 - `main.go`: GPG-compatible interface for git integration
@@ -67,14 +66,12 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 
 The project uses integration tests that verify end-to-end workflows:
 - `scripts/testing/test_integration.sh`: Full git signing workflow
-- `scripts/testing/test_openssl_verify.sh`: OpenSSL compatibility verification
-- `scripts/testing/test_cms_headers.sh`: CMS structure validation
 
 ## Implementation Notes
 
 ### CMS/PKCS#7 with Ed25519
-This implementation is the first Go library to support Ed25519 in CMS/PKCS#7 format. Key files:
-- `pkg/cms/signer.go`: Core CMS implementation
+The CMS/PKCS#7 implementation supporting Ed25519 has been extracted to a standalone library:
+- Repository: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
 - Uses RFC 8410 and RFC 8419 for Ed25519 in CMS
 - Generates OpenSSL-compatible signatures
 

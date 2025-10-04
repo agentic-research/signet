@@ -1,11 +1,12 @@
 module github.com/jamestexas/signet
 
-go 1.25
+go 1.25.1
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coreos/go-oidc/v3 v3.15.0
 	github.com/fxamacker/cbor/v2 v2.9.0
+	github.com/jamestexas/go-cms v0.1.0
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.1
 	github.com/veraison/go-cose v1.3.0
@@ -13,6 +14,8 @@ require (
 	golang.org/x/crypto v0.42.0
 	golang.org/x/oauth2 v0.31.0
 )
+
+replace github.com/jamestexas/go-cms => ../go-cms
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
