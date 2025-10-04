@@ -1,16 +1,16 @@
 #!/bin/bash
 set -e
 
-# Integration Test for signet-commit
-# This script validates that signet-commit can be used by Git to create
+# Integration Test for Signet
+# This script validates that signet can be used by Git to create
 # and verify cryptographically valid commit signatures
 
-echo "=== Signet-commit Integration Test ==="
+echo "=== Signet Integration Test ==="
 
 # Ensure we have the binary
-if [ ! -f "./signet-commit" ]; then
-    echo "Building signet-commit..."
-    go build -o signet-commit ./cmd/signet-commit
+if [ ! -f "./signet" ]; then
+    echo "Building signet..."
+    go build -o signet ./cmd/signet
 fi
 
 # Store original directory
@@ -41,17 +41,17 @@ git commit -m "Initial commit"
 
 echo "--- Step 2: Initialize Signet ---"
 SIGNET_HOME="$TEST_DIR/.signet"
-SIGNET_CMD_PATH="$ORIGINAL_DIR/signet-commit"
+SIGNET_CMD_PATH="$ORIGINAL_DIR/signet"
 
 # Initialize signet
 echo "Initializing signet with home: $SIGNET_HOME"
-$SIGNET_CMD_PATH --home "$SIGNET_HOME" --init
+$SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --init
 
 # Ask the tool for its canonical key ID
-MASTER_KEY_ID=$($SIGNET_CMD_PATH --home "$SIGNET_HOME" --export-key-id)
+MASTER_KEY_ID=$($SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --export-key-id)
 echo "--- Using Signet Master Key ID: $MASTER_KEY_ID ---"
 
-echo "--- Step 3: Configure Git to use signet-commit ---"
+echo "--- Step 3: Configure Git to use signet ---"
 # Tell Git to use X.509 signature format
 git config --local gpg.format x509
 
@@ -60,8 +60,8 @@ WRAPPER_SCRIPT="$TEST_DIR/signet-wrapper.sh"
 cat > "$WRAPPER_SCRIPT" << EOF
 #!/bin/bash
 echo "Wrapper called with args: \$@" >&2
-echo "Calling: $SIGNET_CMD_PATH --home $SIGNET_HOME \$@" >&2
-exec "$SIGNET_CMD_PATH" --home "$SIGNET_HOME" "\$@"
+echo "Calling: $SIGNET_CMD_PATH commit --home $SIGNET_HOME \$@" >&2
+exec "$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" "\$@"
 EOF
 chmod +x "$WRAPPER_SCRIPT"
 
@@ -85,7 +85,7 @@ echo "--- Step 5: Create a signed commit ---"
 echo "New signed content" >> README.md
 git add README.md
 
-echo "--- Attempting to sign commit with signet-commit... ---"
+echo "--- Attempting to sign commit with signet... ---"
 git commit -S -m "Test: A commit signed by Signet"
 
 echo "--- Step 5: Verify the signature ---"
@@ -142,7 +142,7 @@ fi
 echo ""
 if $COMMIT_CREATED && $SIGNATURE_ATTACHED && $VERIFICATION_OK; then
     echo "=== INTEGRATION TEST PASSED ==="
-    echo "Signet-commit successfully signs Git commits!"
+    echo "Signet successfully signs Git commits!"
     exit 0
 else
     echo "=== INTEGRATION TEST FAILED ==="

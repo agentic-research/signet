@@ -21,8 +21,9 @@ A protocol and framework for machine-as-identity authentication, eliminating bea
 | Component | Status | Description |
 |-----------|--------|-------------|
 | **libsignet** | 🧪 Experimental | Core protocol library with Ed25519, CBOR tokens, ephemeral proofs |
-| **signet-commit** | 🔨 Alpha | Git commit signing with CMS/PKCS#7 (works on our machines!) |
+| **signet CLI** | 🔨 Alpha | Modern Cobra-based CLI with Git commit signing + future subcommands |
 | **pkg/http** | 🚧 Development | HTTP middleware - wire format implemented, adapters next |
+| **pkg/crypto/cose** | ✅ Working | COSE Sign1 with Ed25519 for compact wire format |
 
 See [Feature Matrix](docs/FEATURE_MATRIX.md) for the full ecosystem vision (note: aspirational roadmap).
 
@@ -32,8 +33,8 @@ See [Feature Matrix](docs/FEATURE_MATRIX.md) for the full ecosystem vision (note
 
 | Tool | Path | Status | Summary |
 |------|------|--------|---------|
-| **signet-commit** | [`cmd/signet-commit`](./cmd/signet-commit) | 🔨 Alpha | Git signing CLI; wraps CMS + ephemeral cert flow. See its [README](./cmd/signet-commit/README.md). |
-| **sigsign** | [`cmd/sigsign`](./cmd/sigsign) | 🧪 Experimental | General-purpose signer built on the same primitives; currently shares logic with `signet-commit` and still CLI-only. |
+| **signet** | [`cmd/signet`](./cmd/signet) | 🔨 Alpha | Modern Cobra-based CLI with Git commit signing and future subcommands. |
+| **sigsign** | [`cmd/sigsign`](./cmd/sigsign) | 🧪 Experimental | General-purpose signer built on the same primitives; currently shares logic with `signet` and still CLI-only. |
 | **signet-authority** | [`cmd/signet-authority`](./cmd/signet-authority) | 🚧 Prototype | Fulcio-style OIDC bridge that mints X.509 client certs. Requires OIDC config; see its [README](./cmd/signet-authority/README.md). |
 
 ### Libraries & Packages
@@ -46,7 +47,8 @@ See [Feature Matrix](docs/FEATURE_MATRIX.md) for the full ecosystem vision (note
 | **pkg/signet** | [`pkg/signet`](./pkg/signet) | ✅ Working | CBOR token structure with deterministic encoding. |
 | **pkg/http/header** | [`pkg/http/header`](./pkg/http/header) | ✅ Working | Hardened `Signet-Proof` header parser with strict validation. |
 | **pkg/http/middleware** | [`pkg/http/middleware`](./pkg/http/middleware) | 🧪 Experimental | Full two-step verification middleware with pluggable stores and request canonicalization; tests cover replay, skew, and signature paths. |
-| **pkg/crypto/cose** | [`pkg/crypto/cose`](./pkg/crypto/cose) | 📝 Planned | Stub for future COSE Sign1 signing/verification; no implementation yet. |
+| **pkg/crypto/cose** | [`pkg/crypto/cose`](./pkg/crypto/cose) | ✅ Working | COSE Sign1 signing/verification with Ed25519 for compact SIG1 wire format. |
+| **pkg/signet/sig1** | [`pkg/signet`](./pkg/signet) | ✅ Working | SIG1 wire format: `SIG1.<base64-token>.<base64-signature>` for HTTP headers. |
 
 ### Demos & Scripts
 
@@ -73,37 +75,42 @@ go build -o client/main client/main.go && ./client/main
 
 This proves the core claim: **Bearer tokens can be replaced with cryptographic proofs that prevent replay attacks!**
 
-### 🔨 What's Working Now: signet-commit (Alpha)
+### 🔨 What's Working Now: Signet CLI (Alpha)
 
-Replace GPG for Git commit signing with ephemeral X.509 certificates:
+Replace GPG for Git commit signing with ephemeral X.509 certificates using our modern Cobra-based CLI:
 
 ```bash
 # Install and build (macOS/Linux)
 git clone https://github.com/jamestexas/signet.git
 cd signet
-go build -o signet-commit ./cmd/signet-commit
+make build  # Builds 'signet' binary
 
-# Initialize master key
-./signet-commit --init
+# Initialize master key (with colorized output!)
+./signet commit --init
+# ✓ Signet initialized successfully
+#   Master key stored in: ~/.signet
 
-# Configure Git
+# Configure Git to use signet
 git config --global gpg.format x509
-git config --global gpg.x509.program $(pwd)/signet-commit
-git config --global user.signingKey $(./signet-commit --export-key-id)
+git config --global gpg.x509.program "$(pwd)/signet commit"
+git config --global user.signingKey $(./signet commit --export-key-id)
 
 # Sign commits!
 git commit -S -m "Signed with Signet"
 ```
 
 **Unique Features:**
+- 🎨 Modern Cobra CLI with Charm/Lipgloss styled output
 - 🚀 First Go library with Ed25519 CMS/PKCS#7 support
 - ⚡ Sub-millisecond performance: ~0.12ms for Ed25519 signatures (see [performance analysis](docs/PERFORMANCE.md))
 - 🔒 Ephemeral certificates (5-minute lifetime)
 - 🌐 Completely offline operation
 - ✅ OpenSSL verification compatible
+- 📦 SIG1 wire format with COSE Sign1 for HTTP headers
 
 ### 🧰 Additional Tooling
 
+- **Signet CLI** ([`cmd/signet`](./cmd/signet)): Modern Cobra-based interface with subcommands. Currently supports `signet commit` for Git signing, with future expansion for `sign`, `verify`, and more.
 - **sigsign CLI** ([`cmd/sigsign`](./cmd/sigsign)): General-purpose signer that reuses the local CA + CMS stack. `verify` subcommand is still stubbed; use OpenSSL for now.
 - **Signet Authority** ([`cmd/signet-authority`](./cmd/signet-authority)): Prototype OIDC bridge that issues short-lived client certs. Useful for experimenting with machine identity flows.
 - **HTTP Middleware** ([`pkg/http/middleware`](./pkg/http/middleware)): End-to-end two-step verification middleware with memory/Redis stores. Ready for integration once token issuance wiring is complete.
@@ -113,6 +120,7 @@ git commit -S -m "Signed with Signet"
 Core protocol library features:
 - **CBOR Token Structure**: Compact binary encoding (RFC 8949)
 - **Ed25519 Cryptography**: Modern elliptic curve signatures (RFC 8032)
+- **COSE Sign1**: Standards-based signing with SIG1 wire format
 - **Ephemeral Proofs**: Privacy-preserving proof of possession
 - **Domain Separation**: Prevents cross-protocol attacks
 - **Key Zeroization**: Secure memory handling
@@ -147,10 +155,10 @@ Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; proof=...
 ```
 ┌─────────────────────────────────────────────┐
 │            Applications Layer                │
-│    signet-commit (✅) | sigsign (✅)        │
+│      signet CLI (✅) | sigsign (✅)         │
 ├─────────────────────────────────────────────┤
 │           Go Library (libsignet)             │
-│  Token Structure | Crypto | Proofs | Certs   │
+│  Tokens | COSE/CMS | Proofs | Certs | SIG1  │
 ├─────────────────────────────────────────────┤
 │            HTTP Middleware                   │
 │    Wire Format (✅) | Adapters (🚧)         │
@@ -168,17 +176,20 @@ Signet-Proof: v=1; ts=1700000000; kid=eph_k1a2b3c4d5; proof=...
 |-----------|----------|--------|
 | **Token Structure** | CBOR encoding, integer keys, versioning | ✅ Complete |
 | **Cryptography** | Ed25519, key generation, domain separation | ✅ Complete |
+| **COSE Sign1** | COSE Sign1 signing/verification with Ed25519 | ✅ Complete |
+| **SIG1 Wire Format** | Compact `SIG1.<token>.<sig>` encoding | ✅ Complete |
 | **Proof System** | Ephemeral keys, timestamp validation, nonces | ✅ Complete |
 | **X.509 Certificates** | Generation, SKID, code signing extensions | ✅ Complete |
 | **CMS/PKCS#7** | Ed25519 support, ASN.1 encoding, OpenSSL compatible | ✅ Complete |
 | **Git Integration** | Commit signing, configuration, GPG replacement | ✅ Complete |
+| **Modern CLI** | Cobra-based with Charm/Lipgloss styling | ✅ Complete |
 
 ### What's In Progress
 
 | Component | Description | Status |
 |-----------|-------------|--------|
 | **HTTP Middleware Adapters** | Framework integrations for Gin, Echo, Chi | 🚧 Wire format done, adapters next |
-| **COSE Integration** | Alternative to CMS for modern systems | 🚧 Design phase |
+| **CLI Expansion** | Additional subcommands: `sign`, `verify`, `token` | 🚧 Cobra foundation ready |
 
 ### Future Research
 
@@ -208,8 +219,29 @@ sudo dnf install golang gnupg2
 ```bash
 git clone https://github.com/jamestexas/signet.git
 cd signet
-go build -o signet-commit ./cmd/signet-commit
-sudo cp signet-commit /usr/local/bin/  # Optional: install system-wide
+make build   # Builds 'signet' binary
+make install # Optional: install system-wide (requires sudo)
+```
+
+The `signet` binary provides a modern CLI interface:
+
+```bash
+$ signet --help
+Signet is an offline-first cryptographic authentication protocol.
+
+Usage:
+  signet [command]
+
+Available Commands:
+  commit      Sign Git commits
+  completion  Generate autocompletion
+  help        Help about any command
+
+Flags:
+      --debug         Enable debug output
+  -h, --help          help for signet
+      --home string   Signet home directory (default: ~/.signet)
+  -v, --version       version for signet
 ```
 
 ## Documentation
@@ -273,8 +305,9 @@ However, the implementation:
 ## Development Status
 
 This is an active research project in early experimental phase:
-- **signet-commit**: Alpha - works for Git signing (use at your own risk)
+- **signet CLI**: Alpha - works for Git signing with modern UX (use at your own risk)
 - **libsignet**: Experimental - expect breaking API changes
+- **COSE/SIG1**: Working - compact wire format ready for HTTP integration
 - **Protocol**: Early design - will evolve significantly before v1.0
 
 ## License
@@ -287,13 +320,20 @@ Built to complement the [Sigstore](https://sigstore.dev) ecosystem with offline-
 
 ## Get Started
 
-Try signet-commit today:
+Try Signet today:
 
 ```bash
-# Quick test
-echo "test" | ./signet-commit --detach-sign
+# Initialize with colorized output
+./signet commit --init
+# ✓ Signet initialized successfully
+#   Master key stored in: ~/.signet
 
-# Real usage
+# Configure Git (one-time setup)
+git config --global gpg.format x509
+git config --global gpg.x509.program "$(pwd)/signet commit"
+git config --global user.signingKey $(./signet commit --export-key-id)
+
+# Sign your commits!
 git commit -S -m "My first Signet commit!"
 ```
 
@@ -315,8 +355,10 @@ This project is developed with AI assistance (Claude) for rapid prototyping and 
 
 ## Notes & TODOs
 
-- TODO: Deduplicate shared logic between `signet-commit` and `sigsign` (both maintain their own CLI plumbing around the same signing flow).
-- TODO: Flesh out `pkg/crypto/cose` with a concrete COSE Sign1 implementation (currently a stub interface).
-- TODO: Either author `docs/INVESTIGATION_LOG.md` or replace references in other docs to avoid dead links.
+- TODO: Deduplicate shared logic between `signet` and `sigsign` (both maintain their own CLI plumbing around the same signing flow).
+- TODO: Migrate `sigsign` to use the new Cobra/Charm CLI infrastructure.
+- TODO: Add more subcommands to `signet`: `sign`, `verify`, `token` operations.
+- ✅ ~~COSE Sign1 implementation~~ - Complete! See `pkg/crypto/cose`
+- ✅ ~~Modern CLI with Cobra~~ - Complete! See `cmd/signet`
 
 The human maintainer reviews all AI-generated code for correctness, security, and architectural consistency.

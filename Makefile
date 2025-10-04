@@ -3,9 +3,9 @@
 # Default target
 all: build
 
-# Build the signet-commit binary
+# Build the signet binary
 build:
-	go build -o signet-commit ./cmd/signet-commit
+	go build -o signet ./cmd/signet
 
 # Run unit tests
 test:
@@ -33,7 +33,7 @@ integration-test: docker-build
 
 # Clean build artifacts
 clean:
-	rm -f signet-commit
+	rm -f signet
 	rm -rf /tmp/signet-test-*
 	rm -rf /tmp/verify-test*
 	rm -rf /tmp/test-verify*
@@ -45,7 +45,7 @@ quick: clean build integration-test
 # Install to /usr/local/bin (requires sudo)
 install: build
 	@echo "Installing to /usr/local/bin (requires sudo)..."
-	sudo cp signet-commit /usr/local/bin/
+	sudo cp signet /usr/local/bin/
 	@echo "Installed successfully"
 
 # Format code
@@ -63,7 +63,7 @@ security:
 
 help:
 	@echo "Available targets:"
-	@echo "  make build              - Build the signet-commit binary"
+	@echo "  make build              - Build the signet binary"
 	@echo "  make test               - Run unit tests"
 	@echo "  make integration-test   - Run integration test in Docker"
 	@echo "  make docker-shell       - Open shell in test container"
