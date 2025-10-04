@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/jamestexas/signet/pkg/crypto/epr"
@@ -198,6 +199,9 @@ func zeroKey(key []byte) {
 	for i := range key {
 		key[i] = 0
 	}
+	// Prevent compiler optimization from removing the zeroing
+	// runtime.KeepAlive ensures the key is not garbage collected before zeroing completes
+	runtime.KeepAlive(key)
 }
 
 func main() {
