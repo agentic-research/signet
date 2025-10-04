@@ -721,3 +721,122 @@ func TestCMSEd25519GoldenVector(t *testing.T) {
 
 	t.Logf("✓ CMS structure valid for golden vector test")
 }
+
+// TestSignDataInputValidation tests that SignData properly validates its inputs
+func TestSignDataInputValidation(t *testing.T) {
+	// Generate valid test data
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	validCert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "Test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+
+	validData := []byte("test message")
+
+	testCases := []struct {
+		name        string
+		data        []byte
+		cert        *x509.Certificate
+		privateKey  ed25519.PrivateKey
+		expectError bool
+		errorMatch  string
+	}{
+		{
+			name:        "valid inputs",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  priv,
+			expectError: false,
+		},
+		{
+			name:        "nil certificate",
+			data:        validData,
+			cert:        nil,
+			privateKey:  priv,
+			expectError: true,
+			errorMatch:  "certificate",
+		},
+		{
+			name:        "nil private key",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  nil,
+			expectError: true,
+			errorMatch:  "private key",
+		},
+		{
+			name:        "invalid private key length (too short)",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  ed25519.PrivateKey(make([]byte, 32)),
+			expectError: true,
+			errorMatch:  "private key length",
+		},
+		{
+			name:        "invalid private key length (too long)",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  ed25519.PrivateKey(make([]byte, 128)),
+			expectError: true,
+			errorMatch:  "private key length",
+		},
+		{
+			name:        "nil data",
+			data:        nil,
+			cert:        validCert,
+			privateKey:  priv,
+			expectError: true,
+			errorMatch:  "data",
+		},
+		{
+			name:        "empty data (should succeed)",
+			data:        []byte{},
+			cert:        validCert,
+			privateKey:  priv,
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := SignData(tc.data, tc.cert, tc.privateKey)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tc.errorMatch)
+				} else if tc.errorMatch != "" && !contains(err.Error(), tc.errorMatch) {
+					t.Errorf("Expected error containing %q, got: %v", tc.errorMatch, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+
+	// Additional test: verify correct private key size
+	t.Run("verify Ed25519 private key size constant", func(t *testing.T) {
+		if ed25519.PrivateKeySize != 64 {
+			t.Errorf("Ed25519 private key size changed! Expected 64, got %d", ed25519.PrivateKeySize)
+		}
+		if len(pub) != ed25519.PublicKeySize {
+			t.Errorf("Generated public key has wrong size: %d", len(pub))
+		}
+		if len(priv) != ed25519.PrivateKeySize {
+			t.Errorf("Generated private key has wrong size: %d", len(priv))
+		}
+	})
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return bytes.Contains([]byte(s), []byte(substr))
+}

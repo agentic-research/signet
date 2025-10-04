@@ -43,6 +43,22 @@ var (
 // Returns:
 //   - DER-encoded CMS/PKCS#7 signature
 func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey) ([]byte, error) {
+	// Input validation
+	if cert == nil {
+		return nil, signetErrors.NewValidationError("certificate", "nil", "must not be nil", nil)
+	}
+	if privateKey == nil {
+		return nil, signetErrors.NewValidationError("private key", "nil", "must not be nil", nil)
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return nil, signetErrors.NewValidationError("private key length",
+			fmt.Sprintf("%d bytes", len(privateKey)),
+			fmt.Sprintf("must be %d bytes for Ed25519", ed25519.PrivateKeySize), nil)
+	}
+	if data == nil {
+		return nil, signetErrors.NewValidationError("data", "nil", "must not be nil", nil)
+	}
+
 	// 1. Calculate message digest
 	hash := crypto.SHA256.New()
 	hash.Write(data)
