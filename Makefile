@@ -17,7 +17,7 @@ integration-test-local: build
 
 # Build Docker image for testing
 docker-build:
-	docker build -t signet-test -f Dockerfile.test .
+	docker build -t signet-test -f scripts/testing/Dockerfile.test .
 
 # Run integration test in Docker (no privileged escalation)
 docker-test: docker-build
