@@ -11,7 +11,9 @@ import (
 	"github.com/spf13/cobra"
 
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
+	"github.com/jamestexas/signet/pkg/cli/config"
 	"github.com/jamestexas/signet/pkg/cli/keystore"
+	"github.com/jamestexas/signet/pkg/cli/styles"
 	"github.com/jamestexas/signet/pkg/cms"
 )
 
@@ -51,6 +53,23 @@ func init() {
 	rootCmd.AddCommand(commitCmd)
 }
 
+// getConfig loads configuration with flag overrides
+func getConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		// Fallback to default config
+		cfg = config.New(config.DefaultHome())
+	}
+
+	// Override with --home flag if provided
+	if homeDir != "" {
+		cfg.Home = homeDir
+		cfg.KeyPath = cfg.Home + "/" + keystore.MasterKeyFile
+	}
+
+	return cfg
+}
+
 func runCommit(cmd *cobra.Command, args []string) error {
 	// Get configuration
 	cfg := getConfig()
@@ -60,7 +79,8 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		if err := keystore.Initialize(cfg.Home); err != nil {
 			return fmt.Errorf("initialization failed: %w", err)
 		}
-		fmt.Println("Signet initialized successfully")
+		fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
+		fmt.Println(styles.Subtle.Render("  Master key stored in: ") + styles.Code.Render(cfg.Home))
 		return nil
 	}
 
@@ -70,6 +90,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to get key ID: %w", err)
 		}
+		// Output raw key ID for Git (no styling for machine-readable output)
 		fmt.Println(keyID)
 		return nil
 	}
@@ -85,7 +106,8 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	// Load master key
 	masterKey, err := keystore.LoadMasterKey(cfg.KeyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Run 'signet commit --init' to initialize\n")
+		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet commit --init") + " to initialize\n"
+		fmt.Fprint(os.Stderr, msg)
 		return fmt.Errorf("failed to load master key: %w", err)
 	}
 	defer masterKey.Destroy()

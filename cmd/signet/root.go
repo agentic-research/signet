@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jamestexas/signet/pkg/cli/styles"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,7 @@ func init() {
 // Execute runs the root command
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, styles.Error.Render("✗")+" %v\n", err)
 		os.Exit(1)
 	}
 }

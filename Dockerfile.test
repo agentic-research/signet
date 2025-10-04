@@ -11,8 +11,8 @@ RUN go mod download
 # Copy full source
 COPY . .
 
-# Build the signet-commit binary expected by the integration script
-RUN go build -o signet-commit ./cmd/signet-commit
+# Build the signet binary and create signet-commit symlink for backward compatibility
+RUN go build -o signet ./cmd/signet && ln -sf signet signet-commit
 
 # Runtime stage with required tooling
 FROM golang:1.25-trixie
@@ -24,8 +24,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy repository contents and the prebuilt binary
+# Copy repository contents and the prebuilt binaries
 COPY . .
+COPY --from=builder /workspace/signet ./signet
 COPY --from=builder /workspace/signet-commit ./signet-commit
 
 # Ensure scripts are executable
