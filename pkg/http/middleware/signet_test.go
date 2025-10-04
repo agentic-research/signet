@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -574,5 +575,5 @@ func TestJSONErrorHandler(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[:len(substr)] == substr || contains(s[1:], substr)
+	return strings.Contains(s, substr)
 }

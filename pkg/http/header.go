@@ -21,10 +21,36 @@ var lastTS sync.Map // map[string]int64  key: base64(jti)
 // checkMonotonic ensures timestamps are strictly increasing for each JTI
 func checkMonotonic(jti []byte, ts int64) error {
 	k := base64.RawURLEncoding.EncodeToString(jti)
-	if v, ok := lastTS.Load(k); ok && ts <= v.(int64) {
-		return errors.New("timestamp not monotonic")
+
+	// Use LoadOrStore atomically to prevent race condition
+	// If key exists, loaded will be true and actual contains the existing value
+	// If key doesn't exist, loaded will be false and actual will be ts
+	actual, loaded := lastTS.LoadOrStore(k, ts)
+	if loaded {
+		// Key existed, check monotonicity
+		if ts <= actual.(int64) {
+			return errors.New("timestamp not monotonic")
+		}
+		// Update to new timestamp - use CompareAndSwap for safety
+		// Retry loop in case of concurrent updates
+		for {
+			if lastTS.CompareAndSwap(k, actual, ts) {
+				break
+			}
+			// Another goroutine updated it, reload and check again
+			if v, ok := lastTS.Load(k); ok {
+				if ts <= v.(int64) {
+					return errors.New("timestamp not monotonic")
+				}
+				actual = v
+			} else {
+				// Key was deleted, try to store again
+				lastTS.Store(k, ts)
+				break
+			}
+		}
 	}
-	lastTS.Store(k, ts)
+	// If !loaded, our ts was already stored by LoadOrStore
 	return nil
 }
 

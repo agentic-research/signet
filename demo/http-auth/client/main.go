@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -109,13 +110,20 @@ func createSignetProof(tokenInfo *TokenInfo, timestamp int64) string {
 	// Sign with ephemeral private key
 	signature := ed25519.Sign(tokenInfo.EphemeralPrivate, []byte(canonical))
 
+	// Calculate ephemeral key hash
+	ephKeyHash := sha256.Sum256(tokenInfo.EphemeralPublic)
+
 	// Create proof header value
-	// Format: v1;m=compact;jti=<base64>;ts=<timestamp>;n=<base64_nonce>;s=<base64_sig>
+	// Format: v1;m=compact;jti=<base64>;cap=<base64>;p=<base64>;k=<base64>;ts=<timestamp>;n=<base64_nonce>;s=<base64_sig>
 	jtiB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.Token.JTI)
 	capB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.Token.CapabilityID)
-	proof := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;ts=%d;n=%s;s=%s",
+	proofB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.BindingSignature)
+	keyHashB64 := base64.RawURLEncoding.EncodeToString(ephKeyHash[:])
+	proof := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;p=%s;k=%s;ts=%d;n=%s;s=%s",
 		jtiB64,
 		capB64,
+		proofB64,
+		keyHashB64,
 		timestamp,
 		base64.RawURLEncoding.EncodeToString(nonce),
 		base64.RawURLEncoding.EncodeToString(signature))
