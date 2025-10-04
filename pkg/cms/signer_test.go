@@ -3,6 +3,7 @@ package cms
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -349,6 +350,123 @@ func TestGoldenVector(t *testing.T) {
 	}
 }
 
+// TestSignDataCertificatesImplicitEncoding ensures the certificates field is encoded as [0] IMPLICIT
+// with the raw certificate bytes directly following the context-specific tag (no nested SET).
+func TestSignDataCertificatesImplicitEncoding(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate Ed25519 keypair: %v", err)
+	}
+
+	now := time.Now().UTC()
+	serial := big.NewInt(0)
+	serial.SetUint64(0xBEEF)
+
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "Signet Regression"},
+		Issuer:                pkix.Name{CommonName: "Signet Regression"},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(5 * time.Minute),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		SignatureAlgorithm:    x509.PureEd25519,
+		PublicKeyAlgorithm:    x509.Ed25519,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, pub, priv)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse certificate: %v", err)
+	}
+
+	data := []byte("cms regression test message")
+	signature, err := SignData(data, cert, priv)
+	if err != nil {
+		t.Fatalf("SignData failed: %v", err)
+	}
+
+	var ci struct {
+		ContentType asn1.ObjectIdentifier
+		Content     asn1.RawValue `asn1:"explicit,tag:0"`
+	}
+	if _, err := asn1.Unmarshal(signature, &ci); err != nil {
+		t.Fatalf("failed to unmarshal ContentInfo: %v", err)
+	}
+	if !ci.ContentType.Equal(oidSignedData) {
+		t.Fatalf("unexpected content type: %v", ci.ContentType)
+	}
+
+	var sdRaw asn1.RawValue
+	if _, err := asn1.Unmarshal(ci.Content.Bytes, &sdRaw); err != nil {
+		t.Fatalf("failed to unmarshal SignedData: %v", err)
+	}
+	if sdRaw.Tag != asn1.TagSequence {
+		t.Fatalf("SignedData should be a SEQUENCE, got tag %d", sdRaw.Tag)
+	}
+
+	content := sdRaw.Bytes
+	var version int
+	content, err = asn1.Unmarshal(content, &version)
+	if err != nil {
+		t.Fatalf("failed to read version: %v", err)
+	}
+
+	// digestAlgorithms
+	var digestAlgs asn1.RawValue
+	content, err = asn1.Unmarshal(content, &digestAlgs)
+	if err != nil {
+		t.Fatalf("failed to read digestAlgorithms: %v", err)
+	}
+
+	// encapContentInfo
+	var encap asn1.RawValue
+	content, err = asn1.Unmarshal(content, &encap)
+	if err != nil {
+		t.Fatalf("failed to read encapContentInfo: %v", err)
+	}
+
+	// certificates (context-specific [0] IMPLICIT)
+	var certsRaw asn1.RawValue
+	content, err = asn1.Unmarshal(content, &certsRaw)
+	if err != nil {
+		t.Fatalf("failed to read certificates: %v", err)
+	}
+
+	if certsRaw.Class != 2 || certsRaw.Tag != 0 {
+		t.Fatalf("expected context-specific tag [0], got class=%d tag=%d", certsRaw.Class, certsRaw.Tag)
+	}
+	if !certsRaw.IsCompound {
+		t.Fatal("certificates field should be constructed (compound)")
+	}
+
+	if len(certsRaw.Bytes) == 0 {
+		t.Fatal("certificates payload is empty")
+	}
+	if certsRaw.Bytes[0] != 0x30 {
+		t.Fatalf("expected certificate payload to start with SEQUENCE (0x30), got 0x%02x", certsRaw.Bytes[0])
+	}
+
+	if !bytes.Equal(certsRaw.Bytes, certDER) {
+		t.Fatal("certificate payload does not match generated certificate DER")
+	}
+
+	if _, err := x509.ParseCertificate(certsRaw.Bytes); err != nil {
+		t.Fatalf("failed to parse certificate payload: %v", err)
+	}
+
+	// Ensure signerInfos still present
+	var signerInfos asn1.RawValue
+	_, err = asn1.Unmarshal(content, &signerInfos)
+	if err != nil {
+		t.Fatalf("failed to read signerInfos: %v", err)
+	}
+}
+
 // Test that we're signing the correct data
 func TestSignatureOverCorrectData(t *testing.T) {
 	// Generate a test keypair
@@ -602,4 +720,123 @@ func TestCMSEd25519GoldenVector(t *testing.T) {
 	}
 
 	t.Logf("✓ CMS structure valid for golden vector test")
+}
+
+// TestSignDataInputValidation tests that SignData properly validates its inputs
+func TestSignDataInputValidation(t *testing.T) {
+	// Generate valid test data
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	validCert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "Test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+
+	validData := []byte("test message")
+
+	testCases := []struct {
+		name        string
+		data        []byte
+		cert        *x509.Certificate
+		privateKey  ed25519.PrivateKey
+		expectError bool
+		errorMatch  string
+	}{
+		{
+			name:        "valid inputs",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  priv,
+			expectError: false,
+		},
+		{
+			name:        "nil certificate",
+			data:        validData,
+			cert:        nil,
+			privateKey:  priv,
+			expectError: true,
+			errorMatch:  "certificate",
+		},
+		{
+			name:        "nil private key",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  nil,
+			expectError: true,
+			errorMatch:  "private key",
+		},
+		{
+			name:        "invalid private key length (too short)",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  ed25519.PrivateKey(make([]byte, 32)),
+			expectError: true,
+			errorMatch:  "private key length",
+		},
+		{
+			name:        "invalid private key length (too long)",
+			data:        validData,
+			cert:        validCert,
+			privateKey:  ed25519.PrivateKey(make([]byte, 128)),
+			expectError: true,
+			errorMatch:  "private key length",
+		},
+		{
+			name:        "nil data",
+			data:        nil,
+			cert:        validCert,
+			privateKey:  priv,
+			expectError: true,
+			errorMatch:  "data",
+		},
+		{
+			name:        "empty data (should succeed)",
+			data:        []byte{},
+			cert:        validCert,
+			privateKey:  priv,
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := SignData(tc.data, tc.cert, tc.privateKey)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tc.errorMatch)
+				} else if tc.errorMatch != "" && !contains(err.Error(), tc.errorMatch) {
+					t.Errorf("Expected error containing %q, got: %v", tc.errorMatch, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+
+	// Additional test: verify correct private key size
+	t.Run("verify Ed25519 private key size constant", func(t *testing.T) {
+		if ed25519.PrivateKeySize != 64 {
+			t.Errorf("Ed25519 private key size changed! Expected 64, got %d", ed25519.PrivateKeySize)
+		}
+		if len(pub) != ed25519.PublicKeySize {
+			t.Errorf("Generated public key has wrong size: %d", len(pub))
+		}
+		if len(priv) != ed25519.PrivateKeySize {
+			t.Errorf("Generated private key has wrong size: %d", len(priv))
+		}
+	})
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return bytes.Contains([]byte(s), []byte(substr))
 }

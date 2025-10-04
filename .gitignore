@@ -10,6 +10,7 @@
 
 # Test binary, built with `go test -c`
 *.test
+!/Dockerfile.test
 
 # Code coverage profiles and other test artifacts
 *.out
@@ -69,3 +70,7 @@ test.txt
 #
 # Internal documentation (keep locally but don't push)
 INVESTIGATION_LOG.md
+*_agent_log.md
+
+# Local client binary for http-auth
+demo/http-auth/client/client

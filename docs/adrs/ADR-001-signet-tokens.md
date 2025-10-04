@@ -1,7 +1,11 @@
-ADR-0001: Signet v1 - Semantic PoP Tokens with CBOR+COSE
-Status: Proposed
-Date: 2025-09-26
-Owners: Platform Auth
+# ADR-0001: Signet v1 - Semantic PoP Tokens with CBOR+COSE
+
+
+**Status:** Draft
+
+**Date:** 2025-09-26
+
+**Authors:** James Gardner / @jamestexas
 
 Executive Summary
 Signet v1 is a ground-up reimagining of authentication and authorization for modern cloud infrastructure. It replaces bearer tokens with proof-of-possession credentials, opaque permissions with semantic capabilities, and manual secret management with automated, ephemeral credentials.

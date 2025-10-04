@@ -1,9 +1,10 @@
 # ADR-0003: Signet SDK Architecture
 
 **Status:** Draft
-**Type:** Implementation Specification
+
 **Date:** 2025-09-27
-**Authors:** Signet Contributors
+
+**Authors:** James Gardner / @jamestexas
 
 ## Context
 

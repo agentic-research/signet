@@ -28,6 +28,7 @@ func main() {
 		homeFlag      = flag.String("home", "", "Signet home directory (default: ~/.signet)")
 		verifyFlag    = flag.String("verify", "", "Verify signature from file")
 		_             = flag.String("bsau", "", "GPG compatibility flag (ignored)")
+		_             = flag.Bool("S", false, "GPG compatibility flag (ignored)")
 		statusFd      = flag.Int("status-fd", 0, "File descriptor for GPG status output")
 		_             = flag.Bool("detach-sign", false, "Create detached signature (default)")
 	)
@@ -107,19 +108,16 @@ func main() {
 	issuerDID := "did:key:signet" // Simplified DID for MVP
 	ca := attestx509.NewLocalCA(masterKey, issuerDID)
 
-	// Generate ephemeral certificate
-	cert, _, ephemeralKey, err := ca.IssueCodeSigningCertificate(defaultCertValidity)
+	// Generate ephemeral certificate with secure key handling
+	cert, _, secEphemeralKey, err := ca.IssueCodeSigningCertificateSecure(defaultCertValidity)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to generate certificate: %v\n", err)
 		os.Exit(1)
 	}
+	defer secEphemeralKey.Destroy() // Ensure ephemeral key is zeroed when done
 
-	// Zero ephemeral key after signing
-	defer func() {
-		for i := range ephemeralKey {
-			ephemeralKey[i] = 0
-		}
-	}()
+	// Extract the raw key for CMS signing (will be zeroed via defer above)
+	ephemeralKey := secEphemeralKey.Key()
 
 	// Create CMS signature with Ed25519
 	// Convert ephemeralKey to ed25519.PrivateKey type

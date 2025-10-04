@@ -66,6 +66,9 @@ openssl cms -verify -in signature.pem -inform PEM \
 - Uses deterministic ASN.1 DER encoding
 - Includes signing time and message digest attributes
 - Self-signed certificates with 5-minute validity
+- Certificates are emitted using `[0]` IMPLICIT tagging with the raw DER
+  certificate bytes (no nested SET), matching OpenSSL's
+  `CMS_CertificateChoices` expectations
 
 ## Test Vectors
 

@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/jamestexas/signet/pkg/crypto/epr"
@@ -63,6 +65,8 @@ func requestToken(purpose string) (*TokenInfo, error) {
 		EphemeralPrivate string `json:"ephemeral_private"`
 		BindingSignature string `json:"binding_signature"`
 		MasterPublic     string `json:"master_public"`
+		CapabilityID     string `json:"capability_id"`
+		TokenJTI         string `json:"token_jti"`
 		ExpiresAt        int64  `json:"expires_at"`
 		Purpose          string `json:"purpose"`
 	}
@@ -96,7 +100,7 @@ func requestToken(purpose string) (*TokenInfo, error) {
 
 // createSignetProof creates a proof using the ephemeral private key
 func createSignetProof(tokenInfo *TokenInfo, timestamp int64) string {
-	// Use the token's nonce
+	// Use the token's nonce (legacy flow - will be client-generated in future revisions)
 	nonce := tokenInfo.Token.Nonce
 
 	// Create canonical request representation (must match server's canonicalization)
@@ -107,10 +111,20 @@ func createSignetProof(tokenInfo *TokenInfo, timestamp int64) string {
 	// Sign with ephemeral private key
 	signature := ed25519.Sign(tokenInfo.EphemeralPrivate, []byte(canonical))
 
+	// Calculate ephemeral key hash
+	ephKeyHash := sha256.Sum256(tokenInfo.EphemeralPublic)
+
 	// Create proof header value
-	// Format: v1;m=compact;jti=<base64>;ts=<timestamp>;n=<base64_nonce>;s=<base64_sig>
-	proof := fmt.Sprintf("v1;m=compact;jti=%s;ts=%d;n=%s;s=%s",
-		base64.RawURLEncoding.EncodeToString(tokenInfo.Token.EphemeralKeyID[:16]), // Use first 16 bytes as JTI
+	// Format: v1;m=compact;jti=<base64>;cap=<base64>;p=<base64>;k=<base64>;ts=<timestamp>;n=<base64_nonce>;s=<base64_sig>
+	jtiB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.Token.JTI)
+	capB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.Token.CapabilityID)
+	proofB64 := base64.RawURLEncoding.EncodeToString(tokenInfo.BindingSignature)
+	keyHashB64 := base64.RawURLEncoding.EncodeToString(ephKeyHash[:])
+	proof := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;p=%s;k=%s;ts=%d;n=%s;s=%s",
+		jtiB64,
+		capB64,
+		proofB64,
+		keyHashB64,
 		timestamp,
 		base64.RawURLEncoding.EncodeToString(nonce),
 		base64.RawURLEncoding.EncodeToString(signature))
@@ -185,6 +199,9 @@ func zeroKey(key []byte) {
 	for i := range key {
 		key[i] = 0
 	}
+	// Prevent compiler optimization from removing the zeroing
+	// runtime.KeepAlive ensures the key is not garbage collected before zeroing completes
+	runtime.KeepAlive(key)
 }
 
 func main() {

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/jamestexas/signet/pkg/crypto/epr"
+	"github.com/jamestexas/signet/pkg/signet"
 	"github.com/zeebo/blake3"
 )
 
@@ -21,10 +21,36 @@ var lastTS sync.Map // map[string]int64  key: base64(jti)
 // checkMonotonic ensures timestamps are strictly increasing for each JTI
 func checkMonotonic(jti []byte, ts int64) error {
 	k := base64.RawURLEncoding.EncodeToString(jti)
-	if v, ok := lastTS.Load(k); ok && ts <= v.(int64) {
-		return errors.New("timestamp not monotonic")
+
+	// Use LoadOrStore atomically to prevent race condition
+	// If key exists, loaded will be true and actual contains the existing value
+	// If key doesn't exist, loaded will be false and actual will be ts
+	actual, loaded := lastTS.LoadOrStore(k, ts)
+	if loaded {
+		// Key existed, check monotonicity
+		if ts <= actual.(int64) {
+			return errors.New("timestamp not monotonic")
+		}
+		// Update to new timestamp - use CompareAndSwap for safety
+		// Retry loop in case of concurrent updates
+		for {
+			if lastTS.CompareAndSwap(k, actual, ts) {
+				break
+			}
+			// Another goroutine updated it, reload and check again
+			if v, ok := lastTS.Load(k); ok {
+				if ts <= v.(int64) {
+					return errors.New("timestamp not monotonic")
+				}
+				actual = v
+			} else {
+				// Key was deleted, try to store again
+				lastTS.Store(k, ts)
+				break
+			}
+		}
 	}
-	lastTS.Store(k, ts)
+	// If !loaded, our ts was already stored by LoadOrStore
 	return nil
 }
 
@@ -302,59 +328,24 @@ func FormatProofHeader(header *ProofHeader) string {
 	return strings.Join(parts, ";")
 }
 
-// SignetToken represents the CBOR-encoded token structure
-// Updated with all ADR-002 required fields
-type SignetToken struct {
-	IssuerID       uint64                 `cbor:"1,keyasint"`
-	AudienceID     uint64                 `cbor:"2,keyasint,omitempty"`
-	SubjectPPID    []byte                 `cbor:"3,keyasint"` // Per-token pairwise pseudonym
-	ExpiresAt      int64                  `cbor:"4,keyasint"`
-	NotBefore      int64                  `cbor:"5,keyasint,omitempty"`
-	IssuedAt       int64                  `cbor:"6,keyasint,omitempty"`
-	CapabilityID   []byte                 `cbor:"7,keyasint"` // 128-bit capability hash
-	CapabilityVer  uint32                 `cbor:"8,keyasint"` // major.minor encoded
-	ConfirmationID []byte                 `cbor:"9,keyasint"` // SHA-256 of bound key
-	KeyID          uint64                 `cbor:"10,keyasint"`
-	CapTokens      []uint64               `cbor:"11,keyasint,omitempty"`
-	CapCustom      map[string]interface{} `cbor:"12,keyasint,omitempty"`
-	JTI            []byte                 `cbor:"13,keyasint"` // Token ID
-	Actor          map[string]interface{} `cbor:"14,keyasint,omitempty"`
-	Delegator      map[string]interface{} `cbor:"15,keyasint,omitempty"`
-	AudienceStr    string                 `cbor:"16,keyasint,omitempty"` // For debugging
-}
+// SignetToken is the canonical token representation from pkg/signet.
+type SignetToken = signet.Token
 
-// EncodeToken encodes a SignetToken to CBOR with deterministic encoding
-func EncodeToken(token *SignetToken) ([]byte, error) {
-	em, err := cbor.CanonicalEncOptions().EncMode()
-	if err != nil {
-		return nil, err
+// EncodeToken encodes a SignetToken to CBOR with deterministic encoding.
+func EncodeToken(token *signet.Token) ([]byte, error) {
+	if token == nil {
+		return nil, fmt.Errorf("encode token: nil token")
 	}
-	return em.Marshal(token)
+	return token.Marshal()
 }
 
-// DecodeToken decodes CBOR bytes into a SignetToken with strict validation
-func DecodeToken(data []byte) (*SignetToken, error) {
-	var token SignetToken
-	err := cbor.Unmarshal(data, &token)
+// DecodeToken decodes CBOR bytes into a SignetToken with strict validation.
+func DecodeToken(data []byte) (*signet.Token, error) {
+	token, err := signet.Unmarshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode token: %w", err)
 	}
-
-	// Validate required fields
-	if token.JTI == nil || len(token.JTI) != 16 {
-		return nil, fmt.Errorf("invalid jti in token")
-	}
-	if token.CapabilityID == nil || len(token.CapabilityID) != 16 {
-		return nil, fmt.Errorf("invalid capability_id in token")
-	}
-	if token.SubjectPPID == nil || len(token.SubjectPPID) != 32 {
-		return nil, fmt.Errorf("invalid subject_ppid in token")
-	}
-	if token.ConfirmationID == nil || len(token.ConfirmationID) != 32 {
-		return nil, fmt.Errorf("invalid confirmation_id in token")
-	}
-
-	return &token, nil
+	return token, nil
 }
 
 // ComputeEphemeralKeyHash generates privacy-preserving key identifier

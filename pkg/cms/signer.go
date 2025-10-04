@@ -43,6 +43,22 @@ var (
 // Returns:
 //   - DER-encoded CMS/PKCS#7 signature
 func SignData(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey) ([]byte, error) {
+	// Input validation
+	if cert == nil {
+		return nil, signetErrors.NewValidationError("certificate", "nil", "must not be nil", nil)
+	}
+	if privateKey == nil {
+		return nil, signetErrors.NewValidationError("private key", "nil", "must not be nil", nil)
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return nil, signetErrors.NewValidationError("private key length",
+			fmt.Sprintf("%d bytes", len(privateKey)),
+			fmt.Sprintf("must be %d bytes for Ed25519", ed25519.PrivateKeySize), nil)
+	}
+	if data == nil {
+		return nil, signetErrors.NewValidationError("data", "nil", "must not be nil", nil)
+	}
+
 	// 1. Calculate message digest
 	hash := crypto.SHA256.New()
 	hash.Write(data)
@@ -302,31 +318,30 @@ func buildCMS(cert *x509.Certificate, signerInfo []byte) ([]byte, error) {
 	sdBuf.Write(encapBytes)
 
 	// Certificates [0] IMPLICIT SET OF Certificate
-	// For better interoperability with standard CMS tools, we now wrap the certificate
-	// in a SET OF structure, even when there's only one certificate.
-	// This matches the standard CMS format: A0 <len> 31 <len> <cert>
-	//
-	// Build the SET OF certificates first
-	certSetHeader := makeSetHeader(len(cert.Raw))
-	certSet := append(certSetHeader, cert.Raw...)
+	// RFC 5652 §5.3 specifies that the context-specific tag replaces the
+	// universal SET (0x31) when encoding this field. We therefore append the
+	// DER of each full certificate (cert.Raw) directly under the [0] header
+	// without introducing an inner SET. Emitting A0..<len>..31 would cause
+	// decoders such as OpenSSL to reject the structure with
+	// CMS_CertificateChoices errors.
+	certPayload := cert.Raw
 
-	// Wrap in IMPLICIT [0] tag
 	certHeader := []byte{0xA0} // context-specific, constructed, tag 0
-	if len(certSet) < 128 {
-		certHeader = append(certHeader, byte(len(certSet)))
+	if len(certPayload) < 128 {
+		certHeader = append(certHeader, byte(len(certPayload)))
 	} else {
-		certSetLen := len(certSet)
-		if certSetLen < 256 {
-			certHeader = append(certHeader, 0x81, byte(certSetLen))
-		} else if certSetLen < 65536 {
-			certHeader = append(certHeader, 0x82, byte(certSetLen>>8), byte(certSetLen))
+		certPayloadLen := len(certPayload)
+		if certPayloadLen < 256 {
+			certHeader = append(certHeader, 0x81, byte(certPayloadLen))
+		} else if certPayloadLen < 65536 {
+			certHeader = append(certHeader, 0x82, byte(certPayloadLen>>8), byte(certPayloadLen))
 		} else {
-			// Certificate set is too large (>= 65536 bytes)
-			return nil, signetErrors.NewValidationError("certificate set size", fmt.Sprintf("%d bytes", certSetLen), "exceeds maximum size of 65535 bytes", nil)
+			// Certificate payload is too large (>= 65536 bytes)
+			return nil, signetErrors.NewValidationError("certificate payload size", fmt.Sprintf("%d bytes", certPayloadLen), "exceeds maximum size of 65535 bytes", nil)
 		}
 	}
 	sdBuf.Write(certHeader)
-	sdBuf.Write(certSet)
+	sdBuf.Write(certPayload)
 
 	// SignerInfos (SET OF SignerInfo)
 	siSetHeader := makeSetHeader(len(signerInfo))

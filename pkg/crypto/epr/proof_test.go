@@ -105,10 +105,11 @@ func TestGenerator_GenerateProof(t *testing.T) {
 			}
 
 			// Verify the ephemeral key pair matches
-			ephemeralPriv, ok := response.EphemeralPrivateKey.(ed25519.PrivateKey)
-			if !ok {
-				t.Fatal("EphemeralPrivateKey is not ed25519.PrivateKey")
+			ephemeralPriv := response.EphemeralPrivateKey.Key()
+			if ephemeralPriv == nil {
+				t.Fatal("EphemeralPrivateKey.Key() returned nil")
 			}
+			defer response.EphemeralPrivateKey.Destroy()
 
 			expectedPub := ephemeralPriv.Public()
 			if !ed25519.PublicKey(response.Proof.EphemeralPublicKey.(ed25519.PublicKey)).Equal(expectedPub.(ed25519.PublicKey)) {
@@ -339,7 +340,8 @@ func TestVerifier_VerifyProof(t *testing.T) {
 
 	// Create test message and sign with ephemeral key
 	testMessage := []byte("test message")
-	ephemeralPriv := proofResponse.EphemeralPrivateKey.(ed25519.PrivateKey)
+	ephemeralPriv := proofResponse.EphemeralPrivateKey.Key()
+	defer proofResponse.EphemeralPrivateKey.Destroy()
 	validSignature, _ := ephemeralPriv.Sign(rand.Reader, testMessage, crypto.Hash(0))
 
 	expiresAt := time.Now().Add(5 * time.Minute).Unix()
