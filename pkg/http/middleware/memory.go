@@ -48,12 +48,12 @@ func (s *MemoryTokenStore) Store(ctx context.Context, record *TokenRecord) (stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Generate token ID from ephemeral key hash
+	// Generate token ID from full JTI (use full hash to prevent collisions - Finding #26 fix)
 	if len(record.Token.JTI) == 0 {
 		return "", fmt.Errorf("token missing jti")
 	}
 
-	tokenID := hex.EncodeToString(record.Token.JTI[:min(8, len(record.Token.JTI))])
+	tokenID := hex.EncodeToString(record.Token.JTI)
 	s.tokens[tokenID] = record
 
 	return tokenID, nil

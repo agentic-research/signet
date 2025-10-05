@@ -40,6 +40,9 @@ var (
 
 	// ErrPurposeMismatch indicates the token's purpose doesn't match requirements
 	ErrPurposeMismatch = errors.New("token purpose mismatch")
+
+	// ErrRequestTooLarge indicates the request exceeds maximum allowed size
+	ErrRequestTooLarge = errors.New("request too large")
 )
 
 // defaultErrorHandler returns simple text errors
@@ -89,6 +92,8 @@ func errorToHTTPStatus(err error) int {
 		return http.StatusInternalServerError
 	case errors.Is(err, ErrPurposeMismatch):
 		return http.StatusForbidden
+	case errors.Is(err, ErrRequestTooLarge):
+		return http.StatusRequestEntityTooLarge
 	default:
 		return http.StatusInternalServerError
 	}
@@ -117,6 +122,8 @@ func errorToCode(err error) string {
 		return "KEY_NOT_FOUND"
 	case errors.Is(err, ErrPurposeMismatch):
 		return "PURPOSE_MISMATCH"
+	case errors.Is(err, ErrRequestTooLarge):
+		return "REQUEST_TOO_LARGE"
 	default:
 		return "INTERNAL_ERROR"
 	}
@@ -145,6 +152,8 @@ func errorToMessage(err error) string {
 		return "Unable to verify the issuer's identity."
 	case errors.Is(err, ErrPurposeMismatch):
 		return "The token is not authorized for this operation."
+	case errors.Is(err, ErrRequestTooLarge):
+		return "The request payload exceeds the maximum allowed size."
 	default:
 		return "An internal error occurred. Please try again later."
 	}

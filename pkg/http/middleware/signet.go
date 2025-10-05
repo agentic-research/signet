@@ -98,8 +98,8 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract token ID from JTI
-	tokenID := hex.EncodeToString(proof.JTI[:min(8, len(proof.JTI))])
+	// Extract token ID from JTI (use full JTI to prevent collisions)
+	tokenID := hex.EncodeToString(proof.JTI)
 
 	// Retrieve token record from store
 	record, err := h.config.tokenStore.Get(ctx, tokenID)
@@ -141,6 +141,15 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.config.logger.Error("failed to get master key", "issuer", record.Token.IssuerID, "error", err)
 		h.config.metrics.RecordAuthResult("key_provider_error", time.Since(startTime))
 		h.config.errorHandler(w, r, ErrInternalError)
+		return
+	}
+
+	// Validate request size to prevent DoS attacks (Finding #28 fix)
+	const maxRequestSize = 1 * 1024 * 1024 // 1MB
+	if r.ContentLength > maxRequestSize {
+		h.config.logger.Warn("request too large", "content_length", r.ContentLength, "max", maxRequestSize)
+		h.config.metrics.RecordAuthResult("request_too_large", time.Since(startTime))
+		h.config.errorHandler(w, r, ErrRequestTooLarge)
 		return
 	}
 

@@ -15,6 +15,7 @@ import (
 
 	"crypto/rand"
 
+	"github.com/jamestexas/signet/pkg/crypto/cose"
 	"github.com/jamestexas/signet/pkg/crypto/epr"
 	"github.com/jamestexas/signet/pkg/http/header"
 	"github.com/jamestexas/signet/pkg/signet"
@@ -65,8 +66,8 @@ func (tr *TokenRegistry) Store(record *TokenRecord) string {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 
-	// Generate token ID from ephemeral key hash
-	tokenID := hex.EncodeToString(record.Token.EphemeralKeyID[:8])
+	// Generate token ID from full ephemeral key hash (no truncation to prevent collisions)
+	tokenID := hex.EncodeToString(record.Token.EphemeralKeyID)
 	tr.tokens[tokenID] = record
 	return tokenID
 }
@@ -182,16 +183,27 @@ func issueTokenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	tokenID := tokenRegistry.Store(record)
 
-	// Marshal token for client
-	tokenBytes, err := token.Marshal()
+	// Create SIG1 wire format using the ephemeral key (NOT the master key)
+	// The ephemeral key signs the token to bind it cryptographically
+	ephemeralSigner, err := cose.NewEd25519Signer(proofResp.EphemeralPrivateKey.Key())
 	if err != nil {
-		http.Error(w, `{"error": "Failed to marshal token"}`, http.StatusInternalServerError)
+		log.Printf("Failed to create COSE signer: %v", err)
+		http.Error(w, `{"error": "Failed to create token signature"}`, http.StatusInternalServerError)
+		return
+	}
+	defer ephemeralSigner.Destroy()
+
+	// Encode token in SIG1 wire format
+	sig1Wire, err := signet.EncodeSIG1(token, ephemeralSigner)
+	if err != nil {
+		log.Printf("Failed to encode SIG1: %v", err)
+		http.Error(w, `{"error": "Failed to encode token"}`, http.StatusInternalServerError)
 		return
 	}
 
 	response := map[string]interface{}{
 		"token_id":          tokenID,
-		"token":             base64.RawURLEncoding.EncodeToString(tokenBytes),
+		"token":             sig1Wire, // Now in SIG1 format instead of raw CBOR
 		"ephemeral_public":  base64.RawURLEncoding.EncodeToString(ephemeralPub),
 		"ephemeral_private": base64.RawURLEncoding.EncodeToString(proofResp.EphemeralPrivateKey.Key()),
 		"binding_signature": base64.RawURLEncoding.EncodeToString(proofResp.Proof.BindingSignature),
@@ -223,8 +235,8 @@ func protectedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract token ID from JTI (first 8 bytes)
-	tokenID := hex.EncodeToString(proof.JTI[:8])
+	// Extract token ID from full JTI (use full hash to prevent collisions)
+	tokenID := hex.EncodeToString(proof.JTI)
 
 	// Retrieve token record
 	record, exists := tokenRegistry.Get(tokenID)

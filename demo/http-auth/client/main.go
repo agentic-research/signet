@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/jamestexas/signet/pkg/crypto/cose"
 	"github.com/jamestexas/signet/pkg/crypto/epr"
 	"github.com/jamestexas/signet/pkg/signet"
 )
@@ -75,21 +76,41 @@ func requestToken(purpose string) (*TokenInfo, error) {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Decode all the cryptographic material
-	tokenBytes, _ := base64.RawURLEncoding.DecodeString(response.Token)
-	token, err := signet.Unmarshal(tokenBytes)
+	// Parse SIG1 wire format (replaces raw CBOR decoding)
+	sig1, err := signet.DecodeSIG1(response.Token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal token: %w", err)
+		return nil, fmt.Errorf("failed to parse SIG1: %w", err)
 	}
 
+	// Decode ephemeral public key to verify SIG1 signature
 	ephPub, _ := base64.RawURLEncoding.DecodeString(response.EphemeralPublic)
+	ephemeralPublicKey := ed25519.PublicKey(ephPub)
+
+	// Verify COSE signature on the token using ephemeral public key
+	verifier, err := cose.NewEd25519Verifier(ephemeralPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verifier: %w", err)
+	}
+
+	recoveredPayload, err := verifier.Verify(sig1.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("SIG1 signature verification failed: %w", err)
+	}
+
+	// Verify the recovered payload matches the token
+	expectedPayload, _ := sig1.Token.Marshal()
+	if !bytes.Equal(recoveredPayload, expectedPayload) {
+		return nil, fmt.Errorf("SIG1 payload mismatch")
+	}
+
+	// Decode remaining cryptographic material
 	ephPriv, _ := base64.RawURLEncoding.DecodeString(response.EphemeralPrivate)
 	bindingSig, _ := base64.RawURLEncoding.DecodeString(response.BindingSignature)
 	masterPub, _ := base64.RawURLEncoding.DecodeString(response.MasterPublic)
 
 	return &TokenInfo{
 		TokenID:          response.TokenID,
-		Token:            token,
+		Token:            sig1.Token, // Use token from SIG1
 		EphemeralPublic:  ed25519.PublicKey(ephPub),
 		EphemeralPrivate: ed25519.PrivateKey(ephPriv),
 		BindingSignature: bindingSig,
