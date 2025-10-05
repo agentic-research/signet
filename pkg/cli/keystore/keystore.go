@@ -1,3 +1,20 @@
+// Package keystore provides secure key storage using OS-native keychains.
+//
+// Security Properties:
+//   - Keys stored in OS keyring (Keychain/Credential Manager/Secret Service)
+//   - Memory zeroization for all sensitive data
+//   - Protection against timing attacks (where feasible)
+//   - Mutex-protected concurrent access
+//
+// Platform Support:
+//   - macOS: Keychain
+//   - Windows: Credential Manager
+//   - Linux: Secret Service (GNOME Keyring, KWallet)
+//
+// Limitations:
+//   - Hex-encoded strings cannot be fully zeroized due to Go string immutability.
+//     See ADR-005 for details.
+//   - Requires user session (may fail in headless environments)
 package keystore
 
 import (
@@ -106,9 +123,7 @@ func LoadMasterKey(keyPath string) (*keys.Ed25519Signer, error) {
 	privateKey := ed25519.NewKeyFromSeed(block.Bytes)
 
 	// Zero the seed after use
-	for i := range block.Bytes {
-		block.Bytes[i] = 0
-	}
+	keys.ZeroizeBytes(block.Bytes)
 
 	// Note: privateKey is NOT zeroed here because NewEd25519Signer stores a reference
 	// to the same underlying array. The caller must call Destroy() on the returned
@@ -147,9 +162,7 @@ func GetKeyID(keyPath string) (string, error) {
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
 	// Zero the seed after use
-	for i := range block.Bytes {
-		block.Bytes[i] = 0
-	}
+	keys.ZeroizeBytes(block.Bytes)
 
 	// Zero the private key after extracting public key
 	for i := range privateKey {

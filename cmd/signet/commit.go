@@ -30,6 +30,7 @@ var (
 	statusFd      int
 	insecureFlag  bool // Use file-based storage instead of OS keyring
 	migrateFlag   bool // Migrate from file-based to keyring storage
+	noFallback    bool // Fail if keyring is unavailable, don't fall back to file
 )
 
 var commitCmd = &cobra.Command{
@@ -74,6 +75,7 @@ func init() {
 	commitCmd.Flags().IntVar(&statusFd, "status-fd", 0, "File descriptor for GPG status output")
 	commitCmd.Flags().BoolVar(&insecureFlag, "insecure", false, "Use file-based key storage (not recommended)")
 	commitCmd.Flags().BoolVar(&migrateFlag, "migrate", false, "Migrate key from file storage to OS keyring")
+	commitCmd.Flags().BoolVar(&noFallback, "no-fallback", false, "Fail if keyring is unavailable (no fallback to file)")
 
 	// GPG compatibility flags (ignored)
 	// Git passes these as combined shorthand: -bsau <keyid>
@@ -175,15 +177,27 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	var masterKey *keys.Ed25519Signer
 	var err error
 
-	if insecureFlag {
-		masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
-	} else {
+	useSecure := !insecureFlag
+	if useSecure {
 		masterKey, err = keystore.LoadMasterKeySecure()
+		// Fallback to file-based if keyring fails, unless disabled
+		if err != nil {
+			if noFallback {
+				fmt.Fprintln(os.Stderr, styles.Error.Render("✗")+" Keyring access failed and fallback is disabled.")
+				return fmt.Errorf("failed to load master key from keyring: %w", err)
+			}
+
+			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
+			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Run 'signet commit --migrate' to migrate to secure storage"))
+			masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
+		}
+	} else {
+		masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
 	}
 
 	if err != nil {
 		// Provide helpful error messages based on storage mode
-		if !insecureFlag {
+		if useSecure {
 			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Failed to access OS keyring")
 			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  If you have a file-based key, use --insecure flag"))
 			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Or run 'signet commit --migrate' to migrate to secure storage"))
@@ -310,11 +324,12 @@ func migrateToKeyring(cfg *config.Config) error {
 
 	// Store the seed in keyring using the existing secure storage
 	// Encode directly to bytes to avoid creating immutable string
-	seedHexBytes := make([]byte, hex.EncodedLen(len(block.Bytes)))
-	hex.Encode(seedHexBytes, block.Bytes)
-	defer keys.ZeroizeBytes(seedHexBytes)
+	// WARNING: This creates an immutable string copy of the seed in memory that
+	// cannot be zeroized. This is a limitation of the go-keyring library API.
+	// See ADR-005 for more details.
+	seedHex := hex.EncodeToString(block.Bytes)
 
-	if err := keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, string(seedHexBytes)); err != nil {
+	if err := keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, seedHex); err != nil {
 		return fmt.Errorf("failed to store key in keyring: %w", err)
 	}
 
@@ -333,8 +348,24 @@ func migrateToKeyring(cfg *config.Config) error {
 	fmt.Println(styles.Success.Render("✓") + " Successfully migrated key to OS keyring")
 	fmt.Println(styles.Subtle.Render("  Public key: ") + fmt.Sprintf("%x", publicKey))
 	fmt.Println()
-	fmt.Println(styles.Info.Render("→") + " The file-based key is still present at: " + styles.Code.Render(keyPath))
-	fmt.Println(styles.Subtle.Render("  You can delete it manually after verifying the migration"))
+
+	// Prompt user to delete the old key file
+	fmt.Print("Delete the old key file now? [y/N]: ")
+	var response string
+	// We can ignore the error here. If Scanln fails, response will be empty,
+	// and the check for "y" or "Y" will fail, which is the desired outcome.
+	_, _ = fmt.Scanln(&response)
+	if response == "y" || response == "Y" {
+		if err := os.Remove(keyPath); err != nil {
+			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Failed to delete old key file: "+err.Error())
+		} else {
+			fmt.Println(styles.Success.Render("✓") + " Old key file deleted")
+		}
+	} else {
+		fmt.Println(styles.Info.Render("→") + " The file-based key is still present at: " + styles.Code.Render(keyPath))
+		fmt.Println(styles.Subtle.Render("  You can delete it manually after verifying the migration"))
+	}
+
 	fmt.Println(styles.Subtle.Render("  To test: ") + styles.Code.Render("signet commit --export-key-id"))
 
 	return nil
