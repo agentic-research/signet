@@ -12,15 +12,18 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
+	"golang.org/x/time/rate"
 
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/styles"
@@ -66,9 +69,11 @@ issuance workflows are functional but under active development.
     "redirect_url": "http://localhost:8080/callback",
     "authority_master_key_path": "/path/to/master.key",
     "listen_addr": ":8080",
-    "certificate_validity_hours": 8,
-    "session_secret": "random-secret-string"
+    "certificate_validity_hours": 8
   }
+
+  # Set session secret via environment variable (required)
+  export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
 
   # Run the server
   signet authority --config config.json
@@ -139,9 +144,28 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 
 	// Setup HTTP router
 	mux := http.NewServeMux()
-	mux.HandleFunc("/login", server.handleLogin)
-	mux.HandleFunc("/callback", server.handleCallback)
+
+	// Create rate limiter: 10 requests per second with burst of 20
+	// This prevents brute-force attacks on authentication endpoints
+	limiter := newRateLimiter(10, 20)
+
+	// Apply rate limiting to authentication endpoints only
+	loginHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleLogin))
+	callbackHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleCallback))
+
+	mux.Handle("/login", loginHandler)
+	mux.Handle("/callback", callbackHandler)
 	mux.HandleFunc("/healthz", server.handleHealthz)
+
+	// Start periodic cleanup of rate limiter (every 5 minutes)
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+	go func() {
+		for range cleanupTicker.C {
+			limiter.cleanup()
+			logger.Debug("rate limiter cleanup completed")
+		}
+	}()
 
 	// Add logging middleware
 	handler := loggingMiddleware(logger, mux)
@@ -219,8 +243,10 @@ type AuthorityConfig struct {
 	// Certificate configuration
 	CertificateValidity int `json:"certificate_validity_hours"`
 
-	// Session configuration
-	SessionSecret string `json:"session_secret"`
+	// Session configuration - SECURITY: No longer loaded from JSON
+	// Session secrets MUST be provided via SIGNET_SESSION_SECRET environment variable
+	// This field is deprecated and will be ignored if present in config
+	SessionSecret string `json:"session_secret,omitempty"`
 }
 
 func loadAuthorityConfig(path string) (*AuthorityConfig, error) {
@@ -235,6 +261,17 @@ func loadAuthorityConfig(path string) (*AuthorityConfig, error) {
 	if err := decoder.Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %w", err)
 	}
+
+	// SECURITY: Load session secret from environment variable only
+	// This prevents secrets from being stored in configuration files
+	sessionSecret := os.Getenv("SIGNET_SESSION_SECRET")
+	if sessionSecret == "" {
+		return nil, fmt.Errorf("SIGNET_SESSION_SECRET environment variable is required")
+	}
+	if len(sessionSecret) < 32 {
+		return nil, fmt.Errorf("SIGNET_SESSION_SECRET must be at least 32 characters for security")
+	}
+	config.SessionSecret = sessionSecret
 
 	// Validate required fields
 	if err := validateAuthorityConfig(&config); err != nil {
@@ -268,12 +305,8 @@ func validateAuthorityConfig(c *AuthorityConfig) error {
 	if c.AuthorityMasterKey == "" {
 		return fmt.Errorf("authority_master_key_path is required")
 	}
-	if c.SessionSecret == "" {
-		return fmt.Errorf("session_secret is required")
-	}
-	if len(c.SessionSecret) < 32 {
-		return fmt.Errorf("session_secret must be at least 32 characters for security")
-	}
+	// Note: SessionSecret validation is now done in loadAuthorityConfig
+	// when loading from environment variable
 	return nil
 }
 
@@ -490,14 +523,22 @@ func (s *OIDCServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SECURITY: Use Secure and SameSite=Strict for session cookies
+	// In production, Secure should always be true (HTTPS required)
+	// For local development, allow insecure cookies
+	isSecure := r.TLS != nil
+	if os.Getenv("SIGNET_FORCE_SECURE_COOKIES") == "true" {
+		isSecure = true
+	}
+
 	cookie := &http.Cookie{
 		Name:     "signet_session",
 		Value:    base64.RawURLEncoding.EncodeToString(sessionJSON),
 		Path:     "/",
-		MaxAge:   300,
+		MaxAge:   300, // 5 minutes
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecure,
+		SameSite: http.SameSiteStrictMode, // Upgraded from Lax to Strict
 	}
 	http.SetCookie(w, cookie)
 
@@ -606,14 +647,21 @@ func (s *OIDCServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SECURITY: Session rotation - invalidate the old session after successful authentication
+	// This prevents session fixation attacks
+	isSecure := r.TLS != nil
+	if os.Getenv("SIGNET_FORCE_SECURE_COOKIES") == "true" {
+		isSecure = true
+	}
+
 	clearCookie := &http.Cookie{
 		Name:     "signet_session",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecure,
+		SameSite: http.SameSiteStrictMode, // Match the strictness of initial cookie
 	}
 	http.SetCookie(w, clearCookie)
 
@@ -676,4 +724,83 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 		w.statusCode = http.StatusOK
 	}
 	return w.ResponseWriter.Write(b)
+}
+
+// rateLimiter implements per-IP rate limiting to prevent abuse
+type rateLimiter struct {
+	limiters map[string]*rate.Limiter
+	mu       sync.RWMutex
+	r        rate.Limit // requests per second
+	b        int        // burst size
+}
+
+// newRateLimiter creates a new per-IP rate limiter
+// r is the rate (requests per second), b is the burst size
+func newRateLimiter(r rate.Limit, b int) *rateLimiter {
+	return &rateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		r:        r,
+		b:        b,
+	}
+}
+
+// getLimiter returns the rate limiter for a given IP address
+func (rl *rateLimiter) getLimiter(ip string) *rate.Limiter {
+	rl.mu.RLock()
+	limiter, exists := rl.limiters[ip]
+	rl.mu.RUnlock()
+
+	if exists {
+		return limiter
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if limiter, exists := rl.limiters[ip]; exists {
+		return limiter
+	}
+
+	limiter = rate.NewLimiter(rl.r, rl.b)
+	rl.limiters[ip] = limiter
+	return limiter
+}
+
+// cleanup removes stale entries from the rate limiter map
+// This should be called periodically to prevent memory leaks
+func (rl *rateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	// Remove limiters that haven't been used recently
+	// This is a simple cleanup strategy - production systems may want more sophisticated approaches
+	for ip, limiter := range rl.limiters {
+		// If the limiter has full burst capacity, it hasn't been used recently
+		if limiter.Tokens() == float64(rl.b) {
+			delete(rl.limiters, ip)
+		}
+	}
+}
+
+// rateLimitMiddleware applies per-IP rate limiting to HTTP handlers
+func rateLimitMiddleware(rl *rateLimiter, logger *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract IP address from request
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			// If we can't parse the IP, use the whole RemoteAddr
+			ip = r.RemoteAddr
+		}
+
+		// Check if request is allowed
+		limiter := rl.getLimiter(ip)
+		if !limiter.Allow() {
+			logger.Warn("rate limit exceeded", "ip", ip, "path", r.URL.Path)
+			http.Error(w, "Rate limit exceeded. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

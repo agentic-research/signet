@@ -23,13 +23,20 @@ import (
 //  3. Preventing replay attacks via nonce tracking
 //  4. Enforcing time-based validity windows
 //
+// Returns an error if the middleware configuration is invalid.
+// This allows graceful error handling instead of panicking.
+//
 // Example usage:
 //
-//	handler := SignetMiddleware(
+//	middleware, err := SignetMiddleware(
 //	    WithMasterKey(masterPub),
 //	    WithClockSkew(30*time.Second),
-//	)(myHandler)
-func SignetMiddleware(opts ...Option) func(http.Handler) http.Handler {
+//	)
+//	if err != nil {
+//	    return fmt.Errorf("failed to create middleware: %w", err)
+//	}
+//	handler := middleware(myHandler)
+func SignetMiddleware(opts ...Option) (func(http.Handler) http.Handler, error) {
 	// Apply default configuration
 	config := &Config{
 		clockSkew:      30 * time.Second,
@@ -47,18 +54,20 @@ func SignetMiddleware(opts ...Option) func(http.Handler) http.Handler {
 		opt(config)
 	}
 
-	// Validate configuration
+	// Validate configuration - return error instead of panicking
 	if err := config.validate(); err != nil {
-		panic(fmt.Sprintf("invalid middleware configuration: %v", err))
+		return nil, fmt.Errorf("invalid middleware configuration: %w", err)
 	}
 
 	// Create the middleware
-	return func(next http.Handler) http.Handler {
+	middleware := func(next http.Handler) http.Handler {
 		return &signetHandler{
 			next:   next,
 			config: config,
 		}
 	}
+
+	return middleware, nil
 }
 
 // signetHandler implements the actual request handling logic

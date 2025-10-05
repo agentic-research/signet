@@ -210,7 +210,7 @@ func (l *CustomLogger) Error(msg string, args ...interface{}) {
 
 func main() {
 	// Create the Signet middleware with production configuration
-	auth := middleware.SignetMiddleware(
+	auth, err := middleware.SignetMiddleware(
 		middleware.WithMasterKey(serverMasterPub),
 		middleware.WithTokenStore(tokenStore),
 		middleware.WithNonceStore(nonceStore),
@@ -219,6 +219,9 @@ func main() {
 		middleware.WithLogger(&CustomLogger{}),
 		middleware.WithSkipPaths("/health", "/issue-token"),
 	)
+	if err != nil {
+		log.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	// Setup routes
 	mux := http.NewServeMux()

@@ -1,10 +1,5 @@
 repos:
-  - repo: https://github.com/golangci/golangci-lint
-    rev: v2.5.0
-    hooks:
-      - id: golangci-lint
-        exclude: '\.md$'
-
+  # Step 1: Format code first
   - repo: https://github.com/dnephin/pre-commit-golang
     rev: v0.5.1
     hooks:
@@ -12,16 +7,38 @@ repos:
         exclude: '\.md$'
       - id: go-imports
         exclude: '\.md$'
-      - id: go-mod-tidy
-        exclude: '\.md$'
-      - id: go-unit-tests
-        exclude: '\.md$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+
+  # Step 2: Tidy dependencies
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-mod-tidy
+        exclude: '\.md$'
+
+  # Step 3: Lint code (after formatting)
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.5.0
+    hooks:
+      - id: golangci-lint
+        exclude: '\.md$'
+
+  # Step 4: Run tests
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-unit-tests
+        exclude: '\.md$'
+
+  # Step 5: Final checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
       - id: check-yaml
       - id: check-added-large-files
         args: ['--maxkb=1000']
