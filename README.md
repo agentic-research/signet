@@ -40,10 +40,10 @@ Sign any file with the same primitives:
 
 ```bash
 # Initialize (shares keys with git signing)
-./sigsign init
+./signet sign --init
 
 # Sign files
-./sigsign sign document.pdf
+./signet sign document.pdf
 # Creates document.pdf.sig
 
 # Verify with OpenSSL
@@ -81,10 +81,10 @@ export OIDC_ISSUER_URL="https://accounts.google.com"
 export OIDC_CLIENT_ID="your-client-id"
 
 # Run authority
-./signet-authority --port 8443
+./signet authority --port 8443
 ```
 
-See [`cmd/signet-authority/README.md`](./cmd/signet-authority/README.md) for setup.
+See [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md) for detailed setup and configuration.
 
 ## Core Libraries
 
