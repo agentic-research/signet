@@ -86,6 +86,7 @@ func LoadMasterKey(keyPath string) (*keys.Ed25519Signer, error) {
 		}
 		return nil, fmt.Errorf("failed to read key file: %w", err)
 	}
+	defer keys.ZeroizeBytes(keyData)
 
 	// Decode PEM
 	block, _ := pem.Decode(keyData)
@@ -125,6 +126,7 @@ func GetKeyID(keyPath string) (string, error) {
 		}
 		return "", fmt.Errorf("failed to read key file: %w", err)
 	}
+	defer keys.ZeroizeBytes(keyData)
 
 	// Decode PEM to get seed
 	block, _ := pem.Decode(keyData)

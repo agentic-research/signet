@@ -44,7 +44,7 @@ func (s *Ed25519Signer) Public() crypto.PublicKey {
 // Concurrency guarantee: If Destroy() is called concurrently with Sign(),
 // either Sign() will complete successfully before destruction, or it will
 // fail with "signer has been destroyed". Partial destruction during signing
-// is prevented by the read lock.
+// is prevented by the read lock, which is held during the entire signing operation.
 func (s *Ed25519Signer) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -52,7 +52,11 @@ func (s *Ed25519Signer) Sign(rand io.Reader, message []byte, opts crypto.SignerO
 	if s.destroyed {
 		return nil, errors.New("signer has been destroyed")
 	}
-	return s.privateKey.Sign(rand, message, opts)
+
+	// Execute signing while holding the read lock
+	// This prevents Destroy() from zeroing the key during the operation
+	signature, err := s.privateKey.Sign(rand, message, opts)
+	return signature, err
 }
 
 // Destroy securely zeros the private key material

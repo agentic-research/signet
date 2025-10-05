@@ -311,11 +311,12 @@ func migrateToKeyring(cfg *config.Config) error {
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
 	// Store the seed in keyring using the existing secure storage
-	seedHex := hex.EncodeToString(block.Bytes)
-	seedHexBytes := []byte(seedHex)
+	// Encode directly to bytes to avoid creating immutable string
+	seedHexBytes := make([]byte, hex.EncodedLen(len(block.Bytes)))
+	hex.Encode(seedHexBytes, block.Bytes)
 	defer keys.ZeroizeBytes(seedHexBytes)
 
-	if err := keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, seedHex); err != nil {
+	if err := keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, string(seedHexBytes)); err != nil {
 		return fmt.Errorf("failed to store key in keyring: %w", err)
 	}
 
