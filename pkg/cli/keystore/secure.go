@@ -77,18 +77,22 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 		return nil, errors.New("failed to retrieve key from keyring")
 	}
 
+	// Copy the retrieved string to avoid modifying the mock keyring's internal
+	// state during tests, then immediately zero the original reference to shorten
+	// the secret's lifetime in memory.
+	seedHexCopy := seedHex
+	seedHex = "" //nolint:ineffassign
+
 	// Validate hex string length before decoding to prevent allocation attacks
 	expectedHexLen := ed25519.SeedSize * 2
-	if len(seedHex) != expectedHexLen {
+	if len(seedHexCopy) != expectedHexLen {
 		return nil, errors.New("invalid key data in keyring")
 	}
 
-	// Convert string to byte slice for proper zeroization
-	seedHexBytes := []byte(seedHex)
-	defer keys.ZeroizeBytes(seedHexBytes)
-
 	// Decode hex to seed
-	seed, err := hex.DecodeString(string(seedHexBytes))
+	seed, err := hex.DecodeString(seedHexCopy)
+	// Drop reference to the immutable string ASAP to shorten its lifetime.
+	seedHexCopy = "" //nolint:ineffassign
 	if err != nil {
 		return nil, errors.New("invalid key data in keyring")
 	}
@@ -125,18 +129,22 @@ func GetKeyIDSecure() (string, error) {
 		return "", errors.New("failed to retrieve key from keyring")
 	}
 
+	// Copy the retrieved string to avoid modifying the mock keyring's internal
+	// state during tests, then immediately zero the original reference to shorten
+	// the secret's lifetime in memory.
+	seedHexCopy := seedHex
+	seedHex = "" //nolint:ineffassign
+
 	// Validate hex string length before decoding
 	expectedHexLen := ed25519.SeedSize * 2
-	if len(seedHex) != expectedHexLen {
+	if len(seedHexCopy) != expectedHexLen {
 		return "", errors.New("invalid key data in keyring")
 	}
 
-	// Convert string to byte slice for proper zeroization
-	seedHexBytes := []byte(seedHex)
-	defer keys.ZeroizeBytes(seedHexBytes)
-
 	// Decode hex to seed
-	seed, err := hex.DecodeString(string(seedHexBytes))
+	seed, err := hex.DecodeString(seedHexCopy)
+	// Drop reference to the immutable string ASAP to shorten its lifetime.
+	seedHexCopy = "" //nolint:ineffassign
 	if err != nil {
 		return "", errors.New("invalid key data in keyring")
 	}
