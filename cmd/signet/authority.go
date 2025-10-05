@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -16,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -158,12 +162,25 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/healthz", server.handleHealthz)
 
 	// Start periodic cleanup of rate limiter (every 5 minutes)
+	// Use context for graceful shutdown of cleanup goroutine
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	defer cleanupCancel()
+
 	cleanupTicker := time.NewTicker(5 * time.Minute)
 	defer cleanupTicker.Stop()
+
+	cleanupDone := make(chan struct{})
 	go func() {
-		for range cleanupTicker.C {
-			limiter.cleanup()
-			logger.Debug("rate limiter cleanup completed")
+		defer close(cleanupDone)
+		for {
+			select {
+			case <-cleanupTicker.C:
+				limiter.cleanup()
+				logger.Debug("rate limiter cleanup completed")
+			case <-cleanupCtx.Done():
+				logger.Debug("cleanup goroutine shutting down")
+				return
+			}
 		}
 	}()
 
@@ -211,6 +228,12 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	fmt.Println(styles.Warning.Render("⚠") + " Shutting down server...")
 
 	logger.Info("Shutting down server...")
+
+	// Stop cleanup goroutine first
+	cleanupCancel()
+	<-cleanupDone
+	logger.Debug("cleanup goroutine stopped")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -305,8 +328,9 @@ func validateAuthorityConfig(c *AuthorityConfig) error {
 	if c.AuthorityMasterKey == "" {
 		return fmt.Errorf("authority_master_key_path is required")
 	}
-	// Note: SessionSecret validation is now done in loadAuthorityConfig
-	// when loading from environment variable
+	// Note: SessionSecret is NOT validated here. It is loaded exclusively from
+	// the SIGNET_SESSION_SECRET environment variable and validated in
+	// loadAuthorityConfig() to prevent secrets from appearing in config files.
 	return nil
 }
 
@@ -452,6 +476,65 @@ type SessionData struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
+// encryptSession encrypts session data using AES-256-GCM with the session secret
+func (s *OIDCServer) encryptSession(data []byte) ([]byte, error) {
+	// Derive a 32-byte key from the session secret using SHA256
+	keyHash := sha256.Sum256([]byte(s.config.SessionSecret))
+
+	block, err := aes.NewCipher(keyHash[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Generate a random nonce
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
+	// Encrypt and authenticate the data
+	// The nonce is prepended to the ciphertext for later decryption
+	ciphertext := aead.Seal(nonce, nonce, data, nil)
+	return ciphertext, nil
+}
+
+// decryptSession decrypts session data encrypted with encryptSession
+func (s *OIDCServer) decryptSession(ciphertext []byte) ([]byte, error) {
+	// Derive the same key from the session secret
+	keyHash := sha256.Sum256([]byte(s.config.SessionSecret))
+
+	block, err := aes.NewCipher(keyHash[:])
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	nonceSize := aead.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+
+	// Extract nonce and ciphertext
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	// Decrypt and verify authentication tag
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	return plaintext, nil
+}
+
 func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.Logger) (*OIDCServer, error) {
 	ctx := context.Background()
 	provider, err := oidc.NewProvider(ctx, config.OIDCProviderURL)
@@ -523,9 +606,19 @@ func (s *OIDCServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SECURITY: Use Secure and SameSite=Strict for session cookies
-	// In production, Secure should always be true (HTTPS required)
-	// For local development, allow insecure cookies
+	// Encrypt session data using AES-256-GCM
+	encryptedSession, err := s.encryptSession(sessionJSON)
+	if err != nil {
+		s.logger.Error("Failed to encrypt session data", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// SECURITY: OAuth state cookies use SameSite=Lax for cross-site compatibility
+	// OAuth callbacks are cross-site navigations from the OIDC provider, so Strict
+	// mode would block the cookie. Lax mode allows the cookie on safe top-level
+	// navigation (GET requests), which is sufficient for OAuth flows.
+	// The encrypted state and CSRF protections provide security.
 	isSecure := r.TLS != nil
 	if os.Getenv("SIGNET_FORCE_SECURE_COOKIES") == "true" {
 		isSecure = true
@@ -533,12 +626,12 @@ func (s *OIDCServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	cookie := &http.Cookie{
 		Name:     "signet_session",
-		Value:    base64.RawURLEncoding.EncodeToString(sessionJSON),
+		Value:    base64.RawURLEncoding.EncodeToString(encryptedSession),
 		Path:     "/",
-		MaxAge:   300, // 5 minutes
+		MaxAge:   300, // 5 minutes - short-lived for OAuth flow only
 		HttpOnly: true,
 		Secure:   isSecure,
-		SameSite: http.SameSiteStrictMode, // Upgraded from Lax to Strict
+		SameSite: http.SameSiteLaxMode, // Lax required for OAuth callback compatibility
 	}
 	http.SetCookie(w, cookie)
 
@@ -558,10 +651,18 @@ func (s *OIDCServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionJSON, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+	encryptedSession, err := base64.RawURLEncoding.DecodeString(cookie.Value)
 	if err != nil {
 		s.logger.Error("Failed to decode session cookie", "error", err)
 		http.Error(w, "Invalid session data", http.StatusUnauthorized)
+		return
+	}
+
+	// Decrypt session data
+	sessionJSON, err := s.decryptSession(encryptedSession)
+	if err != nil {
+		s.logger.Error("Failed to decrypt session data", "error", err)
+		http.Error(w, "Invalid or tampered session data", http.StatusUnauthorized)
 		return
 	}
 
@@ -726,9 +827,15 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// rateLimiterEntry wraps a rate limiter with last access tracking
+type rateLimiterEntry struct {
+	limiter    *rate.Limiter
+	lastAccess time.Time
+}
+
 // rateLimiter implements per-IP rate limiting to prevent abuse
 type rateLimiter struct {
-	limiters map[string]*rate.Limiter
+	limiters map[string]*rateLimiterEntry
 	mu       sync.RWMutex
 	r        rate.Limit // requests per second
 	b        int        // burst size
@@ -738,7 +845,7 @@ type rateLimiter struct {
 // r is the rate (requests per second), b is the burst size
 func newRateLimiter(r rate.Limit, b int) *rateLimiter {
 	return &rateLimiter{
-		limiters: make(map[string]*rate.Limiter),
+		limiters: make(map[string]*rateLimiterEntry),
 		r:        r,
 		b:        b,
 	}
@@ -747,24 +854,33 @@ func newRateLimiter(r rate.Limit, b int) *rateLimiter {
 // getLimiter returns the rate limiter for a given IP address
 func (rl *rateLimiter) getLimiter(ip string) *rate.Limiter {
 	rl.mu.RLock()
-	limiter, exists := rl.limiters[ip]
+	entry, exists := rl.limiters[ip]
 	rl.mu.RUnlock()
 
 	if exists {
-		return limiter
+		// Update last access time (requires write lock for thread safety)
+		rl.mu.Lock()
+		entry.lastAccess = time.Now()
+		rl.mu.Unlock()
+		return entry.limiter
 	}
 
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	// Double-check after acquiring write lock
-	if limiter, exists := rl.limiters[ip]; exists {
-		return limiter
+	if entry, exists := rl.limiters[ip]; exists {
+		entry.lastAccess = time.Now()
+		return entry.limiter
 	}
 
-	limiter = rate.NewLimiter(rl.r, rl.b)
-	rl.limiters[ip] = limiter
-	return limiter
+	// Create new entry with current timestamp
+	entry = &rateLimiterEntry{
+		limiter:    rate.NewLimiter(rl.r, rl.b),
+		lastAccess: time.Now(),
+	}
+	rl.limiters[ip] = entry
+	return entry.limiter
 }
 
 // cleanup removes stale entries from the rate limiter map
@@ -773,25 +889,51 @@ func (rl *rateLimiter) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	// Remove limiters that haven't been used recently
-	// This is a simple cleanup strategy - production systems may want more sophisticated approaches
-	for ip, limiter := range rl.limiters {
-		// If the limiter has full burst capacity, it hasn't been used recently
-		if limiter.Tokens() == float64(rl.b) {
+	// Remove entries that haven't been accessed in the last 10 minutes
+	// This prevents unbounded memory growth while keeping active limiters
+	cutoff := time.Now().Add(-10 * time.Minute)
+	for ip, entry := range rl.limiters {
+		if entry.lastAccess.Before(cutoff) {
 			delete(rl.limiters, ip)
 		}
 	}
 }
 
+// getClientIP extracts the real client IP from the request, accounting for proxy headers
+// WARNING: Only trust X-Forwarded-For and X-Real-IP when behind a trusted reverse proxy
+// In production, validate that requests come from trusted proxy IPs before using these headers
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (standard for proxies/load balancers)
+	// Format: "client, proxy1, proxy2" - we want the leftmost (original client) IP
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take only the first IP (client IP, before any proxies)
+		if ips := strings.Split(xff, ","); len(ips) > 0 {
+			clientIP := strings.TrimSpace(ips[0])
+			if clientIP != "" {
+				return clientIP
+			}
+		}
+	}
+
+	// Check X-Real-IP header (used by some proxies like nginx)
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	// Fall back to direct connection IP
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// If we can't parse the IP, use the whole RemoteAddr
+		return r.RemoteAddr
+	}
+	return ip
+}
+
 // rateLimitMiddleware applies per-IP rate limiting to HTTP handlers
 func rateLimitMiddleware(rl *rateLimiter, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract IP address from request
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			// If we can't parse the IP, use the whole RemoteAddr
-			ip = r.RemoteAddr
-		}
+		// Extract IP address from request (handles proxy headers)
+		ip := getClientIP(r)
 
 		// Check if request is allowed
 		limiter := rl.getLimiter(ip)
