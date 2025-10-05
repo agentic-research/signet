@@ -148,15 +148,13 @@ func runCommit(cmd *cobra.Command, args []string) error {
 			keyID, err = keystore.GetKeyID(cfg.KeyPath)
 		} else {
 			keyID, err = keystore.GetKeyIDSecure()
-			// Fallback to file-based if keyring fails
-			if err != nil {
-				fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
-				fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Run 'signet commit --migrate' to migrate to secure storage"))
-				keyID, err = keystore.GetKeyID(cfg.KeyPath)
-			}
 		}
 
 		if err != nil {
+			// Provide helpful error message if keyring fails
+			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Failed to access OS keyring")
+			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  If you have a file-based key, use --insecure flag"))
+			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Or run 'signet commit --migrate' to migrate to secure storage"))
 			return fmt.Errorf("failed to get key ID: %w", err)
 		}
 		// Output raw key ID for Git (no styling for machine-readable output)
@@ -173,7 +171,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Load master key (try keyring first, fallback to file)
+	// Load master key
 	var masterKey *keys.Ed25519Signer
 	var err error
 
@@ -181,15 +179,15 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
 	} else {
 		masterKey, err = keystore.LoadMasterKeySecure()
-		// Fallback to file-based if keyring fails
-		if err != nil {
-			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
-			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Run 'signet commit --migrate' to migrate to secure storage"))
-			masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
-		}
 	}
 
 	if err != nil {
+		// Provide helpful error messages based on storage mode
+		if !insecureFlag {
+			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Failed to access OS keyring")
+			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  If you have a file-based key, use --insecure flag"))
+			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Or run 'signet commit --migrate' to migrate to secure storage"))
+		}
 		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet commit --init") + " to initialize\n"
 		fmt.Fprint(os.Stderr, msg)
 		return fmt.Errorf("failed to load master key: %w", err)
