@@ -3,14 +3,19 @@ repos:
     rev: v2.5.0
     hooks:
       - id: golangci-lint
+        exclude: '\.md$'
 
   - repo: https://github.com/dnephin/pre-commit-golang
     rev: v0.5.1
     hooks:
       - id: go-fmt
+        exclude: '\.md$'
       - id: go-imports
+        exclude: '\.md$'
       - id: go-mod-tidy
+        exclude: '\.md$'
       - id: go-unit-tests
+        exclude: '\.md$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0

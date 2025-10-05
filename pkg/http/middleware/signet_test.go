@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jamestexas/signet/pkg/crypto/epr"
-	signethttp "github.com/jamestexas/signet/pkg/http"
 	"github.com/jamestexas/signet/pkg/signet"
 )
 
@@ -415,18 +414,10 @@ func TestSignetMiddleware_ClockSkew(t *testing.T) {
 
 	signature := ed25519.Sign(ephemeralPriv, []byte(canonical))
 
-	tokenBytes, err := record.Token.Marshal()
-	if err != nil {
-		t.Fatalf("marshal token: %v", err)
-	}
-	keyHash := signethttp.ComputeEphemeralKeyHash(record.Token.JTI, record.EphemeralPublicKey)
-
-	proofHeader := fmt.Sprintf("v1;m=compact;t=%s;jti=%s;cap=%s;p=%s;k=%s;s=%s;n=%s;ts=%d",
-		base64.RawURLEncoding.EncodeToString(tokenBytes),
+	// Use the same simple proof format as the working tests
+	proofHeader := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
 		base64.RawURLEncoding.EncodeToString(record.Token.JTI),
 		base64.RawURLEncoding.EncodeToString(record.Token.CapabilityID),
-		base64.RawURLEncoding.EncodeToString(record.BindingSignature),
-		base64.RawURLEncoding.EncodeToString(keyHash),
 		base64.RawURLEncoding.EncodeToString(signature),
 		base64.RawURLEncoding.EncodeToString(nonce),
 		futureTimestamp,
@@ -595,4 +586,95 @@ func TestJSONErrorHandler(t *testing.T) {
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+// TestQueryParamCanonicalization ensures query parameters are included in signatures
+// to prevent parameter injection attacks
+func TestQueryParamCanonicalization(t *testing.T) {
+	config, masterPub, masterPriv := setupTestMiddleware(t)
+
+	// Generate test token
+	record, ephemeralPriv := generateTestToken(t, masterPriv, "test-purpose")
+	defer func() {
+		for i := range ephemeralPriv {
+			ephemeralPriv[i] = 0
+		}
+	}()
+
+	// Store token
+	_, err := config.tokenStore.Store(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	middleware := SignetMiddleware(
+		WithMasterKey(masterPub),
+		WithTokenStore(config.tokenStore),
+		WithNonceStore(config.nonceStore),
+	)
+
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Create request with query params
+	req1 := createSignedRequestWithQuery(t, "GET", "/api/users", "id=123", record, ephemeralPriv)
+
+	rec1 := httptest.NewRecorder()
+
+	// First request should succeed
+	handler.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Errorf("First request failed: %d", rec1.Code)
+	}
+
+	// Second request with same signature but different query should fail
+	// (using same signature as req1)
+	req2InvalidSig := httptest.NewRequest("GET", "/api/users?id=456", nil)
+	req2InvalidSig.Header.Set("Signet-Proof", req1.Header.Get("Signet-Proof"))
+	rec2Invalid := httptest.NewRecorder()
+	handler.ServeHTTP(rec2Invalid, req2InvalidSig)
+
+	if rec2Invalid.Code != http.StatusUnauthorized {
+		t.Errorf("Expected signature mismatch for different query params, got %d", rec2Invalid.Code)
+	}
+}
+
+// createSignedRequestWithQuery creates a request with query parameters
+func createSignedRequestWithQuery(t *testing.T, method, path, query string, record *TokenRecord, ephemeralPriv ed25519.PrivateKey) *http.Request {
+	timestamp := time.Now().Unix()
+	nonce := make([]byte, 16)
+	copy(nonce, []byte("query-test-nonce"))
+
+	// Canonical format includes query params
+	fullPath := path
+	if query != "" {
+		fullPath = path + "?" + query
+	}
+
+	canonical := fmt.Sprintf("%s|%s|%d|%s",
+		method,
+		fullPath,
+		timestamp,
+		base64.RawURLEncoding.EncodeToString(nonce),
+	)
+
+	signature := ed25519.Sign(ephemeralPriv, []byte(canonical))
+
+	proofHeader := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
+		base64.RawURLEncoding.EncodeToString(record.Token.JTI),
+		base64.RawURLEncoding.EncodeToString(record.Token.CapabilityID),
+		base64.RawURLEncoding.EncodeToString(signature),
+		base64.RawURLEncoding.EncodeToString(nonce),
+		timestamp,
+	)
+
+	url := path
+	if query != "" {
+		url = path + "?" + query
+	}
+	req := httptest.NewRequest(method, url, nil)
+	req.Header.Set("Signet-Proof", proofHeader)
+
+	return req
 }

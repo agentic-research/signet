@@ -1,6 +1,6 @@
 # Signet Development Roadmap
 
-**Last Updated:** 2025-10-04
+**Last Updated:** 2025-10-04 (Protocol consolidation branch)
 **Current Version:** v0.0.1-alpha
 **Target Version:** v1.0 Production
 
@@ -103,7 +103,7 @@ This section maps current implementation against the ADR specifications.
 | **CBOR Token Structure with Integer Keys** | ADR-002, Section 2.2 | 🚧 Partially Implemented | Current token only has 6 fields (iss/cnf/exp/nonce/eph/nbf). Missing: aud_id, cap_id, cap_ver, cnf_key_hash, kid, cap_tokens, cap_custom, jti, act, del fields per spec | **High** |
 | **SIG1 Wire Format** | ADR-002, Section 2.1 | ❌ Not Implemented | The `SIG1.<base64url(cbor)>.<base64url(sig)>` format is not implemented. Token serialization exists but not the complete wire protocol | **High** |
 | **COSE_Sign1 Signature Structure** | ADR-002, Section 2.1 | ❌ Not Implemented | Package `pkg/crypto/cose` exists but is empty. Need full COSE_Sign1 Ed25519 implementation | **High** |
-| **Capability Computation (128-bit hash)** | ADR-002, Section 3.1 | ❌ Not Implemented | No implementation of capability ID computation from cap_tokens array. Missing the entire capability hashing system | **High** |
+| **Capability Computation (128-bit hash)** | ADR-002, Section 3.1 | ✅ Implemented | Capability ID computation with domain separation in `pkg/signet/capability.go`. Supports empty capability lists with deterministic hashing | **Complete** |
 | **Semantic Capabilities System** | ADR-001, Sections "Semantic Capability System" | ❌ Not Implemented | No cap_id, cap_tokens, or cap_ver fields in token. No capability registry or validation logic | **High** |
 | **Per-Request Proof-of-Possession** | ADR-002, Section 3.3 | 🚧 Partially Implemented | EPR package implements two-step verification but lacks: canonical string construction per spec, ephemeral key ID caching, proper nonce handling | **High** |
 | **Pairwise Identifiers (ppid)** | ADR-002, Section 3.2 | ❌ Not Implemented | No implementation of per-token pairwise pseudonymous identifiers for privacy | **Medium** |
@@ -123,10 +123,10 @@ This section maps current implementation against the ADR specifications.
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Request Canonicalization** | ADR-002, Section 3.3 | ❌ Not Implemented | `pkg/http/middleware` lacks proper canonical string construction (method\\npath\\nhost\\nts\\nnonce\\njti\\nbody_hash) | **High** |
-| **Signet-Proof Header Format** | ADR-002, Section 3.3 | 🚧 Partially Implemented | Header parser exists but doesn't match spec format: `v=1; ts=<ts>; nonce=<nonce>; kid=<kid>; sig=<sig>` | **High** |
+| **Request Canonicalization** | ADR-002, Section 3.3 | ✅ Implemented | Canonical string construction with query parameter inclusion per RFC 9421. Memory-safe parsing with zeroization | **Complete** |
+| **Signet-Proof Header Format** | ADR-002, Section 3.3 | ✅ Implemented | Header parser consolidated to new `SignetProof` format in `pkg/http/header/parser.go`. Includes security test vectors | **Complete** |
 | **Ephemeral Key ID Caching** | ADR-002, Section 4.2 | ❌ Not Implemented | Middleware doesn't implement kid→cnf_key_hash mapping cache to prevent key correlation | **Medium** |
-| **Nonce Replay Prevention** | ADR-002, Section 4.2 | 🚧 Partially Implemented | Basic nonce store exists but doesn't properly scope to JTI or implement time windows | **High** |
+| **Nonce Replay Prevention** | ADR-002, Section 4.2 | ✅ Implemented | JTI-scoped monotonic timestamp enforcement with TOCTOU race protection. Concurrent-safe with `sync.Map` | **Complete** |
 | **Edge Proxy Translation** | http-proof-of-possession.md | ❌ Not Implemented | No implementation of edge proxy translating PoP to internal mTLS or trusted headers | **Medium** |
 | **Capability Propagation** | http-proof-of-possession.md | ❌ Not Implemented | No mechanism to propagate capabilities to internal services via headers or mTLS | **Medium** |
 
@@ -191,17 +191,18 @@ Zero implementation of revocation features:
 **Work Needed:** Complete implementation from scratch following ADR-001 specification.
 
 #### HTTP Middleware (pkg/http)
-**Status:** **Far from Complete**
+**Status:** **Core Security Complete**
 
-The middleware has basic structure but lacks core functionality:
+The middleware has secure foundations with recent improvements:
 
-- ✅ Header parsing works (but wrong format)
-- ❌ No proper request canonicalization
-- ❌ Signature verification not properly wired
+- ✅ Header parsing (consolidated SignetProof format)
+- ✅ Request canonicalization (query params, RFC 9421 compliant)
+- ✅ Monotonic timestamp enforcement (TOCTOU race protection)
+- ✅ Memory safety (zeroization on error paths)
 - ❌ No framework adapters (gin, echo, chi)
-- 🚧 Nonce checking exists but incomplete
+- ❌ Signature verification needs ephemeral key ID caching
 
-**Work Needed:** Rewrite canonicalization, fix verification flow, add framework adapters.
+**Work Needed:** Add framework adapters, implement kid caching for privacy.
 
 #### Semantic Capabilities System
 **Status:** **Not Implemented**

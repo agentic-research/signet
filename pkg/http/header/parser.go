@@ -2,9 +2,14 @@ package header
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
 
 // SignetProof represents a parsed Signet-Proof header
@@ -32,6 +37,20 @@ func ParseSignetProof(header string) (*SignetProof, error) {
 	}
 
 	proof := &SignetProof{}
+	var err error
+
+	// Zero sensitive fields on error
+	defer func() {
+		if err != nil && proof != nil {
+			if proof.Nonce != nil {
+				keys.ZeroizeBytes(proof.Nonce)
+			}
+			if proof.Signature != nil {
+				keys.ZeroizeBytes(proof.Signature)
+			}
+		}
+	}()
+
 	parts := strings.Split(header, ";")
 	seen := make(map[string]bool)
 
@@ -111,14 +130,100 @@ func ParseSignetProof(header string) (*SignetProof, error) {
 
 	// Validate required fields
 	if proof.JTI == nil {
-		return nil, fmt.Errorf("missing jti")
+		err = fmt.Errorf("missing jti")
+		return nil, err
 	}
 	if proof.Timestamp == 0 {
-		return nil, fmt.Errorf("missing timestamp")
+		err = fmt.Errorf("missing timestamp")
+		return nil, err
 	}
 	if proof.Signature == nil {
-		return nil, fmt.Errorf("missing signature")
+		err = fmt.Errorf("missing signature")
+		return nil, err
 	}
 
 	return proof, nil
+}
+
+// ParseSignetProofWithValidation parses and validates a Signet-Proof header with security checks
+func ParseSignetProofWithValidation(header string, enforceMonotonic bool) (*SignetProof, error) {
+	proof, err := ParseSignetProof(header)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enforce monotonicity if requested
+	if enforceMonotonic {
+		if err := checkMonotonic(proof.JTI, proof.Timestamp); err != nil {
+			return nil, err
+		}
+	}
+
+	return proof, nil
+}
+
+// Package-level state for monotonicity enforcement
+var lastTS sync.Map // map[string]int64  key: base64(jti)
+
+// checkMonotonic ensures timestamps are strictly increasing for each JTI
+// Uses retry loop to prevent TOCTOU race conditions
+func checkMonotonic(jti []byte, ts int64) error {
+	k := base64.RawURLEncoding.EncodeToString(jti)
+
+	for {
+		// Load existing value, or store our timestamp if it doesn't exist
+		actual, loaded := lastTS.Load(k)
+		if !loaded {
+			// Try to store our timestamp
+			actual, loaded = lastTS.LoadOrStore(k, ts)
+			if !loaded {
+				// We won the race, our timestamp is stored
+				return nil
+			}
+			// Someone else stored first, fall through to check monotonicity
+		}
+
+		// Type assertion with safety check
+		existingTS, ok := actual.(int64)
+		if !ok {
+			return fmt.Errorf("corrupted monotonic cache: expected int64, got %T", actual)
+		}
+
+		// Check monotonicity
+		if ts <= existingTS {
+			return errors.New("timestamp not monotonic")
+		}
+
+		// Atomic update with retry - prevents TOCTOU race
+		if lastTS.CompareAndSwap(k, existingTS, ts) {
+			return nil
+		}
+		// CAS failed due to concurrent update, retry with fresh read
+	}
+}
+
+// ResetMonotonicCache clears the monotonicity cache - for testing only
+func ResetMonotonicCache() {
+	lastTS = sync.Map{}
+}
+
+// ValidateTimestamp validates that a timestamp falls within acceptable clock skew
+func ValidateTimestamp(timestamp int64, maxSkew, minSkew time.Duration) error {
+	// Enforce ADR-002 maximum
+	if maxSkew > 60*time.Second {
+		maxSkew = 60 * time.Second
+	}
+	// Apply minimum for high-assurance
+	if minSkew > 0 && maxSkew > minSkew {
+		maxSkew = minSkew
+	}
+	now := time.Now().Unix()
+	diff := timestamp - now
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > int64(maxSkew.Seconds()) {
+		return fmt.Errorf("timestamp outside acceptable window: diff=%ds, max=%ds", diff, int64(maxSkew.Seconds()))
+	}
+	return nil
 }
