@@ -15,9 +15,18 @@ import (
 // 1. Sort tokens numerically
 // 2. Deduplicate (keep first occurrence after sort)
 // 3. Encode as canonical CBOR array
-// 4. Hash with SHA-256 and truncate to 128 bits
+// 4. Hash with domain separation and truncate to 128 bits
+//
+// Empty capability lists:
+//   - nil or []uint64{} both normalize to empty array
+//   - Empty capabilities produce a deterministic hash
+//   - Semantics: "no capabilities" typically means "no access" unless
+//     the authorization layer explicitly grants default permissions
+//   - This allows tokens to be issued without capabilities for revocation
+//     checking or identity verification only
 func ComputeCapabilityID(capTokens []uint64) ([]byte, error) {
-	// Handle nil and empty slices
+	// Handle nil and empty slices - normalize to empty array
+	// Empty capabilities are valid and produce a deterministic hash
 	if capTokens == nil || len(capTokens) == 0 {
 		capTokens = []uint64{}
 	}

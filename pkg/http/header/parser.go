@@ -166,28 +166,40 @@ func ParseSignetProofWithValidation(header string, enforceMonotonic bool) (*Sign
 var lastTS sync.Map // map[string]int64  key: base64(jti)
 
 // checkMonotonic ensures timestamps are strictly increasing for each JTI
-// Simplified to avoid livelock under high contention
+// Uses retry loop to prevent TOCTOU race conditions
 func checkMonotonic(jti []byte, ts int64) error {
 	k := base64.RawURLEncoding.EncodeToString(jti)
 
-	// Try to update atomically with a single CompareAndSwap
-	actual, loaded := lastTS.LoadOrStore(k, ts)
-	if !loaded {
-		// New entry, we stored our timestamp
-		return nil
-	}
+	for {
+		// Load existing value, or store our timestamp if it doesn't exist
+		actual, loaded := lastTS.Load(k)
+		if !loaded {
+			// Try to store our timestamp
+			actual, loaded = lastTS.LoadOrStore(k, ts)
+			if !loaded {
+				// We won the race, our timestamp is stored
+				return nil
+			}
+			// Someone else stored first, fall through to check monotonicity
+		}
 
-	// Entry exists, check if timestamp is strictly increasing
-	existingTS := actual.(int64)
-	if ts <= existingTS {
-		return errors.New("timestamp not monotonic")
-	}
+		// Type assertion with safety check
+		existingTS, ok := actual.(int64)
+		if !ok {
+			return fmt.Errorf("corrupted monotonic cache: expected int64, got %T", actual)
+		}
 
-	// Update to new timestamp - single attempt to avoid livelock
-	// If this fails due to concurrent update, the other goroutine
-	// will enforce monotonicity
-	lastTS.CompareAndSwap(k, existingTS, ts)
-	return nil
+		// Check monotonicity
+		if ts <= existingTS {
+			return errors.New("timestamp not monotonic")
+		}
+
+		// Atomic update with retry - prevents TOCTOU race
+		if lastTS.CompareAndSwap(k, existingTS, ts) {
+			return nil
+		}
+		// CAS failed due to concurrent update, retry with fresh read
+	}
 }
 
 // ResetMonotonicCache clears the monotonicity cache - for testing only
