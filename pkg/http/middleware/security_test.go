@@ -39,11 +39,15 @@ func TestRequestSizeCheckOrder(t *testing.T) {
 	}
 
 	// Create middleware
-	handler := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(mockTokenStore),
 		WithNonceStore(mockNonceStore),
-	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -175,10 +179,14 @@ func TestConfigurableMaxRequestSize(t *testing.T) {
 
 	// Set custom 5MB limit
 	customLimit := int64(5 * 1024 * 1024)
-	handler := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithMaxRequestSize(customLimit),
-	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
