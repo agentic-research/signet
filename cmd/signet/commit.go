@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -310,7 +311,7 @@ func migrateToKeyring(cfg *config.Config) error {
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
 	// Store the seed in keyring using the existing secure storage
-	seedHex := fmt.Sprintf("%x", block.Bytes)
+	seedHex := hex.EncodeToString(block.Bytes)
 	seedHexBytes := []byte(seedHex)
 	defer keys.ZeroizeBytes(seedHexBytes)
 

@@ -31,6 +31,7 @@ func InitializeSecure() error {
 	if err != nil {
 		return fmt.Errorf("failed to generate master key: %w", err)
 	}
+	defer keys.ZeroizePrivateKey(priv)
 
 	// Store the seed (32 bytes) as hex in keyring
 	seed := priv.Seed()
@@ -71,7 +72,7 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 	// Decode hex to seed
 	seed, err := hex.DecodeString(string(seedHexBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode key: %w", err)
+		return nil, fmt.Errorf("failed to decode hex key from keyring: %w", err)
 	}
 
 	// Ensure seed is zeroed on all exit paths

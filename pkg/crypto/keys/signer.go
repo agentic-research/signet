@@ -40,7 +40,11 @@ func (s *Ed25519Signer) Public() crypto.PublicKey {
 	return s.privateKey.Public()
 }
 
-// Sign creates a signature for the given message
+// Sign creates a signature for the given message.
+// Concurrency guarantee: If Destroy() is called concurrently with Sign(),
+// either Sign() will complete successfully before destruction, or it will
+// fail with "signer has been destroyed". Partial destruction during signing
+// is prevented by the read lock.
 func (s *Ed25519Signer) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
