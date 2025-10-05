@@ -70,7 +70,11 @@ test.txt
 #
 # Internal documentation (keep locally but don't push)
 INVESTIGATION_LOG.md
+@INVESTIGATION_LOG.md
 *_agent_log.md
+AGENT_PROMPT.md
+IMPLEMENTATION.md
+docs/REVOCATION_IMPLEMENTATION_PLAN.md
 
 # Local client binary for http-auth
 demo/http-auth/client/client
