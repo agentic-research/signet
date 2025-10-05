@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build and Test Commands
 
 ### Core Development Tasks
+
 ```bash
 # Build the unified binary
 make build                    # Creates ./signet binary
@@ -23,12 +24,14 @@ make clean build test        # Clean, rebuild, and test
 ```
 
 ### Docker Testing Environment
+
 ```bash
 make docker-test             # Run full test suite in Docker
 make docker-shell           # Interactive shell for debugging
 ```
 
 ### Code Quality
+
 ```bash
 make fmt                     # Format code
 make lint                   # Run linters (requires golangci-lint)
@@ -42,6 +45,7 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 ### Core Components
 
 **libsignet (pkg/)** - Core protocol library:
+
 - `pkg/signet/`: CBOR token structures with integer keys for deterministic serialization
 - `pkg/crypto/epr/`: Ephemeral Proof Routines - two-step verification (master signs ephemeral, ephemeral signs request)
 - `pkg/crypto/keys/`: Ed25519 key management and signing interfaces
@@ -50,6 +54,7 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 - **Note**: CMS/PKCS#7 implementation has been extracted to [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
 
 **signet (cmd/signet/)** - Unified CLI with Cobra and Lipgloss:
+
 - `main.go` & `root.go`: Root command and global configuration
 - `commit.go`: Git commit signing (GPG drop-in replacement)
 - `sign.go`: Universal file signing with ephemeral certificates
@@ -66,18 +71,23 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 ### Testing Strategy
 
 The project uses integration tests that verify end-to-end workflows:
+
 - `scripts/testing/test_integration.sh`: Full git signing workflow
 
 ## Implementation Notes
 
 ### CMS/PKCS#7 with Ed25519
+
 The CMS/PKCS#7 implementation supporting Ed25519 has been extracted to a standalone library:
+
 - Repository: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
 - Uses RFC 8410 and RFC 8419 for Ed25519 in CMS
 - Generates OpenSSL-compatible signatures
 
 ### Token Structure
+
 Tokens use CBOR with integer keys for deterministic serialization:
+
 ```go
 1: IssuerID (string)
 2: ConfirmationID ([]byte) - master key hash
@@ -88,9 +98,11 @@ Tokens use CBOR with integer keys for deterministic serialization:
 ```
 
 ### CLI Structure
+
 The unified `signet` binary provides three subcommands:
 
 **signet commit** - Git commit signing (GPG drop-in replacement):
+
 ```bash
 # Initialize
 signet commit --init
@@ -102,6 +114,7 @@ git config --global user.signingKey $(signet commit --export-key-id)
 ```
 
 **signet sign** - Universal file signing:
+
 ```bash
 # Initialize (shares keystore with commit)
 signet sign --init
@@ -112,6 +125,7 @@ signet sign -o custom.sig data.json
 ```
 
 **signet authority** - OIDC certificate authority:
+
 ```bash
 # Run server with config
 signet authority --config config.json
@@ -123,6 +137,7 @@ signet authority --help
 ## Current State
 
 **What Works (Alpha):**
+
 - `signet commit`: Git signing with ephemeral certificates (GPG replacement)
 - `signet sign`: Universal file signing with CMS/PKCS#7 format
 - `signet authority`: OIDC-based certificate authority (experimental)
@@ -130,14 +145,18 @@ signet authority --help
 - Shared keystore and configuration across subcommands
 
 **In Progress:**
+
 - Signature verification (currently delegates to Git/OpenSSL)
 - Python SDK, JavaScript SDK
 - COSE integration for wire format v1
 
 **Planned:**
+
 - HTTP middleware for service-to-service authentication
 - Service mesh integration
 - True ZK proofs for privacy-preserving authentication
 - Certificate revocation and renewal
 
 The codebase prioritizes correctness and security over features. All cryptographic operations use standard libraries (golang.org/x/crypto) with careful attention to memory zeroization and timing attacks.
+
+If a file is added to gitignore, please do not suggest committing that file. Some things, like @INVESTIGATION_LOG.md are not tracked in git but are useful for local context.

@@ -27,6 +27,96 @@ const (
 // until the next garbage collection. This is a known limitation. An upstream
 // pull request to address this is pending: https://github.com/zalando/go-keyring/pull/127
 
+// retrieveSeedFromKeyring handles the common pattern of getting and decoding seed from keyring
+func retrieveSeedFromKeyring() ([]byte, error) {
+	// Retrieve from OS keyring
+	seedHex, err := keyring.Get(ServiceName, MasterKeyItem)
+	if err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return nil, errors.New("master key not found in keyring (run 'signet init' first)")
+		}
+		return nil, errors.New("failed to retrieve key from keyring")
+	}
+
+	// Copy the retrieved string to avoid modifying the mock keyring's internal
+	// state during tests, then immediately zero the original reference to shorten
+	// the secret's lifetime in memory.
+	seedHexCopy := seedHex
+	expectedHexLen := ed25519.SeedSize * 2
+
+	if len(seedHexCopy) != expectedHexLen {
+		return nil, errors.New("invalid key data in keyring")
+	}
+
+	// Decode hex to seed
+	seed, err := hex.DecodeString(seedHexCopy)
+	if err != nil {
+		return nil, errors.New("invalid key data in keyring")
+	}
+
+	// Validate seed size (defense in depth)
+	if len(seed) != ed25519.SeedSize {
+		keys.ZeroizeBytes(seed)
+		return nil, errors.New("invalid key data in keyring")
+	}
+
+	return seed, nil
+}
+
+// seedToPublicKeyHex converts a seed to hex-encoded public key
+// Note: This function zeros the private key internally
+func seedToPublicKeyHex(seed []byte) string {
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	keys.ZeroizePrivateKey(privateKey)
+	return hex.EncodeToString(publicKey)
+}
+
+// readSeedFromPEM reads and validates a PEM-encoded seed from file
+func readSeedFromPEM(keyPath string, checkPermissions bool) ([]byte, error) {
+	// Check permissions if requested
+	if checkPermissions {
+		info, err := os.Stat(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat key file: %w", err)
+		}
+
+		mode := info.Mode()
+		if mode.Perm()&0077 != 0 { // Check group/other bits are zero
+			return nil, fmt.Errorf("insecure key file permissions: %v (expected 0600)", mode.Perm())
+		}
+	}
+
+	// Read key file
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("master key not found")
+		}
+		return nil, fmt.Errorf("failed to read key file: %w", err)
+	}
+	defer keys.ZeroizeBytes(keyData)
+
+	// Decode PEM
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return nil, errors.New("failed to decode PEM block")
+	}
+
+	if block.Type != "ED25519 PRIVATE KEY" {
+		return nil, fmt.Errorf("unexpected PEM type: %s", block.Type)
+	}
+
+	if len(block.Bytes) != ed25519.SeedSize {
+		return nil, errors.New("invalid seed size")
+	}
+
+	// Return a copy since block.Bytes will be zeroed when keyData is zeroed
+	seed := make([]byte, len(block.Bytes))
+	copy(seed, block.Bytes)
+	return seed, nil
+}
+
 // InitializeSecure generates a master key and stores it in the OS keyring
 func InitializeSecure() error {
 	// Check if key already exists
@@ -72,37 +162,11 @@ func InitializeSecure() error {
 // persist in memory until garbage collected. See package-level documentation
 // for more details.
 func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
-	// Retrieve from OS keyring
-	seedHex, err := keyring.Get(ServiceName, MasterKeyItem)
+	seed, err := retrieveSeedFromKeyring()
 	if err != nil {
-		if errors.Is(err, keyring.ErrNotFound) {
-			return nil, errors.New("master key not found in keyring (run 'signet init' first)")
-		}
-		return nil, errors.New("failed to retrieve key from keyring")
+		return nil, err
 	}
-
-	// Copy the retrieved string to avoid modifying the mock keyring's internal
-	// state during tests, then immediately zero the original reference to shorten
-	// the secret's lifetime in memory.
-	seedHexCopy := seedHex
-	expectedHexLen := ed25519.SeedSize * 2
-
-	if len(seedHexCopy) != expectedHexLen {
-		return nil, errors.New("invalid key data in keyring")
-	}
-	// Decode hex to seed
-	seed, err := hex.DecodeString(seedHexCopy)
-	if err != nil {
-		return nil, errors.New("invalid key data in keyring")
-	}
-
-	// Ensure seed is zeroed on all exit paths
 	defer keys.ZeroizeBytes(seed)
-
-	// Validate seed size (defense in depth)
-	if len(seed) != ed25519.SeedSize {
-		return nil, errors.New("invalid key data in keyring")
-	}
 
 	// Reconstruct private key from seed
 	privateKey := ed25519.NewKeyFromSeed(seed)
@@ -119,43 +183,14 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 // string. Due to Go's string immutability, the secret may persist in memory
 // until garbage collected. See package-level documentation for more details.
 func GetKeyIDSecure() (string, error) {
-	// Retrieve from OS keyring
-	seedHex, err := keyring.Get(ServiceName, MasterKeyItem)
+	seed, err := retrieveSeedFromKeyring()
 	if err != nil {
-		if errors.Is(err, keyring.ErrNotFound) {
-			return "", errors.New("master key not found in keyring (run 'signet init' first)")
-		}
-		return "", errors.New("failed to retrieve key from keyring")
+		return "", err
 	}
-
-	// Copy the retrieved string to avoid modifying the mock keyring's internal
-	// state during tests, then immediately zero the original reference to shorten
-	// the secret's lifetime in memory.
-	seedHexCopy := seedHex
-
-	// Decode hex to seed
-	seed, err := hex.DecodeString(seedHexCopy)
-	if err != nil {
-		return "", errors.New("invalid key data in keyring")
-	}
-
-	// Ensure seed is zeroed on all exit paths
 	defer keys.ZeroizeBytes(seed)
 
-	// Validate seed size (defense in depth)
-	if len(seed) != ed25519.SeedSize {
-		return "", errors.New("invalid key data in keyring")
-	}
-
-	// Generate public key from seed
-	privateKey := ed25519.NewKeyFromSeed(seed)
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-
-	// Zero the private key after extracting public key
-	defer keys.ZeroizePrivateKey(privateKey)
-
 	// Return hex-encoded public key as ID
-	return hex.EncodeToString(publicKey), nil
+	return seedToPublicKeyHex(seed), nil
 }
 
 // DeleteMasterKeySecure removes the master key from the OS keyring
@@ -219,44 +254,15 @@ func InitializeInsecure(signetPath string) error {
 func LoadMasterKeyInsecure(signetPath string) (*keys.Ed25519Signer, error) {
 	keyPath := filepath.Join(signetPath, "master.key")
 
-	// Check permissions BEFORE reading
-	info, err := os.Stat(keyPath)
+	// Read seed with permission checking
+	seed, err := readSeedFromPEM(keyPath, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat key file: %w", err)
+		return nil, err
 	}
-
-	// Verify permissions first
-	mode := info.Mode()
-	if mode.Perm()&0077 != 0 { // Check group/other bits are zero
-		return nil, fmt.Errorf("insecure key file permissions: %v (expected 0600)", mode.Perm())
-	}
-
-	// Then read
-	keyData, err := os.ReadFile(keyPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, errors.New("master key not found")
-		}
-		return nil, fmt.Errorf("failed to read key file: %w", err)
-	}
-	defer keys.ZeroizeBytes(keyData)
-
-	// Decode PEM
-	block, _ := pem.Decode(keyData)
-	if block == nil {
-		return nil, errors.New("failed to decode PEM block")
-	}
-
-	if block.Type != "ED25519 PRIVATE KEY" {
-		return nil, fmt.Errorf("unexpected PEM type: %s", block.Type)
-	}
+	defer keys.ZeroizeBytes(seed)
 
 	// Reconstruct private key from seed
-	if len(block.Bytes) != ed25519.SeedSize {
-		return nil, errors.New("invalid seed size")
-	}
-
-	privateKey := ed25519.NewKeyFromSeed(block.Bytes)
+	privateKey := ed25519.NewKeyFromSeed(seed)
 
 	// Note: privateKey is NOT zeroed here because NewEd25519Signer stores a reference
 	// to the same underlying array. The caller must call Destroy() on the returned
@@ -268,37 +274,14 @@ func LoadMasterKeyInsecure(signetPath string) (*keys.Ed25519Signer, error) {
 func GetKeyIDInsecure(signetPath string) (string, error) {
 	keyPath := filepath.Join(signetPath, "master.key")
 
-	// Read key file
-	keyData, err := os.ReadFile(keyPath)
+	// Read seed without permission checking (for backward compatibility)
+	// Consider adding permission check here in the future for consistency
+	seed, err := readSeedFromPEM(keyPath, false)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", errors.New("master key not found")
-		}
-		return "", fmt.Errorf("failed to read key file: %w", err)
+		return "", err
 	}
-	defer keys.ZeroizeBytes(keyData)
-
-	// Decode PEM to get seed
-	block, _ := pem.Decode(keyData)
-	if block == nil {
-		return "", errors.New("failed to decode PEM block")
-	}
-
-	if block.Type != "ED25519 PRIVATE KEY" {
-		return "", fmt.Errorf("unexpected PEM type: %s", block.Type)
-	}
-
-	if len(block.Bytes) != ed25519.SeedSize {
-		return "", errors.New("invalid seed size")
-	}
-
-	// Generate public key from seed
-	privateKey := ed25519.NewKeyFromSeed(block.Bytes)
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-
-	// Zero the private key after extracting public key
-	keys.ZeroizePrivateKey(privateKey)
+	defer keys.ZeroizeBytes(seed)
 
 	// Return hex-encoded public key as ID
-	return hex.EncodeToString(publicKey), nil
+	return seedToPublicKeyHex(seed), nil
 }
