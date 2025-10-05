@@ -31,7 +31,32 @@ var commitCmd = &cobra.Command{
 	Long: `Sign Git commits using ephemeral certificates.
 
 This command is designed to be used as Git's gpg.x509.program for
-transparent commit signing integration.`,
+transparent commit signing integration. Each commit is signed with a
+short-lived ephemeral certificate derived from your master key.
+
+` + styles.Success.Render("What Works:") + `
+  • Git commit signing (drop-in GPG replacement)
+  • Ephemeral certificate generation (5-minute validity)
+  • CMS/PKCS#7 signatures (OpenSSL compatible)
+  • Git status output integration
+
+` + styles.Warning.Render("Planned:") + `
+  • Native signature verification (currently delegates to Git)
+  • Revocation checking
+  • Certificate chain validation`,
+	Example: `  # Initialize Signet (one-time setup)
+  signet commit --init
+
+  # Export key ID for Git config
+  signet commit --export-key-id
+
+  # Configure Git to use Signet
+  git config --global gpg.format x509
+  git config --global gpg.x509.program $(which signet)
+  git config --global user.signingKey $(signet commit --export-key-id)
+
+  # Sign commits automatically
+  git config --global commit.gpgSign true`,
 	RunE: runCommit,
 }
 
