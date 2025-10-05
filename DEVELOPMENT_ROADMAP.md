@@ -20,11 +20,12 @@
 
 ### What Works Today
 
-- ✅ **Git commit signing** (`signet-commit`) - Production-ready offline signing
+- ✅ **Git commit signing** (`signet commit`) - Production-ready offline signing with CMS/PKCS#7
+- ✅ **Complete 18-field CBOR token structure** - All ADR-002 fields implemented with validation
+- ✅ **Capability ID computation** - 128-bit hash with domain separation
+- ✅ **HTTP middleware security** - Request canonicalization, nonce replay prevention, TOCTOU-safe monotonic timestamps
 - ✅ **Ed25519 CMS/PKCS#7 implementation** - First in Go, OpenSSL-compatible
 - ✅ **Local CA with ephemeral certificates** - 5-minute lifetime, self-signed
-- ✅ **HTTP middleware** (partial implementation) - Basic structure in place
-- ✅ **OIDC identity bridge** - Fulcio-style certificate minting
 - ✅ **Core cryptography** - EPR package with two-step verification
 
 **Code Stats:** 1,654 lines of tested, working code
@@ -34,9 +35,9 @@
 **Critical Issues:**
 - ❌ **Keys stored in plaintext** (`~/.signet/`) - major security risk
 - ❌ **No revocation system** - compromised tokens cannot be revoked
-- ❌ **Incomplete protocol implementation** - missing CBOR fields, SIG1 wire format, COSE support
-- ❌ **No capability system** - authorization framework completely absent
-- 🚧 **HTTP middleware incomplete** - canonicalization broken, verification not properly wired
+- ❌ **Missing COSE_Sign1 implementation** - core signing format not yet implemented
+- ❌ **Missing SIG1 wire format** - over-the-wire protocol not implemented
+- 🚧 **Capability validation logic** - token structure complete, validation missing
 
 ### Honest Assessment
 
@@ -45,10 +46,11 @@
 **Gap to v1.0:** 6-9 months of focused development with 3-4 engineers
 
 **Critical Blockers:**
-1. Protocol compliance (CBOR token structure, SIG1 wire format, COSE_Sign1)
-2. Revocation system (epoch-based with CDN distribution)
-3. Secure key storage (OS keychain integration)
-4. Production hardening (security audit required)
+1. COSE_Sign1 signing implementation (core signing format)
+2. SIG1 wire format (over-the-wire protocol)
+3. Revocation system (epoch-based with CDN distribution)
+4. Secure key storage (OS keychain integration)
+5. Production hardening (security audit required)
 
 **Not Production-Ready:** Current implementation suitable for development and experimentation only.
 
@@ -100,22 +102,22 @@ This section maps current implementation against the ADR specifications.
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **CBOR Token Structure with Integer Keys** | ADR-002, Section 2.2 | 🚧 Partially Implemented | Current token only has 6 fields (iss/cnf/exp/nonce/eph/nbf). Missing: aud_id, cap_id, cap_ver, cnf_key_hash, kid, cap_tokens, cap_custom, jti, act, del fields per spec | **High** |
+| **CBOR Token Structure with Integer Keys** | ADR-002, Section 2.2 | ✅ Implemented | Complete 18-field token structure in `pkg/signet/token.go` with all ADR-002 fields: issuer, audience, ppid, timestamps, capabilities, actor, delegator, nonce, key IDs. Includes validation and canonical CBOR marshaling | **Complete** |
 | **SIG1 Wire Format** | ADR-002, Section 2.1 | ❌ Not Implemented | The `SIG1.<base64url(cbor)>.<base64url(sig)>` format is not implemented. Token serialization exists but not the complete wire protocol | **High** |
 | **COSE_Sign1 Signature Structure** | ADR-002, Section 2.1 | ❌ Not Implemented | Package `pkg/crypto/cose` exists but is empty. Need full COSE_Sign1 Ed25519 implementation | **High** |
 | **Capability Computation (128-bit hash)** | ADR-002, Section 3.1 | ✅ Implemented | Capability ID computation with domain separation in `pkg/signet/capability.go`. Supports empty capability lists with deterministic hashing | **Complete** |
-| **Semantic Capabilities System** | ADR-001, Sections "Semantic Capability System" | ❌ Not Implemented | No cap_id, cap_tokens, or cap_ver fields in token. No capability registry or validation logic | **High** |
+| **Semantic Capabilities System** | ADR-001, Sections "Semantic Capability System" | 🚧 Partially Implemented | Token has cap_id, cap_tokens, cap_ver fields ✅. Capability computation exists ✅. Missing: capability registry and validation logic | **High** |
 | **Per-Request Proof-of-Possession** | ADR-002, Section 3.3 | 🚧 Partially Implemented | EPR package implements two-step verification but lacks: canonical string construction per spec, ephemeral key ID caching, proper nonce handling | **High** |
-| **Pairwise Identifiers (ppid)** | ADR-002, Section 3.2 | ❌ Not Implemented | No implementation of per-token pairwise pseudonymous identifiers for privacy | **Medium** |
+| **Pairwise Identifiers (ppid)** | ADR-002, Section 3.2 | ✅ Implemented | SubjectPPID field in token structure with 32-byte validation. Generated per-token for privacy-preserving identification | **Complete** |
 | **Instant Revocation System** | ADR-001, "Revocation System" | ❌ Not Implemented | No epoch-based revocation, no snapshot distribution, no grace period handling, no major/minor epoch tracking | **High** |
 
 ### 3.2 Authentication & Authorization Features
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Issuer/Audience Validation** | ADR-002, Section 4.1 | ❌ Not Implemented | Token lacks iss_id and aud_id fields. No issuer registry or audience validation | **High** |
-| **Impersonation Support** | ADR-001, "Advanced Operational" | ❌ Not Implemented | No actor (act) claim implementation for SRE debugging scenarios | **Medium** |
-| **Delegation Model** | ADR-001, "Operational Excellence" | ❌ Not Implemented | No delegator (del) claim for service-to-service delegation | **Medium** |
+| **Issuer/Audience Validation** | ADR-002, Section 4.1 | 🚧 Partially Implemented | Token has IssuerID and AudienceID fields ✅. Missing: issuer registry and audience validation logic | **High** |
+| **Impersonation Support** | ADR-001, "Advanced Operational" | 🚧 Partially Implemented | Token has Actor field ✅. Missing: impersonation validation and audit logging logic | **Medium** |
+| **Delegation Model** | ADR-001, "Operational Excellence" | 🚧 Partially Implemented | Token has Delegator field ✅. Missing: delegation chain validation logic | **Medium** |
 | **Break-glass Access** | ADR-001, "Operational Excellence" | ❌ Not Implemented | No multi-party approval system or emergency privilege mechanism | **Low** |
 | **Token Lineage Tracking** | ADR-001, "Operational Excellence" | ❌ Not Implemented | No resource tagging with identity context at creation | **Low** |
 
