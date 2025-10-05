@@ -111,6 +111,21 @@ func WithObserver(observer ObserverHook) Option {
 	}
 }
 
+// WithMaxRequestSize sets the maximum allowed request body size in bytes.
+// This protects against DoS attacks via oversized requests.
+// Default: 1MB (1048576 bytes) if not configured.
+//
+// Example:
+//
+//	middleware := SignetMiddleware(
+//	    WithMaxRequestSize(5 * 1024 * 1024), // 5MB limit
+//	)
+func WithMaxRequestSize(size int64) Option {
+	return func(c *Config) {
+		c.maxRequestSize = size
+	}
+}
+
 // WithSkipPaths configures paths that bypass authentication.
 // Useful for health checks and public endpoints.
 func WithSkipPaths(paths ...string) Option {

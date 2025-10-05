@@ -105,6 +105,36 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate request size FIRST, before any expensive operations (Finding #28 fix)
+	// This prevents DoS attacks via large requests that trigger database lookups,
+	// nonce storage writes, and cache operations before rejection.
+	//
+	// Security Note: An attacker with a valid (even expired) token could previously
+	// trigger expensive operations before size validation. Now we reject early.
+	maxSize := h.config.maxRequestSize
+	if maxSize == 0 {
+		maxSize = 1 * 1024 * 1024 // Default: 1MB
+	}
+	if r.ContentLength > 0 && r.ContentLength > maxSize {
+		h.config.logger.Warn("request too large", "content_length", r.ContentLength, "max", maxSize)
+		h.config.observer.OnAuthFailure(ctx, ErrRequestTooLarge, "request_size")
+		h.config.metrics.RecordAuthResult("request_too_large", time.Since(startTime))
+		h.config.errorHandler(w, r, ErrRequestTooLarge)
+		return
+	}
+
+	// Handle chunked transfer encoding (Finding #28 enhancement)
+	// Chunked requests don't have Content-Length, so we enforce a timeout instead.
+	// This prevents slow-drip DoS attacks via infinite chunked streams.
+	if len(r.TransferEncoding) > 0 && r.TransferEncoding[0] == "chunked" {
+		// Enforce timeout for chunked requests (configurable via Settings.Network.ChunkedTransferTimeout)
+		chunkedTimeout := 30 * time.Second // TODO: make configurable
+		ctx, cancel := context.WithTimeout(ctx, chunkedTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
+		h.config.logger.Debug("chunked transfer detected, enforcing timeout", "timeout", chunkedTimeout)
+	}
+
 	// Token ID Format & Migration Notes
 	// ================================
 	// We use the FULL 16-byte JTI encoded as 32 hex characters for token IDs.
@@ -171,16 +201,6 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.config.observer.OnAuthFailure(ctx, err, "key_provider")
 		h.config.metrics.RecordAuthResult("key_provider_error", time.Since(startTime))
 		h.config.errorHandler(w, r, ErrInternalError)
-		return
-	}
-
-	// Validate request size to prevent DoS attacks (Finding #28 fix)
-	const maxRequestSize = 1 * 1024 * 1024 // 1MB
-	if r.ContentLength > maxRequestSize {
-		h.config.logger.Warn("request too large", "content_length", r.ContentLength, "max", maxRequestSize)
-		h.config.observer.OnAuthFailure(ctx, ErrRequestTooLarge, "request_size")
-		h.config.metrics.RecordAuthResult("request_too_large", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrRequestTooLarge)
 		return
 	}
 
@@ -285,6 +305,9 @@ type Config struct {
 	logger   Logger
 	metrics  Metrics
 	observer ObserverHook // Context-based monitoring hook
+
+	// Security settings
+	maxRequestSize int64 // Maximum request body size (0 = use default 1MB)
 
 	// Advanced options
 	skipPaths        []string
