@@ -145,38 +145,38 @@ make fmt lint
 
 ## Documentation
 
-- **[Implementation Status](docs/IMPLEMENTATION_STATUS.md)** - Honest snapshot of what's built
-- **[Architecture](ARCHITECTURE.md)** - Design decisions and structure
+- **[Development Roadmap](DEVELOPMENT_ROADMAP.md)** - Current status, priorities, and path to v1.0
+- **[Architecture](ARCHITECTURE.md)** - Design decisions and technical rationale
+- **[Contributing](CONTRIBUTING.md)** - How to contribute effectively
 - **[Performance](docs/PERFORMANCE.md)** - Benchmarks and analysis
 - **[CMS Implementation](docs/CMS_IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details
 
-## Roadmap to v1.0
+## Roadmap
 
-**What's working:**
-- ✅ Git/file signing
-- ✅ HTTP middleware
-- ✅ OIDC bridge
-- ✅ Core cryptography
+Signet is in **alpha** (v0.0.1). We're on track for:
+- **Beta:** Q1 2026 (protocol spec-compliant, HTTP middleware production-ready)
+- **v1.0:** Q2 2026 (security audited, SDK ecosystem, production deployments)
 
-**What's needed:**
-- [ ] Encrypted key storage
-- [ ] Revocation system
-- [ ] Python/JavaScript SDKs
-- [ ] Security audit
-- [ ] Production deployment guide
+**Current focus:** Completing core protocol implementation to match specification.
 
-See [ROADMAP.md](ROADMAP.md) for details.
+See **[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)** for detailed status, priorities, and timeline.
+
+**Critical gaps before v1.0:**
+- Encrypted key storage (keys currently in plaintext)
+- Revocation system (no way to invalidate compromised tokens)
+- Security audit (required before production use)
 
 ## Contributing
 
-We welcome contributions! Priority areas:
+We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for development setup and guidelines.
 
+**High-impact areas:**
+- Core protocol completion (CBOR, COSE, wire format)
 - Language SDKs (Python, JavaScript, Rust)
-- Framework adapters (Express, FastAPI, etc.)
 - Security review and testing
-- Documentation improvements
+- Documentation and examples
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+**Questions?** Open a [GitHub Discussion](https://github.com/jamestexas/signet/discussions)
 
 ## Why Signet?
 

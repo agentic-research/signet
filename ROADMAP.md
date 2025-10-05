@@ -1,197 +1,22 @@
-# Signet Development Roadmap
+# Signet Roadmap
 
-## Current State: MVP Complete ✅
-**What we have today:**
-- Production-ready git commit signing (`signet-commit`)
-- Novel Ed25519 CMS/PKCS#7 implementation (first in Go)
-- 1,654 lines of tested, working code
-- Local CA with ephemeral certificates
+**This document has been consolidated into [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md)**
 
-## The Plan: Developer Experience First
+As of 2025-10-04, all roadmap content has been merged into a single canonical document:
 
-### Phase 1: Universal Signing Tool 🎯 [Week 1]
-**Goal:** Extract git-specific code into generic signer
+**[→ Read the current Development Roadmap](./DEVELOPMENT_ROADMAP.md)**
 
-**Deliverable:** `sigsign` - Sign anything, anywhere
-```bash
-# What developers get
-sigsign sign document.pdf        # Sign any file
-sigsign verify document.pdf.sig  # Verify signatures
-sigsign sign --format cose data  # Multiple formats
-```
+## Why the change?
 
-**Implementation:**
-- [ ] Extract signing logic to `pkg/signing`
-- [ ] Create `sigsign` CLI with clean UX
-- [ ] Support CMS (existing) and COSE (new) formats
-- [ ] ~500 lines of new code
+We previously had three separate roadmap documents (ROADMAP.md, NEXT_STEPS.md, Gap-Analysis.md) with overlapping content and conflicting priorities. This created confusion about project status and direction.
 
-**Why this matters:** Immediately useful for CI/CD, document signing, artifact attestation
+## Where did the content go?
 
----
+- **Current status** → [DEVELOPMENT_ROADMAP.md § 1. Current State](./DEVELOPMENT_ROADMAP.md#1-current-state)
+- **Development phases** → [DEVELOPMENT_ROADMAP.md § 4. Development Phases](./DEVELOPMENT_ROADMAP.md#4-development-phases)
+- **Vision & goals** → [DEVELOPMENT_ROADMAP.md § 2. Vision & Principles](./DEVELOPMENT_ROADMAP.md#2-vision--principles)
+- **Success metrics** → [DEVELOPMENT_ROADMAP.md § 5. Success Metrics](./DEVELOPMENT_ROADMAP.md#5-success-metrics)
 
-### Phase 2: HTTP Authentication 🔐 [Weeks 2-3]
-**Goal:** Replace bearer tokens in HTTP APIs
+## Historical reference
 
-**Deliverable:** Dead-simple middleware
-```go
-// What developers want
-import "github.com/jamestexas/signet/middleware"
-
-// One line to secure your API
-app.Use(signet.Middleware())
-```
-
-**Implementation:**
-- [ ] Token extraction from headers
-- [ ] Offline verification (no network calls)
-- [ ] Context propagation with identity
-- [ ] ~600 lines
-
-**Example flow:**
-```http
-GET /api/data HTTP/1.1
-Authorization: Bearer SIG1.eyJpc3Mi...
-Signet-Proof: eph=abc123;ts=1234567890;sig=...
-```
-
-**Why this matters:** Actual bearer token replacement, working in production
-
----
-
-### Phase 3: Developer CLI Magic ✨ [Week 4]
-**Goal:** Make auth invisible
-
-**Deliverable:** Smart CLI that "just works"
-```bash
-# Login once
-signet login
-
-# Everything else is automatic
-curl https://api.example.com/data  # CLI adds auth headers
-git commit -S -m "msg"              # Uses signet transparently
-ssh prod-server                     # SSH with signet identity
-```
-
-**Implementation:**
-- [ ] System-wide credential helper
-- [ ] Shell integration (bash/zsh)
-- [ ] Browser extension for web apps
-- [ ] ~800 lines
-
-**Why this matters:** Zero friction adoption
-
----
-
-### Phase 4: Language SDKs 🌍 [Weeks 5-6]
-**Goal:** Native integration everywhere
-
-**Priority order:**
-1. **Python** - Data science, ML, scripts
-   ```python
-   from signet import authenticate
-
-   @authenticate
-   def api_call():
-       # Automatic auth injection
-       return requests.get("https://api.example.com")
-   ```
-
-2. **JavaScript/TypeScript** - Web apps, Node.js
-   ```javascript
-   import { signet } from '@signet/js';
-
-   // Automatic token refresh
-   const api = signet.wrap(fetch);
-   ```
-
-3. **Rust** - Systems programming, WASM
-
-**Why this matters:** Meet developers where they are
-
----
-
-### Phase 5: Advanced Features 🚀 [Weeks 7-8]
-**Goal:** Enterprise-ready capabilities
-
-**Deliverables:**
-- [ ] **Semantic Permissions**
-  ```yaml
-  capabilities:
-    - read:production
-    - write:staging
-    - deploy:canary
-  ```
-
-- [ ] **Delegation & Impersonation**
-  ```bash
-  signet assume-role sre-oncall --reason "debugging issue #123"
-  ```
-
-- [ ] **Audit Streaming**
-  ```go
-  // Every action logged with full context
-  signet.Stream(kafkaWriter)
-  ```
-
-**Why this matters:** Production deployment requirements
-
----
-
-## Success Metrics
-
-### Week 1
-- [ ] `sigsign` can sign/verify files
-- [ ] Works with existing `signet-commit` keys
-
-### Week 4
-- [ ] HTTP middleware in production
-- [ ] <10ms verification latency
-- [ ] Zero network dependencies
-
-### Week 8
-- [ ] 3+ language SDKs
-- [ ] 5+ example applications
-- [ ] Integration guides for popular frameworks
-
----
-
-## The Vision
-
-**Near term (3 months):**
-- Every git commit signed with Signet
-- Bearer tokens eliminated from internal services
-- Developers never see credentials
-
-**Medium term (6 months):**
-- Standard auth for all new services
-- SSH keys replaced with Signet
-- Cloud provider integrations
-
-**Long term (1 year):**
-- Industry standard for proof-of-possession
-- Post-quantum ready
-- True zero-knowledge proofs
-
----
-
-## Get Involved
-
-**Try it today:**
-```bash
-go install github.com/jamestexas/signet/cmd/signet-commit@latest
-signet-commit --init
-```
-
-**Contribute:**
-- Pick a language SDK to implement
-- Build example integrations
-- Report issues and suggest improvements
-
-**Contact:**
-- GitHub: [jamestexas/signet](https://github.com/jamestexas/signet)
-- Discussions: [GitHub Discussions](https://github.com/jamestexas/signet/discussions)
-
----
-
-*This roadmap is a living document. We ship weekly and adjust based on feedback.*
+The original version is archived at [docs/archive/ROADMAP_2024.md](./docs/archive/ROADMAP_2024.md)

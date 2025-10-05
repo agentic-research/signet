@@ -98,6 +98,31 @@ Verification: Verify both signatures in sequence
 - CBOR: `fxamacker/cbor/v2`
 - X.509: Standard library + potential Fulcio components
 
+### ADR-004: Future Research Directions
+
+**Decision**: Identify promising cryptographic research areas for post-v1.0 exploration.
+
+**Research Areas:**
+
+#### Post-Quantum Cryptography
+- **Dilithium signatures:** NIST-selected PQC algorithm
+- **Hybrid schemes:** Combine classical + PQC for transition period
+- **Migration strategies:** Gradual rollout without breaking compatibility
+
+#### Zero-Knowledge Proofs
+- **Anonymous credentials:** Prove attributes without revealing identity
+- **Selective disclosure:** Show "over 18" without revealing birthdate
+- **Range proofs:** Prove permission level without exact value
+
+#### Novel Applications
+- **Git SSH certificates:** Replace SSH keys with ephemeral Signet certs
+- **Database authentication:** PostgreSQL, MongoDB, Redis integration
+- **IoT device identity:** Embedded device support for mesh networks
+
+**Timeline:** Post-v1.0, pending standardization and library maturity
+
+**Status:** Research phase, no implementation planned for v1.0
+
 ## 4. Integration with the Sigstore Ecosystem
 
 ### 4.1 Local CA and Fulcio Integration
@@ -266,33 +291,7 @@ func (a *SignetToSigstoreAdapter) SignMessage(message io.Reader, opts ...SignOpt
 - Provide bidirectional adapters for maximum compatibility
 - Directly import and use their KMS/HSM implementations
 
-## 5. Implementation Roadmap
-
-### Phase 1: Core Library (Current)
-- [x] Basic project structure
-- [x] Simplified cryptographic models
-- [ ] CBOR/COSE integration with external libraries
-- [ ] Basic DID operations
-
-### Phase 2: Local CA Integration
-- [ ] Import relevant Fulcio components
-- [ ] Adapt for offline operation
-- [ ] Implement ephemeral certificate generation
-- [ ] DID-based certificate validation
-
-### Phase 3: Git Integration
-- [ ] Implement did:git method
-- [ ] Create signet-commit tool
-- [ ] Test offline signing workflows
-- [ ] Document migration from gitsign
-
-### Phase 4: Ecosystem Integration
-- [ ] Sigstore interface adapters
-- [ ] Rekor bridge service (optional)
-- [ ] KMS/HSM support via Sigstore libraries
-- [ ] Contribute improvements back to upstream projects
-
-## 6. Security Considerations
+## 5. Security Considerations
 
 ### Key Management
 - Master keys never leave the device
@@ -309,7 +308,7 @@ func (a *SignetToSigstoreAdapter) SignMessage(message io.Reader, opts ...SignOpt
 - Replay protection via nonces
 - Time-limited ephemeral certificates
 
-## 7. Conclusion
+## 6. Conclusion
 
 Signet bridges the gap between traditional PKI and modern decentralized identity, providing a practical, offline-first solution for authentication. By carefully integrating with the Sigstore ecosystem where beneficial while maintaining our core principles, we create a system that is both innovative and interoperable.
 
