@@ -21,7 +21,7 @@ WORKDIR /workspace
 
 # Install dependencies needed by the integration script
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git gnupg \
+    && apt-get install -y --no-install-recommends git gnupg dbus \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy repository contents and the prebuilt binary

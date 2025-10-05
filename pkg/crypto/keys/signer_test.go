@@ -22,13 +22,15 @@ func TestEd25519SignerConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	errorChan := make(chan error, 100)
 	startChan := make(chan struct{})
+	startedChan := make(chan struct{}, 50) // Buffer for all goroutines
 
 	// Spawn 50 goroutines signing concurrently
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			<-startChan // Wait for the signal to start
+			<-startChan               // Wait for the signal to start
+			startedChan <- struct{}{} // Signal that we started
 			msg := []byte("test message")
 			sig, err := signer.Sign(rand.Reader, msg, crypto.Hash(0))
 			if err != nil {
@@ -41,8 +43,15 @@ func TestEd25519SignerConcurrency(t *testing.T) {
 		}()
 	}
 
-	// Signal goroutines to start and immediately destroy the key
+	// Signal goroutines to start
 	close(startChan)
+
+	// Wait for at least some goroutines to start signing
+	for i := 0; i < 25; i++ { // Wait for half to start
+		<-startedChan
+	}
+
+	// Now destroy the key while others are still signing
 	signer.Destroy()
 
 	wg.Wait()
