@@ -17,9 +17,6 @@ type Config struct {
 	// Home is the path to the .signet directory
 	Home string
 
-	// KeyPath is the path to the master key file
-	KeyPath string
-
 	// IssuerDID is the DID of the signer
 	IssuerDID string
 
@@ -32,7 +29,6 @@ func Default() *Config {
 	home := GetDefaultHome()
 	return &Config{
 		Home:                       home,
-		KeyPath:                    filepath.Join(home, "master.key"),
 		IssuerDID:                  "did:key:signet",
 		CertificateValidityMinutes: DefaultCertificateValidityMinutes,
 	}
@@ -46,11 +42,6 @@ func Load() (*Config, error) {
 	// Override with environment variables if set
 	if home := os.Getenv("SIGNET_HOME"); home != "" {
 		cfg.Home = home
-		cfg.KeyPath = filepath.Join(home, "master.key")
-	}
-
-	if keyPath := os.Getenv("SIGNET_KEY_PATH"); keyPath != "" {
-		cfg.KeyPath = keyPath
 	}
 
 	if did := os.Getenv("SIGNET_DID"); did != "" {
@@ -82,7 +73,6 @@ func New(home string) *Config {
 
 	return &Config{
 		Home:                       home,
-		KeyPath:                    filepath.Join(home, "master.key"),
 		IssuerDID:                  "did:key:signet",
 		CertificateValidityMinutes: DefaultCertificateValidityMinutes,
 	}
@@ -100,10 +90,6 @@ func (c *Config) EnsureHome() error {
 func (c *Config) Validate() error {
 	if c.Home == "" {
 		return errors.New("home directory cannot be empty")
-	}
-
-	if c.KeyPath == "" {
-		return errors.New("key path cannot be empty")
 	}
 
 	if c.CertificateValidityMinutes < 1 || c.CertificateValidityMinutes > DefaultCertificateValidityMinutes {
