@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
@@ -22,12 +21,14 @@ func TestEd25519SignerConcurrency(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errorChan := make(chan error, 100)
+	startChan := make(chan struct{})
 
 	// Spawn 50 goroutines signing concurrently
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-startChan // Wait for the signal to start
 			msg := []byte("test message")
 			sig, err := signer.Sign(rand.Reader, msg, crypto.Hash(0))
 			if err != nil {
@@ -40,8 +41,8 @@ func TestEd25519SignerConcurrency(t *testing.T) {
 		}()
 	}
 
-	// Destroy while signing is happening
-	time.Sleep(1 * time.Millisecond)
+	// Signal goroutines to start and immediately destroy the key
+	close(startChan)
 	signer.Destroy()
 
 	wg.Wait()

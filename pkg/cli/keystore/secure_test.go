@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/zalando/go-keyring"
 )
 
@@ -98,5 +99,38 @@ func TestSecureKeystoreNotFound(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error when getting ID of non-existent key")
 		}
+	})
+}
+
+func TestCorruptedKeyringData(t *testing.T) {
+	// Use a mock keyring for this test
+	keyring.MockInit()
+
+	// Test case 1: Malformed hex data
+	t.Run("malformed hex", func(t *testing.T) {
+		err := keyring.Set(ServiceName, MasterKeyItem, "not-a-hex-string")
+		assert.NoError(t, err)
+
+		_, err = LoadMasterKeySecure()
+		assert.Error(t, err)
+		assert.Equal(t, "invalid key data in keyring", err.Error())
+
+		_, err = GetKeyIDSecure()
+		assert.Error(t, err)
+		assert.Equal(t, "invalid key data in keyring", err.Error())
+	})
+
+	// Test case 2: Incorrect seed length
+	t.Run("incorrect seed length", func(t *testing.T) {
+		err := keyring.Set(ServiceName, MasterKeyItem, "deadbeef")
+		assert.NoError(t, err)
+
+		_, err = LoadMasterKeySecure()
+		assert.Error(t, err)
+		assert.Equal(t, "invalid key data in keyring", err.Error())
+
+		_, err = GetKeyIDSecure()
+		assert.Error(t, err)
+		assert.Equal(t, "invalid key data in keyring", err.Error())
 	})
 }

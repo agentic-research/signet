@@ -18,6 +18,12 @@ const (
 	MasterKeyItem = "master-key"
 )
 
+// SECURITY: This package uses github.com/zalando/go-keyring, which stores
+// secrets as strings. Go's string immutability means that even after zeroing
+// the byte slice copy of a secret, the original string may remain in memory
+// until the next garbage collection. This is a known limitation. An upstream
+// pull request to address this is pending: https://github.com/zalando/go-keyring/pull/127
+
 // InitializeSecure generates a master key and stores it in the OS keyring
 func InitializeSecure() error {
 	// Check if key already exists
@@ -55,7 +61,12 @@ func InitializeSecure() error {
 	return nil
 }
 
-// LoadMasterKeySecure loads the master key from the OS keyring
+// LoadMasterKeySecure loads the master key from the OS keyring.
+//
+// SECURITY: This function returns a key derived from a secret that is loaded
+// into memory as a string. Due to Go's string immutability, the secret may
+// persist in memory until garbage collected. See package-level documentation
+// for more details.
 func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 	// Retrieve from OS keyring
 	seedHex, err := keyring.Get(ServiceName, MasterKeyItem)
@@ -63,23 +74,23 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return nil, errors.New("master key not found in keyring (run 'signet init' first)")
 		}
-		return nil, fmt.Errorf("failed to retrieve key from keyring: %w", err)
+		return nil, errors.New("failed to retrieve key from keyring")
+	}
+
+	// Validate hex string length before decoding to prevent allocation attacks
+	expectedHexLen := ed25519.SeedSize * 2
+	if len(seedHex) != expectedHexLen {
+		return nil, errors.New("invalid key data in keyring")
 	}
 
 	// Convert string to byte slice for proper zeroization
 	seedHexBytes := []byte(seedHex)
 	defer keys.ZeroizeBytes(seedHexBytes)
 
-	// Validate hex string length before decoding (fail fast)
-	expectedHexLen := ed25519.SeedSize * 2
-	if len(seedHexBytes) != expectedHexLen {
-		return nil, fmt.Errorf("invalid hex seed length: got %d, expected %d", len(seedHexBytes), expectedHexLen)
-	}
-
 	// Decode hex to seed
 	seed, err := hex.DecodeString(string(seedHexBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode hex key from keyring: %w", err)
+		return nil, errors.New("invalid key data in keyring")
 	}
 
 	// Ensure seed is zeroed on all exit paths
@@ -87,7 +98,7 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 
 	// Validate seed size (defense in depth)
 	if len(seed) != ed25519.SeedSize {
-		return nil, fmt.Errorf("invalid seed size: got %d, expected %d", len(seed), ed25519.SeedSize)
+		return nil, errors.New("invalid key data in keyring")
 	}
 
 	// Reconstruct private key from seed
@@ -100,6 +111,10 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 }
 
 // GetKeyIDSecure returns the key ID (hex-encoded public key) from the OS keyring
+//
+// SECURITY: This function accesses a secret that is loaded into memory as a
+// string. Due to Go's string immutability, the secret may persist in memory
+// until garbage collected. See package-level documentation for more details.
 func GetKeyIDSecure() (string, error) {
 	// Retrieve from OS keyring
 	seedHex, err := keyring.Get(ServiceName, MasterKeyItem)
@@ -107,23 +122,23 @@ func GetKeyIDSecure() (string, error) {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return "", errors.New("master key not found in keyring")
 		}
-		return "", fmt.Errorf("failed to retrieve key from keyring: %w", err)
+		return "", errors.New("failed to retrieve key from keyring")
+	}
+
+	// Validate hex string length before decoding
+	expectedHexLen := ed25519.SeedSize * 2
+	if len(seedHex) != expectedHexLen {
+		return "", errors.New("invalid key data in keyring")
 	}
 
 	// Convert string to byte slice for proper zeroization
 	seedHexBytes := []byte(seedHex)
 	defer keys.ZeroizeBytes(seedHexBytes)
 
-	// Validate hex string length before decoding (fail fast)
-	expectedHexLen := ed25519.SeedSize * 2
-	if len(seedHexBytes) != expectedHexLen {
-		return "", fmt.Errorf("invalid hex seed length: got %d, expected %d", len(seedHexBytes), expectedHexLen)
-	}
-
 	// Decode hex to seed
 	seed, err := hex.DecodeString(string(seedHexBytes))
 	if err != nil {
-		return "", fmt.Errorf("failed to decode hex key from keyring: %w", err)
+		return "", errors.New("invalid key data in keyring")
 	}
 
 	// Ensure seed is zeroed on all exit paths
@@ -131,7 +146,7 @@ func GetKeyIDSecure() (string, error) {
 
 	// Validate seed size (defense in depth)
 	if len(seed) != ed25519.SeedSize {
-		return "", fmt.Errorf("invalid seed size: got %d, expected %d", len(seed), ed25519.SeedSize)
+		return "", errors.New("invalid key data in keyring")
 	}
 
 	// Generate public key from seed
