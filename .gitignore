@@ -76,3 +76,6 @@ INVESTIGATION_LOG.md
 demo/http-auth/client/client
 /signet
 /signet-commit
+
+# Security audit reports (local use only)
+SECURITY_AUDIT.md

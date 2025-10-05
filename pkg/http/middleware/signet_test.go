@@ -160,12 +160,15 @@ func TestSignetMiddleware_Success(t *testing.T) {
 	}
 
 	// Create middleware
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 		WithLogger(config.logger),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	// Create test handler
 	called := false
@@ -206,11 +209,14 @@ func TestSignetMiddleware_Success(t *testing.T) {
 func TestSignetMiddleware_MissingHeader(t *testing.T) {
 	config, masterPub, _ := setupTestMiddleware(t)
 
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called")
@@ -239,12 +245,15 @@ func TestSignetMiddleware_InvalidSignature(t *testing.T) {
 	}
 
 	// Create middleware
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 		WithLogger(config.logger),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called")
@@ -311,11 +320,14 @@ func TestSignetMiddleware_ExpiredToken(t *testing.T) {
 	// Store expired token
 	_, _ = config.tokenStore.Store(context.Background(), record)
 
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Handler should not be called with expired token")
@@ -344,12 +356,15 @@ func TestSignetMiddleware_ReplayDetection(t *testing.T) {
 	}
 
 	// Create middleware
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 		WithLogger(config.logger),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	callCount := 0
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -391,12 +406,15 @@ func TestSignetMiddleware_ClockSkew(t *testing.T) {
 	// Store token
 	_, _ = config.tokenStore.Store(context.Background(), record)
 
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 		WithClockSkew(10*time.Second),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -607,11 +625,14 @@ func TestQueryParamCanonicalization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	middleware := SignetMiddleware(
+	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
 		WithTokenStore(config.tokenStore),
 		WithNonceStore(config.nonceStore),
 	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

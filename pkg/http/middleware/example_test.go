@@ -18,10 +18,13 @@ func Example_simpleUsage() {
 	masterPub, _, _ := ed25519.GenerateKey(nil)
 
 	// Create middleware with simple configuration
-	auth := middleware.SignetMiddleware(
+	auth, err := middleware.SignetMiddleware(
 		middleware.WithMasterKey(masterPub),
 		middleware.WithClockSkew(30*time.Second),
 	)
+	if err != nil {
+		panic(err) // In production, handle this error gracefully
+	}
 
 	// Apply to your handler
 	handler := auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +69,7 @@ func Example_distributedSetup() {
 	keyProvider.AddKey("issuer2", pub2)
 
 	// Create middleware with advanced configuration
-	auth := middleware.SignetMiddleware(
+	auth, err := middleware.SignetMiddleware(
 		middleware.WithTokenStore(tokenStore),
 		middleware.WithNonceStore(nonceStore),
 		middleware.WithKeyProvider(keyProvider),
@@ -75,6 +78,9 @@ func Example_distributedSetup() {
 		middleware.WithSkipPaths("/health", "/metrics"),
 		middleware.WithRequiredPurposes("api-access", "admin-access"),
 	)
+	if err != nil {
+		panic(err) // In production, handle this error gracefully
+	}
 
 	// Create your application handler
 	app := http.NewServeMux()
@@ -152,11 +158,14 @@ func Example_withObservability() {
 	masterPub, _, _ := ed25519.GenerateKey(nil)
 
 	// Create middleware with observability
-	auth := middleware.SignetMiddleware(
+	auth, err := middleware.SignetMiddleware(
 		middleware.WithMasterKey(masterPub),
 		middleware.WithLogger(&CustomLogger{}),
 		middleware.WithMetrics(&PrometheusMetrics{}),
 	)
+	if err != nil {
+		panic(err) // In production, handle this error gracefully
+	}
 
 	handler := auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Authenticated with observability"))
@@ -183,10 +192,13 @@ func (b *CustomRequestBuilder) Build(r *http.Request, proof *header.SignetProof)
 func Example_customCanonical() {
 	masterPub, _, _ := ed25519.GenerateKey(nil)
 
-	auth := middleware.SignetMiddleware(
+	auth, err := middleware.SignetMiddleware(
 		middleware.WithMasterKey(masterPub),
 		middleware.WithRequestBuilder(&CustomRequestBuilder{}),
 	)
+	if err != nil {
+		panic(err) // In production, handle this error gracefully
+	}
 
 	handler := auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Custom canonical request"))
