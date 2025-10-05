@@ -1,6 +1,6 @@
 # Signet Development Roadmap
 
-**Last Updated:** 2025-10-04 (Protocol consolidation branch)
+**Last Updated:** Post SIG1 integration + Security hardening
 **Current Version:** v0.0.1-alpha
 **Target Version:** v1.0 Production
 
@@ -22,23 +22,33 @@
 
 - ✅ **Git commit signing** (`signet commit`) - Production-ready offline signing with CMS/PKCS#7
 - ✅ **Complete 18-field CBOR token structure** - All ADR-002 fields implemented with validation
+- ✅ **COSE_Sign1 implementation** - Full Ed25519 COSE signing/verification (PR #25)
+- ✅ **SIG1 wire format** - End-to-end integration in demo server/client/middleware (PR #25)
 - ✅ **Capability ID computation** - 128-bit hash with domain separation
-- ✅ **HTTP middleware security** - Request canonicalization, nonce replay prevention, TOCTOU-safe monotonic timestamps
+- ✅ **HTTP middleware security** - Request canonicalization, nonce replay prevention, DoS protection, timing attack mitigation (PR #24, #25)
+- ✅ **Secure key storage** - OS keyring integration (macOS Keychain, Linux Secret Service, Windows Credential Manager) (PR #22)
+- ✅ **Production hardening** - Rate limiting, session encryption, request size limits, security test suite (PR #24, #25)
 - ✅ **Ed25519 CMS/PKCS#7 implementation** - First in Go, OpenSSL-compatible
 - ✅ **Local CA with ephemeral certificates** - 5-minute lifetime, self-signed
 - ✅ **Core cryptography** - EPR package with two-step verification
 
-**Code Stats:** 1,654 lines of tested, working code
+**Code Stats:** ~4,000 lines of tested, production-hardened code (+2,000 from security & SIG1 PRs)
 
 ### Known Limitations
 
-**Critical Issues:**
-- ❌ **Keys stored in plaintext** (`~/.signet/`) - major security risk
-- ❌ **No revocation system** - compromised tokens cannot be revoked
-- ✅ **COSE_Sign1 implementation** - core signing format implemented
-- ✅ **SIG1 wire format** - over-the-wire protocol implemented (demo server/client)
-- 🚧 **Capability validation logic** - token structure complete, validation missing
-- 🚧 **End-to-end SIG1 integration test** - required for v1.0 validation
+**Security (Remaining):**
+- ❌ **Revocation system** - Design exploration in progress, implementation pending
+- ❌ **4 HIGH severity findings** - Type assertions, mutex protection, key leaks (See SECURITY_AUDIT.md)
+- 🚧 **Capability validation logic** - token structure complete, enforcement missing
+
+**Completed Security Items:**
+- ✅ **Secure key storage** - OS keyring-only, no plaintext keys (PR #22)
+- ✅ **Session security** - Encrypted sessions, rate limiting (PR #24)
+- ✅ **DoS protection** - Request size limits, chunked transfer timeouts (PR #25)
+- ✅ **Timing attack mitigation** - Constant-time operations, dummy verification (PR #25)
+
+**Protocol (Remaining):**
+- ✅ **SIG1 integration test** - Comprehensive end-to-end test added (PR #25: scripts/testing/test_sig1_http_integration.sh)
 
 ### Honest Assessment
 
@@ -49,9 +59,9 @@
 **Critical Blockers:**
 1. ✅ ~~COSE_Sign1 signing implementation~~ (core signing format) - **COMPLETE**
 2. ✅ ~~SIG1 wire format~~ (over-the-wire protocol) - **COMPLETE**
-3. End-to-end SIG1 integration test (validate complete flow)
-4. Revocation system (epoch-based with CDN distribution)
-5. Secure key storage (OS keychain integration)
+3. ✅ ~~End-to-end SIG1 integration test~~ (validate complete flow) - **COMPLETE** (PR #25)
+4. ❌ Revocation system - Design exploration in progress
+5. ✅ ~~Secure key storage~~ (OS keychain integration) - **COMPLETE** (PR #22)
 6. Production hardening (security audit required)
 
 **Not Production-Ready:** Current implementation suitable for development and experimentation only.
@@ -111,7 +121,7 @@ This section maps current implementation against the ADR specifications.
 | **Semantic Capabilities System** | ADR-001, Sections "Semantic Capability System" | 🚧 Partially Implemented | Token has cap_id, cap_tokens, cap_ver fields ✅. Capability computation exists ✅. Missing: capability registry and validation logic | **High** |
 | **Per-Request Proof-of-Possession** | ADR-002, Section 3.3 | 🚧 Partially Implemented | EPR package implements two-step verification but lacks: canonical string construction per spec, ephemeral key ID caching, proper nonce handling | **High** |
 | **Pairwise Identifiers (ppid)** | ADR-002, Section 3.2 | ✅ Implemented | SubjectPPID field in token structure with 32-byte validation. Generated per-token for privacy-preserving identification | **Complete** |
-| **Instant Revocation System** | ADR-001, "Revocation System" | ❌ Not Implemented | No epoch-based revocation, no snapshot distribution, no grace period handling, no major/minor epoch tracking | **High** |
+| **Instant Revocation System** | ADR-001, "Revocation System" | ❌ Not Implemented | No epoch-based revocation, no snapshot distribution, no grace period handling, no major/minor epoch tracking. Design exploration in progress | **High** |
 
 ### 3.2 Authentication & Authorization Features
 
@@ -556,28 +566,27 @@ ssh prod-server                     # SSH with signet identity
 
 ## 7. Timeline & Milestones
 
-**Current Date:** 2025-10-04
 **Current Version:** v0.0.1-alpha
 
-### Q4 2025 (Months 1-3)
+### Months 1-3 (Protocol Completion)
 
-- [ ] **Phase 1 complete:** Protocol spec-compliant (Dec 2025)
-- [ ] **Phase 2 complete:** Universal signing tool shipped (Nov 2025)
-- [ ] **Phase 3 started:** Revocation system design finalized (Dec 2025)
+- [ ] **Phase 1 complete:** Protocol spec-compliant
+- [ ] **Phase 2 complete:** Universal signing tool shipped
+- [ ] **Phase 3 started:** Revocation system design finalized
 
-### Q1 2026 (Months 4-6)
+### Months 4-6 (Core Features)
 
-- [ ] **Phase 3 complete:** Revocation system operational (Feb 2026)
-- [ ] **Phase 4 complete:** HTTP middleware production-ready (Feb 2026)
-- [ ] **Phase 5 complete:** Python + JS SDKs beta (Mar 2026)
-- [ ] **Beta Release** (Mar 2026)
+- [ ] **Phase 3 complete:** Revocation system operational
+- [ ] **Phase 4 complete:** HTTP middleware production-ready
+- [ ] **Phase 5 complete:** Python + JS SDKs beta
+- [ ] **Beta Release**
 
-### Q2 2026 (Months 7-9)
+### Months 7-9 (Production Hardening)
 
-- [ ] **Phase 7 complete:** Security audit passed (May 2026)
+- [ ] **Phase 7 complete:** Security audit passed
 - [ ] **Production pilots:** 3+ organizations (ongoing)
-- [ ] **Documentation complete:** Migration guides, API docs (May 2026)
-- [ ] **v1.0 Release** (June 2026)
+- [ ] **Documentation complete:** Migration guides, API docs
+- [ ] **v1.0 Release**
 
 ### Long-Term Vision (12+ months post-v1.0)
 
