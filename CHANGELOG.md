@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Capability ID Computation** (`pkg/signet/capability.go`)
+  - Implements ADR-002 Section 3.1 capability hashing with domain separation
+  - Supports empty capability lists with deterministic hashing
+  - Constant-time comparison to prevent timing attacks
+  - Documented semantics for nil vs empty capability arrays
+
+- **Security Test Vectors** (`pkg/http/header/header_vectors_test.go`, `testvectors_additional.json`)
+  - Comprehensive security test suite with 15 test vectors
+  - Tests for clock skew enforcement (ADR-002 60-second limit)
+  - Monotonic timestamp validation with concurrent TOCTOU tests
+  - Edge case coverage for all parser paths
+
+### Added
 - **Key Zeroization Infrastructure** (`pkg/crypto/keys/zeroize.go`)
   - `ZeroizePrivateKey()` - Securely zeros Ed25519 private keys from memory
   - `ZeroizeBytes()` - Securely zeros arbitrary byte slices
@@ -30,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `FuzzConstantTimeCompareBigInt` - Tests constant-time comparison
 
 ### Changed
+- **HTTP Header Parser Consolidation** (Breaking Change)
+  - Consolidated proof header implementations from legacy `ProofHeader` to new `SignetProof` format
+  - Removed obsolete fields (`p=`, `k=`, `t=`) from header format
+  - New format: `v1;m=compact;jti=<base64>;cap=<base64>;s=<base64>;n=<base64>;ts=<unix>`
+  - Query parameter inclusion per RFC 9421 for signature canonicalization
+
 - **Token Schema Migration** (Breaking Change)
   - Migrated from 6-field token to comprehensive 18-field ADR-002 schema
   - `IssuerID` remains `string` type (consistent across all implementations)
@@ -37,10 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `NewToken()` now returns `(*Token, error)` for proper validation
   - Token validation enforces required fields and correct byte lengths
 
-- **HTTP Header Race Condition Fix**
-  - Fixed TOCTOU race in `checkMonotonic()` in `pkg/http/header.go`
-  - Now uses `LoadOrStore()` atomically
-  - Implements `CompareAndSwap()` with retry loop for safe concurrent updates
+- **HTTP Header Security Hardening**
+  - Fixed TOCTOU race in `checkMonotonic()` with retry loop using `LoadOrStore()` and `CompareAndSwap()`
+  - Added memory zeroization on error paths using `keys.ZeroizeBytes()`
+  - Added type assertion safety check to prevent panic on corrupted cache
+  - Added domain separation prefix to capability hash: `"signet-capability-v1:"`
+  - Improved error messages with certificate details for debugging
 
 - **Enhanced Key Management**
   - `pkg/crypto/epr/proof.go` - `GenerateProof()` now returns `SecurePrivateKey` in `ProofResponse`
