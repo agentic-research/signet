@@ -34,19 +34,14 @@ func InitializeSecure() error {
 
 	// Store the seed (32 bytes) as hex in keyring
 	seed := priv.Seed()
-	seedHex := hex.EncodeToString(seed)
+	defer keys.ZeroizeBytes(seed)
 
-	// Zero the seed after encoding
-	for i := range seed {
-		seed[i] = 0
-	}
+	seedHex := hex.EncodeToString(seed)
+	seedHexBytes := []byte(seedHex)
+	defer keys.ZeroizeBytes(seedHexBytes)
 
 	// Store in OS keyring
 	if err := keyring.Set(ServiceName, MasterKeyItem, seedHex); err != nil {
-		// Zero the hex string before returning
-		for i := range seedHex {
-			seedHex = seedHex[:i] + "0" + seedHex[i+1:]
-		}
 		return fmt.Errorf("failed to store key in keyring: %w", err)
 	}
 
@@ -69,37 +64,26 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 		return nil, fmt.Errorf("failed to retrieve key from keyring: %w", err)
 	}
 
+	// Convert string to byte slice for proper zeroization
+	seedHexBytes := []byte(seedHex)
+	defer keys.ZeroizeBytes(seedHexBytes)
+
 	// Decode hex to seed
-	seed, err := hex.DecodeString(seedHex)
+	seed, err := hex.DecodeString(string(seedHexBytes))
 	if err != nil {
-		// Zero the hex string before returning
-		for i := range seedHex {
-			seedHex = seedHex[:i] + "0" + seedHex[i+1:]
-		}
 		return nil, fmt.Errorf("failed to decode key: %w", err)
 	}
 
-	// Zero the hex string after decoding
-	for i := range seedHex {
-		seedHex = seedHex[:i] + "0" + seedHex[i+1:]
-	}
+	// Ensure seed is zeroed on all exit paths
+	defer keys.ZeroizeBytes(seed)
 
 	// Validate seed size
 	if len(seed) != ed25519.SeedSize {
-		// Zero the seed before returning
-		for i := range seed {
-			seed[i] = 0
-		}
 		return nil, fmt.Errorf("invalid seed size: got %d, expected %d", len(seed), ed25519.SeedSize)
 	}
 
 	// Reconstruct private key from seed
 	privateKey := ed25519.NewKeyFromSeed(seed)
-
-	// Zero the seed after use
-	for i := range seed {
-		seed[i] = 0
-	}
 
 	// Note: privateKey is NOT zeroed here because NewEd25519Signer stores a reference
 	// to the same underlying array. The caller must call Destroy() on the returned
@@ -118,22 +102,20 @@ func GetKeyIDSecure() (string, error) {
 		return "", fmt.Errorf("failed to retrieve key from keyring: %w", err)
 	}
 
+	// Convert string to byte slice for proper zeroization
+	seedHexBytes := []byte(seedHex)
+	defer keys.ZeroizeBytes(seedHexBytes)
+
 	// Decode hex to seed
-	seed, err := hex.DecodeString(seedHex)
+	seed, err := hex.DecodeString(string(seedHexBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to decode key: %w", err)
 	}
 
-	// Zero the hex string after decoding
-	for i := range seedHex {
-		seedHex = seedHex[:i] + "0" + seedHex[i+1:]
-	}
+	// Ensure seed is zeroed on all exit paths
+	defer keys.ZeroizeBytes(seed)
 
 	if len(seed) != ed25519.SeedSize {
-		// Zero the seed before returning
-		for i := range seed {
-			seed[i] = 0
-		}
 		return "", errors.New("invalid seed size")
 	}
 
@@ -141,15 +123,8 @@ func GetKeyIDSecure() (string, error) {
 	privateKey := ed25519.NewKeyFromSeed(seed)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
-	// Zero the seed after use
-	for i := range seed {
-		seed[i] = 0
-	}
-
 	// Zero the private key after extracting public key
-	for i := range privateKey {
-		privateKey[i] = 0
-	}
+	defer keys.ZeroizePrivateKey(privateKey)
 
 	// Return hex-encoded public key as ID
 	return hex.EncodeToString(publicKey), nil

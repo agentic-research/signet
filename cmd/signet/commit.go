@@ -149,6 +149,8 @@ func runCommit(cmd *cobra.Command, args []string) error {
 			keyID, err = keystore.GetKeyIDSecure()
 			// Fallback to file-based if keyring fails
 			if err != nil {
+				fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
+				fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Run 'signet commit --migrate' to migrate to secure storage"))
 				keyID, err = keystore.GetKeyID(cfg.KeyPath)
 			}
 		}
@@ -180,6 +182,8 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		masterKey, err = keystore.LoadMasterKeySecure()
 		// Fallback to file-based if keyring fails
 		if err != nil {
+			fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
+			fmt.Fprintln(os.Stderr, styles.Subtle.Render("  Run 'signet commit --migrate' to migrate to secure storage"))
 			masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
 		}
 	}
@@ -285,6 +289,9 @@ func migrateToKeyring(cfg *config.Config) error {
 		return fmt.Errorf("failed to read key file: %w", err)
 	}
 
+	// Ensure keyData is zeroed on all exit paths
+	defer keys.ZeroizeBytes(keyData)
+
 	block, _ := pem.Decode(keyData)
 	if block == nil || block.Type != "ED25519 PRIVATE KEY" {
 		return fmt.Errorf("invalid key file format")
@@ -294,22 +301,21 @@ func migrateToKeyring(cfg *config.Config) error {
 		return fmt.Errorf("invalid seed size")
 	}
 
+	// Zero the seed on all exit paths
+	defer keys.ZeroizeBytes(block.Bytes)
+
 	// Reconstruct the full key to get public key
 	privateKey := ed25519.NewKeyFromSeed(block.Bytes)
+	defer keys.ZeroizePrivateKey(privateKey)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
 	// Store the seed in keyring using the existing secure storage
 	seedHex := fmt.Sprintf("%x", block.Bytes)
+	seedHexBytes := []byte(seedHex)
+	defer keys.ZeroizeBytes(seedHexBytes)
+
 	if err := keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, seedHex); err != nil {
 		return fmt.Errorf("failed to store key in keyring: %w", err)
-	}
-
-	// Zero sensitive data
-	for i := range block.Bytes {
-		block.Bytes[i] = 0
-	}
-	for i := range privateKey {
-		privateKey[i] = 0
 	}
 
 	// Verify the migration by loading from keyring
