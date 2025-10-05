@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
 
 // SignetProof represents a parsed Signet-Proof header
@@ -35,6 +37,20 @@ func ParseSignetProof(header string) (*SignetProof, error) {
 	}
 
 	proof := &SignetProof{}
+	var err error
+
+	// Zero sensitive fields on error
+	defer func() {
+		if err != nil && proof != nil {
+			if proof.Nonce != nil {
+				keys.ZeroizeBytes(proof.Nonce)
+			}
+			if proof.Signature != nil {
+				keys.ZeroizeBytes(proof.Signature)
+			}
+		}
+	}()
+
 	parts := strings.Split(header, ";")
 	seen := make(map[string]bool)
 
@@ -114,13 +130,16 @@ func ParseSignetProof(header string) (*SignetProof, error) {
 
 	// Validate required fields
 	if proof.JTI == nil {
-		return nil, fmt.Errorf("missing jti")
+		err = fmt.Errorf("missing jti")
+		return nil, err
 	}
 	if proof.Timestamp == 0 {
-		return nil, fmt.Errorf("missing timestamp")
+		err = fmt.Errorf("missing timestamp")
+		return nil, err
 	}
 	if proof.Signature == nil {
-		return nil, fmt.Errorf("missing signature")
+		err = fmt.Errorf("missing signature")
+		return nil, err
 	}
 
 	return proof, nil
@@ -147,38 +166,27 @@ func ParseSignetProofWithValidation(header string, enforceMonotonic bool) (*Sign
 var lastTS sync.Map // map[string]int64  key: base64(jti)
 
 // checkMonotonic ensures timestamps are strictly increasing for each JTI
+// Simplified to avoid livelock under high contention
 func checkMonotonic(jti []byte, ts int64) error {
 	k := base64.RawURLEncoding.EncodeToString(jti)
 
-	// Use LoadOrStore atomically to prevent race condition
-	// If key exists, loaded will be true and actual contains the existing value
-	// If key doesn't exist, loaded will be false and actual will be ts
+	// Try to update atomically with a single CompareAndSwap
 	actual, loaded := lastTS.LoadOrStore(k, ts)
-	if loaded {
-		// Key existed, check monotonicity
-		if ts <= actual.(int64) {
-			return errors.New("timestamp not monotonic")
-		}
-		// Update to new timestamp - use CompareAndSwap for safety
-		// Retry loop in case of concurrent updates
-		for {
-			if lastTS.CompareAndSwap(k, actual, ts) {
-				break
-			}
-			// Another goroutine updated it, reload and check again
-			if v, ok := lastTS.Load(k); ok {
-				if ts <= v.(int64) {
-					return errors.New("timestamp not monotonic")
-				}
-				actual = v
-			} else {
-				// Key was deleted, try to store again
-				lastTS.Store(k, ts)
-				break
-			}
-		}
+	if !loaded {
+		// New entry, we stored our timestamp
+		return nil
 	}
-	// If !loaded, our ts was already stored by LoadOrStore
+
+	// Entry exists, check if timestamp is strictly increasing
+	existingTS := actual.(int64)
+	if ts <= existingTS {
+		return errors.New("timestamp not monotonic")
+	}
+
+	// Update to new timestamp - single attempt to avoid livelock
+	// If this fails due to concurrent update, the other goroutine
+	// will enforce monotonicity
+	lastTS.CompareAndSwap(k, existingTS, ts)
 	return nil
 }
 

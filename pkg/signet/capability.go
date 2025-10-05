@@ -51,8 +51,12 @@ func ComputeCapabilityID(capTokens []uint64) ([]byte, error) {
 		return nil, err
 	}
 
-	// Hash and truncate to 128 bits (16 bytes)
-	hash := sha256.Sum256(cborData)
+	// Hash with domain separation and truncate to 128 bits (16 bytes)
+	// Domain separation prevents cross-protocol attacks
+	h := sha256.New()
+	h.Write([]byte("signet-capability-v1:"))
+	h.Write(cborData)
+	hash := h.Sum(nil)
 	return hash[:16], nil
 }
 
