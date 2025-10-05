@@ -12,12 +12,29 @@ import (
 
 // TokenStore defines the interface for token storage and retrieval.
 // Implementations can use in-memory storage, Redis, databases, or any other backend.
+//
+// Token ID Format:
+//   - Token IDs are derived from the token's JTI (CBOR field 4)
+//   - Format: hex.EncodeToString(JTI) = 32 hex characters (from 16 bytes)
+//   - Example: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+//
+// Security Considerations:
+//   - MUST use full 16-byte JTI to prevent collisions (birthday paradox)
+//   - Truncating to 8 bytes hits 50% collision probability at ~4 billion tokens
+//   - Full JTI provides 2^64 uniqueness (computationally infeasible to collide)
+//
+// Migration Notes:
+//   - Previous versions used 8-byte truncation (16 hex chars)
+//   - Alpha software uses big bang migration (all old tokens invalidated)
+//   - Production systems should implement dual lookup during transition
 type TokenStore interface {
 	// Get retrieves a token record by its ID.
+	// The tokenID parameter must be a 32-character hex string from hex.EncodeToString(JTI).
 	// Returns ErrTokenNotFound if the token doesn't exist.
 	Get(ctx context.Context, tokenID string) (*TokenRecord, error)
 
 	// Store saves a token record and returns its ID.
+	// The returned tokenID will be a 32-character hex string from hex.EncodeToString(token.JTI).
 	Store(ctx context.Context, record *TokenRecord) (string, error)
 
 	// Delete removes a token record (optional, for revocation).
@@ -76,6 +93,48 @@ type Metrics interface {
 
 	// RecordTokenUsage records token usage statistics.
 	RecordTokenUsage(tokenID string, purpose string)
+}
+
+// ObserverHook defines the interface for observing authentication events.
+// This enables integration with monitoring systems (OpenTelemetry, Prometheus, etc.)
+// via context propagation.
+//
+// Observer hooks are called at key points in the authentication flow:
+//  1. OnAuthStart - Before authentication begins
+//  2. OnAuthSuccess - After successful verification
+//  3. OnAuthFailure - After verification failure
+//
+// Context-Based Monitoring Pattern:
+//   - Observers can attach metadata to context (trace IDs, span IDs)
+//   - Downstream services can read this metadata for distributed tracing
+//   - No tight coupling to specific monitoring tools
+//
+// Example: OpenTelemetry Integration
+//
+//	type OTelObserver struct{ tracer trace.Tracer }
+//
+//	func (o *OTelObserver) OnAuthStart(ctx context.Context, r *http.Request) context.Context {
+//	    ctx, span := o.tracer.Start(ctx, "signet.authenticate")
+//	    return ctx
+//	}
+//
+//	func (o *OTelObserver) OnAuthSuccess(ctx context.Context, authCtx *AuthContext) {
+//	    span := trace.SpanFromContext(ctx)
+//	    span.SetAttributes(attribute.String("token_id", authCtx.TokenID))
+//	    span.End()
+//	}
+type ObserverHook interface {
+	// OnAuthStart is called before authentication begins.
+	// Returns a new context (possibly with trace IDs, span IDs, etc.)
+	OnAuthStart(ctx context.Context, r *http.Request) context.Context
+
+	// OnAuthSuccess is called after successful authentication.
+	// Can emit metrics, log events, close spans, etc.
+	OnAuthSuccess(ctx context.Context, authCtx *AuthContext)
+
+	// OnAuthFailure is called after authentication failure.
+	// Can emit metrics, log errors, close spans, etc.
+	OnAuthFailure(ctx context.Context, err error, stage string)
 }
 
 // TokenRecord represents a stored token with its cryptographic context.

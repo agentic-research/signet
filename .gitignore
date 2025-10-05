@@ -79,3 +79,7 @@ demo/http-auth/client/client
 
 # Security audit reports (local use only)
 SECURITY_AUDIT.md
+
+# Demo binaries
+client
+server
