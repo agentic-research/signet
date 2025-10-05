@@ -89,6 +89,28 @@ func WithMetrics(metrics Metrics) Option {
 	}
 }
 
+// WithObserver configures a custom observer hook for monitoring.
+// Observer hooks enable integration with distributed tracing systems
+// (OpenTelemetry, Jaeger) and custom monitoring solutions via context propagation.
+//
+// Example: OpenTelemetry Integration
+//
+//	type OTelObserver struct{ tracer trace.Tracer }
+//
+//	func (o *OTelObserver) OnAuthStart(ctx context.Context, r *http.Request) context.Context {
+//	    ctx, span := o.tracer.Start(ctx, "signet.authenticate")
+//	    return ctx
+//	}
+//
+//	middleware := SignetMiddleware(
+//	    WithObserver(&OTelObserver{tracer: tracer}),
+//	)
+func WithObserver(observer ObserverHook) Option {
+	return func(c *Config) {
+		c.observer = observer
+	}
+}
+
 // WithSkipPaths configures paths that bypass authentication.
 // Useful for health checks and public endpoints.
 func WithSkipPaths(paths ...string) Option {
@@ -157,3 +179,12 @@ type noOpMetrics struct{}
 
 func (m *noOpMetrics) RecordAuthResult(result string, duration time.Duration) {}
 func (m *noOpMetrics) RecordTokenUsage(tokenID string, purpose string)        {}
+
+// noOpObserver discards all observer events
+type noOpObserver struct{}
+
+func (o *noOpObserver) OnAuthStart(ctx context.Context, r *http.Request) context.Context {
+	return ctx
+}
+func (o *noOpObserver) OnAuthSuccess(ctx context.Context, authCtx *AuthContext)    {}
+func (o *noOpObserver) OnAuthFailure(ctx context.Context, err error, stage string) {}

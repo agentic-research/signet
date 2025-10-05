@@ -35,9 +35,10 @@
 **Critical Issues:**
 - ❌ **Keys stored in plaintext** (`~/.signet/`) - major security risk
 - ❌ **No revocation system** - compromised tokens cannot be revoked
-- ❌ **Missing COSE_Sign1 implementation** - core signing format not yet implemented
-- ❌ **Missing SIG1 wire format** - over-the-wire protocol not implemented
+- ✅ **COSE_Sign1 implementation** - core signing format implemented
+- ✅ **SIG1 wire format** - over-the-wire protocol implemented (demo server/client)
 - 🚧 **Capability validation logic** - token structure complete, validation missing
+- 🚧 **End-to-end SIG1 integration test** - required for v1.0 validation
 
 ### Honest Assessment
 
@@ -46,11 +47,12 @@
 **Gap to v1.0:** 6-9 months of focused development with 3-4 engineers
 
 **Critical Blockers:**
-1. COSE_Sign1 signing implementation (core signing format)
-2. SIG1 wire format (over-the-wire protocol)
-3. Revocation system (epoch-based with CDN distribution)
-4. Secure key storage (OS keychain integration)
-5. Production hardening (security audit required)
+1. ✅ ~~COSE_Sign1 signing implementation~~ (core signing format) - **COMPLETE**
+2. ✅ ~~SIG1 wire format~~ (over-the-wire protocol) - **COMPLETE**
+3. End-to-end SIG1 integration test (validate complete flow)
+4. Revocation system (epoch-based with CDN distribution)
+5. Secure key storage (OS keychain integration)
+6. Production hardening (security audit required)
 
 **Not Production-Ready:** Current implementation suitable for development and experimentation only.
 
@@ -103,8 +105,8 @@ This section maps current implementation against the ADR specifications.
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
 | **CBOR Token Structure with Integer Keys** | ADR-002, Section 2.2 | ✅ Implemented | Complete 18-field token structure in `pkg/signet/token.go` with all ADR-002 fields: issuer, audience, ppid, timestamps, capabilities, actor, delegator, nonce, key IDs. Includes validation and canonical CBOR marshaling | **Complete** |
-| **SIG1 Wire Format** | ADR-002, Section 2.1 | ❌ Not Implemented | The `SIG1.<base64url(cbor)>.<base64url(sig)>` format is not implemented. Token serialization exists but not the complete wire protocol | **High** |
-| **COSE_Sign1 Signature Structure** | ADR-002, Section 2.1 | ❌ Not Implemented | Package `pkg/crypto/cose` exists but is empty. Need full COSE_Sign1 Ed25519 implementation | **High** |
+| **SIG1 Wire Format** | ADR-002, Section 2.1 | ✅ Implemented | The `SIG1.<base64url(cbor)>.<base64url(sig)>` format implemented in demo server/client. Functions: `EncodeSIG1()`, `DecodeSIG1()`, `VerifySIG1()` | **Complete** |
+| **COSE_Sign1 Signature Structure** | ADR-002, Section 2.1 | ✅ Implemented | Full COSE_Sign1 Ed25519 implementation in `pkg/crypto/cose/cose.go` with signers and verifiers | **Complete** |
 | **Capability Computation (128-bit hash)** | ADR-002, Section 3.1 | ✅ Implemented | Capability ID computation with domain separation in `pkg/signet/capability.go`. Supports empty capability lists with deterministic hashing | **Complete** |
 | **Semantic Capabilities System** | ADR-001, Sections "Semantic Capability System" | 🚧 Partially Implemented | Token has cap_id, cap_tokens, cap_ver fields ✅. Capability computation exists ✅. Missing: capability registry and validation logic | **High** |
 | **Per-Request Proof-of-Possession** | ADR-002, Section 3.3 | 🚧 Partially Implemented | EPR package implements two-step verification but lacks: canonical string construction per spec, ephemeral key ID caching, proper nonce handling | **High** |
@@ -253,10 +255,11 @@ The signet-authority command is a basic OIDC client, not an issuer:
 **Why Critical:** Current implementation doesn't match specification. Building features on unstable protocol creates technical debt.
 
 **Success Criteria:**
-- [ ] All ADR-002 CBOR fields present in token structure
-- [ ] Wire format passes interop tests with other COSE implementations
-- [ ] Capability computation matches test vectors
-- [ ] HTTP middleware verifies signatures correctly per spec
+- [x] All ADR-002 CBOR fields present in token structure
+- [x] Wire format passes interop tests with other COSE implementations
+- [x] Capability computation matches test vectors
+- [x] HTTP middleware verifies signatures correctly per spec
+- [ ] **End-to-end SIG1 integration test** - Full workflow test covering token issuance (server) → SIG1 verification (client) → request authentication (middleware). Required for v1.0 to validate complete SIG1 wire format flow.
 
 **Estimated Effort:** 500-800 lines of new code, 2 months with 2 engineers
 
