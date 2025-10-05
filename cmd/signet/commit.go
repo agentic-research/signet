@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/zalando/go-keyring"
 
 	"github.com/jamestexas/go-cms/pkg/cms"
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/config"
 	"github.com/jamestexas/signet/pkg/cli/keystore"
 	"github.com/jamestexas/signet/pkg/cli/styles"
+	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
 
 var (
@@ -23,6 +27,8 @@ var (
 	exportKeyFlag bool
 	verifyFile    string
 	statusFd      int
+	insecureFlag  bool // Use file-based storage instead of OS keyring
+	migrateFlag   bool // Migrate from file-based to keyring storage
 )
 
 var commitCmd = &cobra.Command{
@@ -65,6 +71,8 @@ func init() {
 	commitCmd.Flags().BoolVar(&exportKeyFlag, "export-key-id", false, "Export the master key ID")
 	commitCmd.Flags().StringVar(&verifyFile, "verify", "", "Verify signature from file")
 	commitCmd.Flags().IntVar(&statusFd, "status-fd", 0, "File descriptor for GPG status output")
+	commitCmd.Flags().BoolVar(&insecureFlag, "insecure", false, "Use file-based key storage (not recommended)")
+	commitCmd.Flags().BoolVar(&migrateFlag, "migrate", false, "Migrate key from file storage to OS keyring")
 
 	// GPG compatibility flags (ignored)
 	// Git passes these as combined shorthand: -bsau <keyid>
@@ -105,19 +113,46 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	// Get configuration
 	cfg := getConfig()
 
+	// Handle migration from file to keyring
+	if migrateFlag {
+		return migrateToKeyring(cfg)
+	}
+
 	// Handle initialization
 	if initFlag {
-		if err := keystore.Initialize(cfg.Home); err != nil {
-			return fmt.Errorf("initialization failed: %w", err)
+		if insecureFlag {
+			// Use legacy file-based storage
+			if err := keystore.Initialize(cfg.Home); err != nil {
+				return fmt.Errorf("initialization failed: %w", err)
+			}
+			fmt.Println(styles.Warning.Render("⚠") + " Initialized with INSECURE file-based storage")
+			fmt.Println(styles.Subtle.Render("  Master key stored in: ") + styles.Code.Render(cfg.Home))
+			fmt.Println(styles.Subtle.Render("  Consider using secure keyring storage (remove --insecure flag)"))
+		} else {
+			// Use secure OS keyring storage (default)
+			if err := keystore.InitializeSecure(); err != nil {
+				return fmt.Errorf("initialization failed: %w", err)
+			}
+			fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully with secure OS keyring storage")
 		}
-		fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
-		fmt.Println(styles.Subtle.Render("  Master key stored in: ") + styles.Code.Render(cfg.Home))
 		return nil
 	}
 
 	// Handle export key ID
 	if exportKeyFlag {
-		keyID, err := keystore.GetKeyID(cfg.KeyPath)
+		var keyID string
+		var err error
+
+		if insecureFlag {
+			keyID, err = keystore.GetKeyID(cfg.KeyPath)
+		} else {
+			keyID, err = keystore.GetKeyIDSecure()
+			// Fallback to file-based if keyring fails
+			if err != nil {
+				keyID, err = keystore.GetKeyID(cfg.KeyPath)
+			}
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to get key ID: %w", err)
 		}
@@ -135,8 +170,20 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Load master key
-	masterKey, err := keystore.LoadMasterKey(cfg.KeyPath)
+	// Load master key (try keyring first, fallback to file)
+	var masterKey *keys.Ed25519Signer
+	var err error
+
+	if insecureFlag {
+		masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
+	} else {
+		masterKey, err = keystore.LoadMasterKeySecure()
+		// Fallback to file-based if keyring fails
+		if err != nil {
+			masterKey, err = keystore.LoadMasterKey(cfg.KeyPath)
+		}
+	}
+
 	if err != nil {
 		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet commit --init") + " to initialize\n"
 		fmt.Fprint(os.Stderr, msg)
@@ -202,6 +249,87 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	if err := pem.Encode(os.Stdout, pemBlock); err != nil {
 		return fmt.Errorf("failed to encode signature: %w", err)
 	}
+
+	return nil
+}
+
+// migrateToKeyring migrates a key from file-based storage to OS keyring
+func migrateToKeyring(cfg *config.Config) error {
+	keyPath := filepath.Join(cfg.Home, keystore.MasterKeyFile)
+
+	// Check if file-based key exists
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		return fmt.Errorf("no file-based key found at %s", keyPath)
+	}
+
+	// Check if keyring key already exists
+	_, err := keystore.GetKeyIDSecure()
+	if err == nil {
+		return fmt.Errorf("key already exists in OS keyring - migration not needed")
+	}
+
+	// Load the file-based key
+	signer, err := keystore.LoadMasterKey(keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to load file-based key: %w", err)
+	}
+	defer signer.Destroy()
+
+	// Get the public key for verification
+	filePubKey := signer.Public().(ed25519.PublicKey)
+
+	// Store in keyring (we need to extract the seed)
+	// Read the file directly to get the seed
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read key file: %w", err)
+	}
+
+	block, _ := pem.Decode(keyData)
+	if block == nil || block.Type != "ED25519 PRIVATE KEY" {
+		return fmt.Errorf("invalid key file format")
+	}
+
+	if len(block.Bytes) != ed25519.SeedSize {
+		return fmt.Errorf("invalid seed size")
+	}
+
+	// Reconstruct the full key to get public key
+	privateKey := ed25519.NewKeyFromSeed(block.Bytes)
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+
+	// Store the seed in keyring using the existing secure storage
+	seedHex := fmt.Sprintf("%x", block.Bytes)
+	if err := keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, seedHex); err != nil {
+		return fmt.Errorf("failed to store key in keyring: %w", err)
+	}
+
+	// Zero sensitive data
+	for i := range block.Bytes {
+		block.Bytes[i] = 0
+	}
+	for i := range privateKey {
+		privateKey[i] = 0
+	}
+
+	// Verify the migration by loading from keyring
+	verifySigner, err := keystore.LoadMasterKeySecure()
+	if err != nil {
+		return fmt.Errorf("migration verification failed - could not load from keyring: %w", err)
+	}
+	defer verifySigner.Destroy()
+
+	verifyPubKey := verifySigner.Public().(ed25519.PublicKey)
+	if !ed25519.PublicKey(filePubKey).Equal(verifyPubKey) {
+		return fmt.Errorf("migration verification failed - public keys don't match")
+	}
+
+	fmt.Println(styles.Success.Render("✓") + " Successfully migrated key to OS keyring")
+	fmt.Println(styles.Subtle.Render("  Public key: ") + fmt.Sprintf("%x", publicKey))
+	fmt.Println()
+	fmt.Println(styles.Info.Render("→") + " The file-based key is still present at: " + styles.Code.Render(keyPath))
+	fmt.Println(styles.Subtle.Render("  You can delete it manually after verifying the migration"))
+	fmt.Println(styles.Subtle.Render("  To test: ") + styles.Code.Render("signet commit --export-key-id"))
 
 	return nil
 }
