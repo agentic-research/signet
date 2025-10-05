@@ -71,20 +71,18 @@ func runSign(cmd *cobra.Command, args []string) error {
 
 	// Handle initialization
 	if signInitFlag {
-		if err := keystore.Initialize(cfg.Home); err != nil {
+		if err := keystore.InitializeSecure(); err != nil {
 			return fmt.Errorf("initialization failed: %w", err)
 		}
 
 		// Get key ID for display
-		keyID, err := keystore.GetKeyID(cfg.KeyPath)
+		keyID, err := keystore.GetKeyIDSecure()
 		if err != nil {
 			keyID = "[error reading key ID]"
 		}
 
 		fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
-		fmt.Println(styles.Subtle.Render("  Master key: ") + styles.Code.Render(cfg.Home))
 		fmt.Println(styles.Subtle.Render("  Key ID: ") + styles.Value.Render(keyID[:8]+"..."))
-		fmt.Println(styles.Subtle.Render("  Permissions: ") + "0600 (read/write owner only)")
 		fmt.Println()
 		fmt.Println(styles.Info.Render("→") + " Next: " + styles.Code.Render("signet sign <file>"))
 		return nil
@@ -117,8 +115,8 @@ func runSign(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
 
-	// Load master key
-	masterKey, err := keystore.LoadMasterKey(cfg.KeyPath)
+	// Load master key from OS keyring
+	masterKey, err := keystore.LoadMasterKeySecure()
 	if err != nil {
 		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet sign --init") + " to initialize\n"
 		fmt.Fprint(os.Stderr, msg)
