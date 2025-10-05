@@ -45,7 +45,7 @@ SIGNET_CMD_PATH="$ORIGINAL_DIR/signet"
 
 # Initialize signet
 echo "Initializing signet with home: $SIGNET_HOME"
-$SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --init
+$SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --init --insecure
 
 # Ask the tool for its canonical key ID
 MASTER_KEY_ID=$($SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --export-key-id)

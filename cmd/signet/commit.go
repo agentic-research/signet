@@ -19,10 +19,11 @@ import (
 
 var (
 	// Commit subcommand flags
-	initFlag      bool
-	exportKeyFlag bool
-	verifyFile    string
-	statusFd      int
+	initFlag         bool
+	initInsecureFlag bool
+	exportKeyFlag    bool
+	verifyFile       string
+	statusFd         int
 )
 
 var commitCmd = &cobra.Command{
@@ -62,6 +63,7 @@ short-lived ephemeral certificate derived from your master key.
 
 func init() {
 	commitCmd.Flags().BoolVar(&initFlag, "init", false, "Initialize Signet configuration")
+	commitCmd.Flags().BoolVar(&initInsecureFlag, "insecure", false, "Initialize with file-based storage (for testing)")
 	commitCmd.Flags().BoolVar(&exportKeyFlag, "export-key-id", false, "Export the master key ID")
 	commitCmd.Flags().StringVar(&verifyFile, "verify", "", "Verify signature from file")
 	commitCmd.Flags().IntVar(&statusFd, "status-fd", 0, "File descriptor for GPG status output")
@@ -95,7 +97,6 @@ func getConfig() *config.Config {
 	// Override with --home flag if provided
 	if homeDir != "" {
 		cfg.Home = homeDir
-		cfg.KeyPath = cfg.Home + "/" + keystore.MasterKeyFile
 	}
 
 	return cfg
@@ -107,19 +108,29 @@ func runCommit(cmd *cobra.Command, args []string) error {
 
 	// Handle initialization
 	if initFlag {
-		if err := keystore.Initialize(cfg.Home); err != nil {
-			return fmt.Errorf("initialization failed: %w", err)
+		if initInsecureFlag {
+			if err := keystore.InitializeInsecure(cfg.Home); err != nil {
+				return fmt.Errorf("insecure initialization failed: %w", err)
+			}
+			fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully (insecure file-based storage)")
+		} else {
+			if err := keystore.InitializeSecure(); err != nil {
+				return fmt.Errorf("initialization failed: %w", err)
+			}
+			fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
 		}
-		fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
-		fmt.Println(styles.Subtle.Render("  Master key stored in: ") + styles.Code.Render(cfg.Home))
 		return nil
 	}
 
 	// Handle export key ID
 	if exportKeyFlag {
-		keyID, err := keystore.GetKeyID(cfg.KeyPath)
+		keyID, err := keystore.GetKeyIDSecure()
 		if err != nil {
-			return fmt.Errorf("failed to get key ID: %w", err)
+			// Fallback to file-based
+			keyID, err = keystore.GetKeyIDInsecure(cfg.Home)
+			if err != nil {
+				return fmt.Errorf("failed to get key ID: %w", err)
+			}
 		}
 		// Output raw key ID for Git (no styling for machine-readable output)
 		fmt.Println(keyID)
@@ -135,12 +146,17 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Load master key
-	masterKey, err := keystore.LoadMasterKey(cfg.KeyPath)
+	// Load master key from OS keyring
+	masterKey, err := keystore.LoadMasterKeySecure()
+	// Fallback to file-based if keyring fails
 	if err != nil {
-		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet commit --init") + " to initialize\n"
-		fmt.Fprint(os.Stderr, msg)
-		return fmt.Errorf("failed to load master key: %w", err)
+		fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
+		masterKey, err = keystore.LoadMasterKeyInsecure(cfg.Home)
+		if err != nil {
+			msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet commit --init") + " to initialize\n"
+			fmt.Fprint(os.Stderr, msg)
+			return fmt.Errorf("failed to load master key: %w", err)
+		}
 	}
 	defer masterKey.Destroy()
 

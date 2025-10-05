@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"io"
+	"sync"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -18,9 +19,11 @@ type Signer interface {
 }
 
 // Ed25519Signer implements Signer for Ed25519 keys
+// It is safe for concurrent use.
 type Ed25519Signer struct {
 	privateKey ed25519.PrivateKey
 	destroyed  bool
+	mu         sync.RWMutex // Protects privateKey and destroyed
 }
 
 // NewEd25519Signer creates a new Ed25519 signer with the given private key
@@ -32,23 +35,39 @@ func NewEd25519Signer(privateKey ed25519.PrivateKey) *Ed25519Signer {
 
 // Public returns the public key associated with this signer
 func (s *Ed25519Signer) Public() crypto.PublicKey {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.privateKey.Public()
 }
 
-// Sign creates a signature for the given message
+// Sign creates a signature for the given message.
+// Concurrency guarantee: If Destroy() is called concurrently with Sign(),
+// either Sign() will complete successfully before destruction, or it will
+// fail with "signer has been destroyed". Partial destruction during signing
+// is prevented by the read lock, which is held during the entire signing operation.
 func (s *Ed25519Signer) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.destroyed {
 		return nil, errors.New("signer has been destroyed")
 	}
-	return s.privateKey.Sign(rand, message, opts)
+
+	// Execute signing while holding the read lock
+	// This prevents Destroy() from zeroing the key during the operation
+	signature, err := s.privateKey.Sign(rand, message, opts)
+	return signature, err
 }
 
 // Destroy securely zeros the private key material
+// This method is safe for concurrent use and idempotent.
+// Once called, all future Sign() calls will fail.
 func (s *Ed25519Signer) Destroy() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !s.destroyed {
-		for i := range s.privateKey {
-			s.privateKey[i] = 0
-		}
+		ZeroizePrivateKey(s.privateKey)
 		s.destroyed = true
 	}
 }
