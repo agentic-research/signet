@@ -2,9 +2,12 @@ package header
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // SignetProof represents a parsed Signet-Proof header
@@ -121,4 +124,86 @@ func ParseSignetProof(header string) (*SignetProof, error) {
 	}
 
 	return proof, nil
+}
+
+// ParseSignetProofWithValidation parses and validates a Signet-Proof header with security checks
+func ParseSignetProofWithValidation(header string, enforceMonotonic bool) (*SignetProof, error) {
+	proof, err := ParseSignetProof(header)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enforce monotonicity if requested
+	if enforceMonotonic {
+		if err := checkMonotonic(proof.JTI, proof.Timestamp); err != nil {
+			return nil, err
+		}
+	}
+
+	return proof, nil
+}
+
+// Package-level state for monotonicity enforcement
+var lastTS sync.Map // map[string]int64  key: base64(jti)
+
+// checkMonotonic ensures timestamps are strictly increasing for each JTI
+func checkMonotonic(jti []byte, ts int64) error {
+	k := base64.RawURLEncoding.EncodeToString(jti)
+
+	// Use LoadOrStore atomically to prevent race condition
+	// If key exists, loaded will be true and actual contains the existing value
+	// If key doesn't exist, loaded will be false and actual will be ts
+	actual, loaded := lastTS.LoadOrStore(k, ts)
+	if loaded {
+		// Key existed, check monotonicity
+		if ts <= actual.(int64) {
+			return errors.New("timestamp not monotonic")
+		}
+		// Update to new timestamp - use CompareAndSwap for safety
+		// Retry loop in case of concurrent updates
+		for {
+			if lastTS.CompareAndSwap(k, actual, ts) {
+				break
+			}
+			// Another goroutine updated it, reload and check again
+			if v, ok := lastTS.Load(k); ok {
+				if ts <= v.(int64) {
+					return errors.New("timestamp not monotonic")
+				}
+				actual = v
+			} else {
+				// Key was deleted, try to store again
+				lastTS.Store(k, ts)
+				break
+			}
+		}
+	}
+	// If !loaded, our ts was already stored by LoadOrStore
+	return nil
+}
+
+// ResetMonotonicCache clears the monotonicity cache - for testing only
+func ResetMonotonicCache() {
+	lastTS = sync.Map{}
+}
+
+// ValidateTimestamp validates that a timestamp falls within acceptable clock skew
+func ValidateTimestamp(timestamp int64, maxSkew, minSkew time.Duration) error {
+	// Enforce ADR-002 maximum
+	if maxSkew > 60*time.Second {
+		maxSkew = 60 * time.Second
+	}
+	// Apply minimum for high-assurance
+	if minSkew > 0 && maxSkew > minSkew {
+		maxSkew = minSkew
+	}
+	now := time.Now().Unix()
+	diff := timestamp - now
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > int64(maxSkew.Seconds()) {
+		return fmt.Errorf("timestamp outside acceptable window: diff=%ds, max=%ds", diff, int64(maxSkew.Seconds()))
+	}
+	return nil
 }

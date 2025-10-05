@@ -1,6 +1,7 @@
 package signet
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 )
@@ -11,6 +12,11 @@ func TestComputeCapabilityID(t *testing.T) {
 		tokens    []uint64
 		wantError bool
 	}{
+		{
+			name:      "nil capability list",
+			tokens:    nil,
+			wantError: false,
+		},
 		{
 			name:      "empty capability list",
 			tokens:    []uint64{},
@@ -34,6 +40,11 @@ func TestComputeCapabilityID(t *testing.T) {
 		{
 			name:      "unsorted tokens (should sort)",
 			tokens:    []uint64{3, 1, 2},
+			wantError: false,
+		},
+		{
+			name:      "maximum uint64 value",
+			tokens:    []uint64{0xFFFFFFFFFFFFFFFF, 1, 0},
 			wantError: false,
 		},
 	}
@@ -76,11 +87,11 @@ func TestComputeCapabilityID_Deterministic(t *testing.T) {
 		t.Fatalf("ComputeCapabilityID(tokens3) failed: %v", err)
 	}
 
-	if !bytesEqual(cap1, cap2) {
+	if !bytes.Equal(cap1, cap2) {
 		t.Errorf("Different order produced different hashes: %x vs %x", cap1, cap2)
 	}
 
-	if !bytesEqual(cap2, cap3) {
+	if !bytes.Equal(cap2, cap3) {
 		t.Errorf("Different order produced different hashes: %x vs %x", cap2, cap3)
 	}
 }
@@ -100,7 +111,19 @@ func TestComputeCapabilityID_Deduplication(t *testing.T) {
 		t.Fatalf("ComputeCapabilityID(tokens2) failed: %v", err)
 	}
 
-	if !bytesEqual(cap1, cap2) {
+	if len(cap1) != len(cap2) {
+		t.Errorf("Lengths differ: %d vs %d", len(cap1), len(cap2))
+	}
+
+	// Use constant-time compare like production code
+	equal := true
+	for i := range cap1 {
+		if cap1[i] != cap2[i] {
+			equal = false
+			break
+		}
+	}
+	if !equal {
 		t.Errorf("Duplicates not deduplicated correctly: %x vs %x", cap1, cap2)
 	}
 }

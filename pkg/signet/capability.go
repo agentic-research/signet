@@ -2,6 +2,7 @@ package signet
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"sort"
 
 	"github.com/fxamacker/cbor/v2"
@@ -11,27 +12,34 @@ import (
 // per ADR-002 section 3.1.
 //
 // The computation:
-// 1. Deduplicate and sort tokens numerically
-// 2. Encode as canonical CBOR array
-// 3. Hash with SHA-256 and truncate to 128 bits
+// 1. Sort tokens numerically
+// 2. Deduplicate (keep first occurrence after sort)
+// 3. Encode as canonical CBOR array
+// 4. Hash with SHA-256 and truncate to 128 bits
 func ComputeCapabilityID(capTokens []uint64) ([]byte, error) {
-	if len(capTokens) == 0 {
-		// Empty capability list is valid, represents no permissions
+	// Handle nil and empty slices
+	if capTokens == nil || len(capTokens) == 0 {
 		capTokens = []uint64{}
 	}
 
-	// Deduplicate and sort
-	seen := make(map[uint64]bool)
-	canonical := make([]uint64, 0, len(capTokens))
-	for _, token := range capTokens {
-		if !seen[token] {
-			seen[token] = true
-			canonical = append(canonical, token)
-		}
-	}
+	// Sort first (matches ADR-002 spec: sorted(set(...)))
+	canonical := make([]uint64, len(capTokens))
+	copy(canonical, capTokens)
 	sort.Slice(canonical, func(i, j int) bool {
 		return canonical[i] < canonical[j]
 	})
+
+	// Deduplicate after sorting
+	if len(canonical) > 0 {
+		j := 0
+		for i := 1; i < len(canonical); i++ {
+			if canonical[i] != canonical[j] {
+				j++
+				canonical[j] = canonical[i]
+			}
+		}
+		canonical = canonical[:j+1]
+	}
 
 	// Encode as canonical CBOR
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
@@ -61,21 +69,9 @@ func ValidateCapabilityID(capID []byte, capTokens []uint64) error {
 	}
 
 	// Constant-time comparison to prevent timing attacks
-	if !bytesEqual(capID, computed) {
+	if subtle.ConstantTimeCompare(capID, computed) != 1 {
 		return ErrInvalidToken
 	}
 
 	return nil
-}
-
-// bytesEqual performs constant-time comparison of two byte slices
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var v byte
-	for i := range a {
-		v |= a[i] ^ b[i]
-	}
-	return v == 0
 }

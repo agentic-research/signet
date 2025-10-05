@@ -127,10 +127,17 @@ type defaultRequestBuilderImpl struct{}
 var defaultRequestBuilder = &defaultRequestBuilderImpl{}
 
 func (b *defaultRequestBuilderImpl) Build(r *http.Request, proof *header.SignetProof) ([]byte, error) {
-	// Format: METHOD|PATH|TIMESTAMP|NONCE_BASE64
+	// Format: METHOD|PATH[?QUERY]|TIMESTAMP|NONCE_BASE64
+	// Include query parameters per RFC 9421 (HTTP Message Signatures)
+	// to prevent parameter injection attacks
+	path := r.URL.Path
+	if r.URL.RawQuery != "" {
+		path = path + "?" + r.URL.RawQuery
+	}
+
 	canonical := fmt.Sprintf("%s|%s|%d|%s",
 		r.Method,
-		r.URL.Path,
+		path,
 		proof.Timestamp,
 		base64.RawURLEncoding.EncodeToString(proof.Nonce),
 	)

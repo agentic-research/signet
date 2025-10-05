@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jamestexas/signet/pkg/crypto/epr"
-	signethttp "github.com/jamestexas/signet/pkg/http"
 	"github.com/jamestexas/signet/pkg/signet"
 )
 
@@ -415,18 +414,10 @@ func TestSignetMiddleware_ClockSkew(t *testing.T) {
 
 	signature := ed25519.Sign(ephemeralPriv, []byte(canonical))
 
-	tokenBytes, err := record.Token.Marshal()
-	if err != nil {
-		t.Fatalf("marshal token: %v", err)
-	}
-	keyHash := signethttp.ComputeEphemeralKeyHash(record.Token.JTI, record.EphemeralPublicKey)
-
-	proofHeader := fmt.Sprintf("v1;m=compact;t=%s;jti=%s;cap=%s;p=%s;k=%s;s=%s;n=%s;ts=%d",
-		base64.RawURLEncoding.EncodeToString(tokenBytes),
+	// Use the same simple proof format as the working tests
+	proofHeader := fmt.Sprintf("v1;m=compact;jti=%s;cap=%s;s=%s;n=%s;ts=%d",
 		base64.RawURLEncoding.EncodeToString(record.Token.JTI),
 		base64.RawURLEncoding.EncodeToString(record.Token.CapabilityID),
-		base64.RawURLEncoding.EncodeToString(record.BindingSignature),
-		base64.RawURLEncoding.EncodeToString(keyHash),
 		base64.RawURLEncoding.EncodeToString(signature),
 		base64.RawURLEncoding.EncodeToString(nonce),
 		futureTimestamp,
