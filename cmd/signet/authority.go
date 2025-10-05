@@ -271,6 +271,9 @@ func validateAuthorityConfig(c *AuthorityConfig) error {
 	if c.SessionSecret == "" {
 		return fmt.Errorf("session_secret is required")
 	}
+	if len(c.SessionSecret) < 32 {
+		return fmt.Errorf("session_secret must be at least 32 characters for security")
+	}
 	return nil
 }
 
@@ -309,6 +312,11 @@ func newAuthority(config *AuthorityConfig, logger *slog.Logger) (*Authority, err
 	} else {
 		return nil, fmt.Errorf("failed to parse private key: unsupported format")
 	}
+
+	// Note: Master key remains in memory for server lifetime
+	// This is a security tradeoff for performance - the key is needed for every
+	// certificate issuance operation. For production use, consider implementing
+	// key refresh or loading on-demand with caching.
 
 	// Create a keys.Signer from the private key
 	signer := keys.NewEd25519Signer(ed25519Key)
@@ -359,10 +367,14 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 		EmailAddresses: []string{claims.Email},
 		ExtraExtensions: []pkix.Extension{
 			{
+				// OID 1.3.6.1.4.1.99999.* - Reserved for private/experimental use
+				// TODO: Replace with registered enterprise OID for production deployment
+				// Signet Subject OID
 				Id:    []int{1, 3, 6, 1, 4, 1, 99999, 1, 1},
 				Value: []byte(claims.Subject),
 			},
 			{
+				// Signet Issuance Time OID
 				Id:    []int{1, 3, 6, 1, 4, 1, 99999, 1, 2},
 				Value: []byte(notBefore.Format(time.RFC3339)),
 			},

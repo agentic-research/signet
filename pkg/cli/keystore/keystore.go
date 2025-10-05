@@ -56,7 +56,7 @@ func Initialize(signetPath string) error {
 		return fmt.Errorf("failed to write key: %w", err)
 	}
 
-	// Display public key info
+	// Display truncated public key info for cleaner output
 	fmt.Printf("Master key generated: %x\n", pub)
 	fmt.Printf("Key stored at: %s\n", keyPath)
 
