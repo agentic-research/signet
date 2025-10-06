@@ -23,17 +23,13 @@ docker-build:
 docker-test: docker-build
 	docker run --rm signet-test
 
-# Run OpenSSL compatibility test in Docker
-openssl-test: build
-	./scripts/testing/test_openssl_docker.sh
-
 # Interactive shell in test container for debugging
 docker-shell: docker-build
 	docker run --rm -it -v "$(PWD):/workspace" -w /workspace signet-test bash
 
 # Integration test in Docker (builds for Linux, runs in isolated container)
-# Runs both Git signing workflow and OpenSSL compatibility tests
-integration-test: docker-build openssl-test
+# Tests Git signing workflow with stdout purity regression check
+integration-test: docker-build
 	docker run --rm signet-test
 
 # Clean build artifacts

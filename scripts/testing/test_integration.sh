@@ -105,6 +105,20 @@ if [ $GIT_LOG_STATUS -ne 0 ]; then
     fi
 fi
 
+echo "--- Step 5.1: Test stdout purity (regression for SHA bug) ---"
+# Create dummy files for --verify test
+echo "dummy data" > "$TEST_DIR/test_data.txt"
+echo "dummy signature" > "$TEST_DIR/test_sig.txt"
+
+# Test that --verify produces NO stdout (critical for Git SHA integrity)
+VERIFY_STDOUT=$("$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" --verify "$TEST_DIR/test_sig.txt" "$TEST_DIR/test_data.txt" 2>/dev/null)
+if [ -n "$VERIFY_STDOUT" ]; then
+    echo "❌ CRITICAL: --verify produced stdout output (will corrupt Git SHA)"
+    echo "Output: $VERIFY_STDOUT"
+    exit 1
+fi
+echo "✅ Stdout purity check PASSED"
+
 echo "--- Step 6: Additional verification ---"
 echo "Checking commit details:"
 git log -1 --pretty=fuller
