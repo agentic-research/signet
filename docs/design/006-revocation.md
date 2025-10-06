@@ -370,7 +370,7 @@ Verifiers **MUST** fail-closed if:
 - [ ] Integration tests (CA rotation, seqno rollback, fail-closed scenarios)
 - [ ] Performance benchmarks (establish baseline and targets)
 - [ ] Basic operator documentation (CA rotation procedure, troubleshooting)
-- [ ] Update ADR-001 with revocation approach
+- [ ] Update 001-signet-tokens.md with revocation approach
 
 ---
 

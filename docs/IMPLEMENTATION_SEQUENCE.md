@@ -640,7 +640,7 @@ func BenchmarkIsRevoked_CacheMiss(b *testing.B) {
 
 **Files to update**:
 - `README.md`: Add revocation section
-- `docs/adrs/ADR-001-signet-tokens.md`: Update with revocation approach
+- `docs/design/001-signet-tokens.md`: Update with revocation approach
 - `pkg/revocation/README.md`: Usage examples
 
 **Example**:

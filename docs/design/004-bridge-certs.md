@@ -19,10 +19,9 @@ Current bearer token systems conflate access and identity. We need a mechanism t
 
 ## Related Documents
 
-- **[ADR-001: Signet Tokens](./ADR-001-signet-tokens.md)** - Core protocol and token design
-- **[ADR-002: Protocol Specification](./ADR-002-protocol-spec.md)** - Wire format specification
-- **[ADR-003: SDK Architecture](./ADR-003-sdk.md)** - Client implementation guide
-- **[Feature Matrix](../FEATURE_MATRIX.md)** - Implementation status across all components
+- **[001: Signet Tokens](./001-signet-tokens.md)** - Core protocol and token design
+- **[002: Protocol Specification](./002-protocol-spec.md)** - Wire format specification
+- **[003: SDK Architecture](./003-sdk.md)** - Client implementation guide
 
 ## Decision
 
@@ -216,9 +215,9 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 
 ## References
 
-- **[ADR-001: Signet Tokens](./ADR-001-signet-tokens.md)** - Core protocol
-- **[ADR-002: Protocol Specification](./ADR-002-protocol-spec.md)** - Wire format
-- **[ADR-003: SDK Architecture](./ADR-003-sdk.md)** - Client implementation
+- **[001: Signet Tokens](./001-signet-tokens.md)** - Core protocol
+- **[002: Protocol Specification](./002-protocol-spec.md)** - Wire format
+- **[003: SDK Architecture](./003-sdk.md)** - Client implementation
 - RFC 5280: X.509 Certificate and CRL Profile
 - RFC 6962: Certificate Transparency
 - Sigstore: Software supply chain security

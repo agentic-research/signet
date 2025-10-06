@@ -326,13 +326,13 @@ Current state of implementation vs specification:
 | signet-commit | ✅ Production | Git signing application |
 | HTTP Middleware | 🚧 Development | In progress |
 
-See [Feature Matrix](../FEATURE_MATRIX.md) for detailed component status.
+See [Development Roadmap](../../DEVELOPMENT_ROADMAP.md) for detailed implementation status.
 
 ## Related Documents
 
-- **[ADR-002: Protocol Specification](./ADR-002-protocol-spec.md)** - Wire format and protocol details
-- **[ADR-003: SDK Architecture](./ADR-003-sdk.md)** - Client library implementation guide
-- **[Feature Matrix](../FEATURE_MATRIX.md)** - Comprehensive implementation status
+- **[002: Protocol Specification](./002-protocol-spec.md)** - Wire format and protocol details
+- **[003: SDK Architecture](./003-sdk.md)** - Client library implementation guide
+- **[Development Roadmap](../../DEVELOPMENT_ROADMAP.md)** - Implementation status and priorities
 - **[Architecture Overview](../../ARCHITECTURE.md)** - System design and principles
 
 References
