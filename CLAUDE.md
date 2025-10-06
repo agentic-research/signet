@@ -159,4 +159,4 @@ signet authority --help
 
 The codebase prioritizes correctness and security over features. All cryptographic operations use standard libraries (golang.org/x/crypto) with careful attention to memory zeroization and timing attacks.
 
-If a file is added to gitignore, please do not suggest committing that file. Some things, like @INVESTIGATION_LOG.md are not tracked in git but are useful for local context.
+If a file is added to gitignore, please do not suggest committing that file. Some things, like INVESTIGATION_LOG.md are not tracked in git but are useful for local context.
