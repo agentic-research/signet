@@ -11,10 +11,10 @@
 ## Prerequisites
 
 Before starting:
-- ✅ ADR-006 approved (SPIRE model decision)
+- ✅ 006-revocation.md approved (SPIRE model decision)
 - ✅ Pluggable interface designed (`revocation-interface.md`)
 - ✅ Security analysis complete (surgical review findings incorporated)
-- ✅ Bridge certificate provisioning understood (ADR-004)
+- ✅ Bridge certificate provisioning understood (004-bridge-certs.md)
 
 **Starting point**: Fresh branch from `main`
 
@@ -406,7 +406,7 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 }
 ```
 
-**Why next**: This is the core algorithm implementing ADR-006.
+**Why next**: This is the core algorithm implementing the revocation design.
 
 **Test**:
 - Token with old epoch → revoked
@@ -628,7 +628,7 @@ func BenchmarkIsRevoked_CacheMiss(b *testing.B) {
 
 **Target**: P50 <3ms (cache hit), P99 <10ms (cache miss).
 
-**Why next**: Validate ADR-006 performance claims.
+**Why next**: Validate revocation design performance claims.
 
 **Test**: Run on mobile ARM device, verify targets met.
 
@@ -745,7 +745,7 @@ services:
 3. **Revocation Logic**: CABundleChecker, kid embedding (~1 day)
 4. **Integration**: Middleware, configuration (~1 day)
 5. **Testing**: Integration tests, benchmarks (~1 day)
-6. **Documentation**: README, ADR updates (~0.5 days)
+6. **Documentation**: README, design doc updates (~0.5 days)
 
 **Total**: ~1 week (7 days) to production-ready v1.0.
 
@@ -755,4 +755,4 @@ services:
 - TPM storage (optional, keychain sufficient)
 - Advanced monitoring (basic metrics only)
 
-**Ready to ship**: Yes, with ADR-006 approved and this sequence followed.
+**Ready to ship**: Yes, with revocation design approved and this sequence followed.

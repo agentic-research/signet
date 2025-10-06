@@ -44,9 +44,11 @@ A Git commit signing tool demonstrating Signet's capabilities:
 - **internal/wallet**: Secure key storage and management
 - **internal/utils**: Shared utilities and helpers
 
-## 3. Design Decisions & Rationale (ADRs)
+## 3. Design Decisions & Rationale
 
-### ADR-001: Simple CBOR Token over Verifiable Credentials
+See [`docs/design/`](./docs/design/) for detailed design documents.
+
+### 001: Simple CBOR Token over Verifiable Credentials
 
 **Decision**: Use a lightweight, binary-first CBOR token format instead of W3C Verifiable Credentials.
 
@@ -62,7 +64,7 @@ A Git commit signing tool demonstrating Signet's capabilities:
 - Requires custom implementation for some features
 - May need translation layers for VC-based systems
 
-### ADR-002: Linked-Key Proof-of-Possession Model
+### 002: Linked-Key Proof-of-Possession Model
 
 **Decision**: Implement a simple two-step verification model where the master key directly signs the ephemeral public key.
 
@@ -83,7 +85,7 @@ Verification: Verify both signatures in sequence
 - Less flexible than more complex PoP schemes
 - Ephemeral keys must be pre-generated (not derived on-demand)
 
-### ADR-003: External Libraries for Standards
+### 003: External Libraries for Standards
 
 **Decision**: Use well-tested external libraries for cryptographic standards (COSE, CBOR) rather than reimplementing.
 
@@ -98,7 +100,7 @@ Verification: Verify both signatures in sequence
 - CBOR: `fxamacker/cbor/v2`
 - X.509: Standard library + potential Fulcio components
 
-### ADR-004: Future Research Directions
+### 004: Future Research Directions
 
 **Decision**: Identify promising cryptographic research areas for post-v1.0 exploration.
 

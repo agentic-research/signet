@@ -1,4 +1,4 @@
-# ADR-0002: Signet Protocol Specification v1.0
+# Signet Protocol Specification v1.0
 
 **Status:** Draft
 

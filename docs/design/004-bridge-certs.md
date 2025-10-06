@@ -1,4 +1,4 @@
-# ADR-004: Bridge Certificates for Federated Identity
+# Bridge Certificates for Federated Identity
 
 **Status:** Draft
 

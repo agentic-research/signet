@@ -1,4 +1,4 @@
-# ADR-006: Revocation Strategy
+# Revocation Strategy
 
 **Status**: Proposed
 **Date**: 2025-10-05
@@ -110,7 +110,7 @@ v1.0 **does not** defend against:
 
 ---
 
-## Bridge Certificates (ADR-004 Summary)
+## Bridge Certificates (004-bridge-certs.md Summary)
 
 Bridge certificates enable **offline-first mutual authentication** for both distribution mechanisms (mTLS-DNS and HTTPS+pinning).
 
@@ -393,9 +393,9 @@ v1.0 is **production-ready** when:
 
 - [SPIRE Architecture](https://spiffe.io/docs/latest/spire-about/spire-concepts/)
 - [Google ALTS](https://cloud.google.com/security/encryption-in-transit/application-layer-transport-security)
-- ADR-001: Signet Token Format
-- ADR-002: Protocol Specification
-- ADR-004: Bridge Certificates (full spec)
+- [001-signet-tokens.md](./001-signet-tokens.md): Signet Token Format
+- [002-protocol-spec.md](./002-protocol-spec.md): Protocol Specification
+- [004-bridge-certs.md](./004-bridge-certs.md): Bridge Certificates (full spec)
 
 ---
 

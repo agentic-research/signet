@@ -1,4 +1,4 @@
-# ADR-0001: Signet v1 - Semantic PoP Tokens with CBOR+COSE
+# Signet v1 - Semantic PoP Tokens with CBOR+COSE
 
 
 **Status:** Draft
