@@ -1,4 +1,4 @@
-# ADR-005: Sensitive Data Handling in Memory
+# Sensitive Data Handling in Memory
 
 ## Status
 

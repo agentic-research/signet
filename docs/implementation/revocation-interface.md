@@ -95,7 +95,7 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 
 ```go
 // SnapshotChecker implements granular revocation via signed snapshots.
-// (Deferred to future - see ADR-006 for decision rationale)
+// (Deferred to future - see ../design/006-revocation.md for decision rationale)
 type SnapshotChecker struct {
 	fetcher  SnapshotFetcher
 	cache    *SnapshotCache
@@ -316,4 +316,4 @@ func TestMiddleware(t *testing.T) {
 
 **Lines of code**: ~150 for interface + CABundleChecker skeleton
 
-Ready for implementation once ADR-006 is approved.
+Ready for implementation once revocation design is approved.

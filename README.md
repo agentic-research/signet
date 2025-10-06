@@ -5,7 +5,7 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 ## ⚠️ Status: v0.0.1 Experimental
 
 - **Not audited** - use for development only
-- Keys stored in plaintext (`~/.signet/`)
+- Secure key storage implemented (OS keyring), but not all features use it yet
 - APIs will change before v1.0
 
 ## What Works Today
@@ -90,13 +90,15 @@ See [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md) for detailed setup and co
 
 All tools built on production-ready primitives:
 
-| Package | Purpose |
-|---------|---------|
-| [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) |
-| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format |
-| [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification |
-| [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates |
-| [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format |
+| Package | Purpose | Security Review |
+|---------|---------|-----------------|
+| [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ **Not reviewed** |
+| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
+| [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
+| [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal† |
+| [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal† |
+
+† *Internal* = Developed in-house, no independent security audit yet
 
 ## Installation
 
@@ -149,7 +151,7 @@ make fmt lint
 - **[Architecture](ARCHITECTURE.md)** - Design decisions and technical rationale
 - **[Contributing](CONTRIBUTING.md)** - How to contribute effectively
 - **[Performance](docs/PERFORMANCE.md)** - Benchmarks and analysis
-- **[CMS Implementation](docs/CMS_IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details
+- **[CMS Implementation](https://github.com/jamestexas/go-cms/blob/main/docs/IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details (go-cms repo)
 
 ## Roadmap
 
@@ -185,7 +187,7 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for develop
 **Solution:** Cryptographic proof-of-possession. Every request proves knowledge of a private key without revealing it. Tokens can't be stolen and replayed.
 
 **Unique features:**
-- First Go library with Ed25519 CMS/PKCS#7 support
+- First Go library with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/jamestexas/go-cms), not yet security reviewed)
 - Offline-first design (no network dependencies)
 - Ephemeral certificates (5-minute lifetime)
 - Sub-millisecond verification
@@ -202,4 +204,4 @@ Inspired by [Sigstore](https://sigstore.dev) for supply chain security. Signet e
 ---
 
 **Questions?** Open an [issue](https://github.com/jamestexas/signet/issues)
-**Ready to contribute?** Check the [roadmap](ROADMAP.md)
+**Ready to contribute?** Check the [roadmap](DEVELOPMENT_ROADMAP.md)

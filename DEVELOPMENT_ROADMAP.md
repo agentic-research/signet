@@ -21,7 +21,7 @@
 ### What Works Today
 
 - ✅ **Git commit signing** (`signet commit`) - Production-ready offline signing with CMS/PKCS#7
-- ✅ **Complete 18-field CBOR token structure** - All ADR-002 fields implemented with validation
+- ✅ **Complete 18-field CBOR token structure** - All 002-protocol-spec fields implemented with validation
 - ✅ **COSE_Sign1 implementation** - Full Ed25519 COSE signing/verification (PR #25)
 - ✅ **SIG1 wire format** - End-to-end integration in demo server/client/middleware (PR #25)
 - ✅ **Capability ID computation** - 128-bit hash with domain separation
@@ -38,6 +38,7 @@
 
 **Security (Remaining):**
 - ❌ **Revocation system** - Design exploration in progress, implementation pending
+- ⚠️ **go-cms library not reviewed** - Extracted CMS/PKCS#7 implementation lacks independent security audit
 - ❌ **4 HIGH severity findings** - Type assertions, mutex protection, key leaks (See SECURITY_AUDIT.md)
 - 🚧 **Capability validation logic** - token structure complete, enforcement missing
 
@@ -108,39 +109,39 @@ Every feature decision prioritizes:
 
 ## 3. Implementation Gaps
 
-This section maps current implementation against the ADR specifications.
+This section maps current implementation against the design specifications (see [`docs/design/`](./docs/design/)).
 
 ### 3.1 Core Protocol Features
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **CBOR Token Structure with Integer Keys** | ADR-002, Section 2.2 | ✅ Implemented | Complete 18-field token structure in `pkg/signet/token.go` with all ADR-002 fields: issuer, audience, ppid, timestamps, capabilities, actor, delegator, nonce, key IDs. Includes validation and canonical CBOR marshaling | **Complete** |
-| **SIG1 Wire Format** | ADR-002, Section 2.1 | ✅ Implemented | The `SIG1.<base64url(cbor)>.<base64url(sig)>` format implemented in demo server/client. Functions: `EncodeSIG1()`, `DecodeSIG1()`, `VerifySIG1()` | **Complete** |
-| **COSE_Sign1 Signature Structure** | ADR-002, Section 2.1 | ✅ Implemented | Full COSE_Sign1 Ed25519 implementation in `pkg/crypto/cose/cose.go` with signers and verifiers | **Complete** |
-| **Capability Computation (128-bit hash)** | ADR-002, Section 3.1 | ✅ Implemented | Capability ID computation with domain separation in `pkg/signet/capability.go`. Supports empty capability lists with deterministic hashing | **Complete** |
-| **Semantic Capabilities System** | ADR-001, Sections "Semantic Capability System" | 🚧 Partially Implemented | Token has cap_id, cap_tokens, cap_ver fields ✅. Capability computation exists ✅. Missing: capability registry and validation logic | **High** |
-| **Per-Request Proof-of-Possession** | ADR-002, Section 3.3 | 🚧 Partially Implemented | EPR package implements two-step verification but lacks: canonical string construction per spec, ephemeral key ID caching, proper nonce handling | **High** |
-| **Pairwise Identifiers (ppid)** | ADR-002, Section 3.2 | ✅ Implemented | SubjectPPID field in token structure with 32-byte validation. Generated per-token for privacy-preserving identification | **Complete** |
-| **Instant Revocation System** | ADR-001, "Revocation System" | ❌ Not Implemented | No epoch-based revocation, no snapshot distribution, no grace period handling, no major/minor epoch tracking. Design exploration in progress | **High** |
+| **CBOR Token Structure with Integer Keys** | 002, Section 2.2 | ✅ Implemented | Complete 18-field token structure in `pkg/signet/token.go` with all 002 fields: issuer, audience, ppid, timestamps, capabilities, actor, delegator, nonce, key IDs. Includes validation and canonical CBOR marshaling | **Complete** |
+| **SIG1 Wire Format** | 002, Section 2.1 | ✅ Implemented | The `SIG1.<base64url(cbor)>.<base64url(sig)>` format implemented in demo server/client. Functions: `EncodeSIG1()`, `DecodeSIG1()`, `VerifySIG1()` | **Complete** |
+| **COSE_Sign1 Signature Structure** | 002, Section 2.1 | ✅ Implemented | Full COSE_Sign1 Ed25519 implementation in `pkg/crypto/cose/cose.go` with signers and verifiers | **Complete** |
+| **Capability Computation (128-bit hash)** | 002, Section 3.1 | ✅ Implemented | Capability ID computation with domain separation in `pkg/signet/capability.go`. Supports empty capability lists with deterministic hashing | **Complete** |
+| **Semantic Capabilities System** | 001, Sections "Semantic Capability System" | 🚧 Partially Implemented | Token has cap_id, cap_tokens, cap_ver fields ✅. Capability computation exists ✅. Missing: capability registry and validation logic | **High** |
+| **Per-Request Proof-of-Possession** | 002, Section 3.3 | 🚧 Partially Implemented | EPR package implements two-step verification but lacks: canonical string construction per spec, ephemeral key ID caching, proper nonce handling | **High** |
+| **Pairwise Identifiers (ppid)** | 002, Section 3.2 | ✅ Implemented | SubjectPPID field in token structure with 32-byte validation. Generated per-token for privacy-preserving identification | **Complete** |
+| **Instant Revocation System** | 001, "Revocation System" | ❌ Not Implemented | No epoch-based revocation, no snapshot distribution, no grace period handling, no major/minor epoch tracking. Design exploration in progress | **High** |
 
 ### 3.2 Authentication & Authorization Features
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Issuer/Audience Validation** | ADR-002, Section 4.1 | 🚧 Partially Implemented | Token has IssuerID and AudienceID fields ✅. Missing: issuer registry and audience validation logic | **High** |
-| **Impersonation Support** | ADR-001, "Advanced Operational" | 🚧 Partially Implemented | Token has Actor field ✅. Missing: impersonation validation and audit logging logic | **Medium** |
-| **Delegation Model** | ADR-001, "Operational Excellence" | 🚧 Partially Implemented | Token has Delegator field ✅. Missing: delegation chain validation logic | **Medium** |
-| **Break-glass Access** | ADR-001, "Operational Excellence" | ❌ Not Implemented | No multi-party approval system or emergency privilege mechanism | **Low** |
-| **Token Lineage Tracking** | ADR-001, "Operational Excellence" | ❌ Not Implemented | No resource tagging with identity context at creation | **Low** |
+| **Issuer/Audience Validation** | 002, Section 4.1 | 🚧 Partially Implemented | Token has IssuerID and AudienceID fields ✅. Missing: issuer registry and audience validation logic | **High** |
+| **Impersonation Support** | 001, "Advanced Operational" | 🚧 Partially Implemented | Token has Actor field ✅. Missing: impersonation validation and audit logging logic | **Medium** |
+| **Delegation Model** | 001, "Operational Excellence" | 🚧 Partially Implemented | Token has Delegator field ✅. Missing: delegation chain validation logic | **Medium** |
+| **Break-glass Access** | 001, "Operational Excellence" | ❌ Not Implemented | No multi-party approval system or emergency privilege mechanism | **Low** |
+| **Token Lineage Tracking** | 001, "Operational Excellence" | ❌ Not Implemented | No resource tagging with identity context at creation | **Low** |
 
 ### 3.3 HTTP Middleware & Edge Proxy
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Request Canonicalization** | ADR-002, Section 3.3 | ✅ Implemented | Canonical string construction with query parameter inclusion per RFC 9421. Memory-safe parsing with zeroization | **Complete** |
-| **Signet-Proof Header Format** | ADR-002, Section 3.3 | ✅ Implemented | Header parser consolidated to new `SignetProof` format in `pkg/http/header/parser.go`. Includes security test vectors | **Complete** |
-| **Ephemeral Key ID Caching** | ADR-002, Section 4.2 | ❌ Not Implemented | Middleware doesn't implement kid→cnf_key_hash mapping cache to prevent key correlation | **Medium** |
-| **Nonce Replay Prevention** | ADR-002, Section 4.2 | ✅ Implemented | JTI-scoped monotonic timestamp enforcement with TOCTOU race protection. Concurrent-safe with `sync.Map` | **Complete** |
+| **Request Canonicalization** | 002, Section 3.3 | ✅ Implemented | Canonical string construction with query parameter inclusion per RFC 9421. Memory-safe parsing with zeroization | **Complete** |
+| **Signet-Proof Header Format** | 002, Section 3.3 | ✅ Implemented | Header parser consolidated to new `SignetProof` format in `pkg/http/header/parser.go`. Includes security test vectors | **Complete** |
+| **Ephemeral Key ID Caching** | 002, Section 4.2 | ❌ Not Implemented | Middleware doesn't implement kid→cnf_key_hash mapping cache to prevent key correlation | **Medium** |
+| **Nonce Replay Prevention** | 002, Section 4.2 | ✅ Implemented | JTI-scoped monotonic timestamp enforcement with TOCTOU race protection. Concurrent-safe with `sync.Map` | **Complete** |
 | **Edge Proxy Translation** | http-proof-of-possession.md | ❌ Not Implemented | No implementation of edge proxy translating PoP to internal mTLS or trusted headers | **Medium** |
 | **Capability Propagation** | http-proof-of-possession.md | ❌ Not Implemented | No mechanism to propagate capabilities to internal services via headers or mTLS | **Medium** |
 
@@ -148,33 +149,33 @@ This section maps current implementation against the ADR specifications.
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Credential Manager** | ADR-003, "Credential Management" | ❌ Not Implemented | No automatic credential lifecycle management, caching, or renewal logic | **High** |
-| **Platform Key Storage Integration** | ADR-003, "Key Storage Integration" | 🚧 Partially Implemented | Keys stored in plaintext. Missing: OS keychain integration, encryption, password protection | **High** |
-| **Automatic Retry Logic** | ADR-003, "Automatic Retry Logic" | ❌ Not Implemented | No SDK-level retry with exponential backoff for failed requests | **Medium** |
-| **Bearer Token Compatibility Mode** | ADR-003, "Migration Support" | ❌ Not Implemented | No dual-mode operation for gradual migration from JWT/OAuth | **Medium** |
-| **Python SDK** | ADR-003, SDK roadmap | ❌ Not Implemented | Only Go implementation exists, no Python SDK started | **Medium** |
-| **JavaScript/TypeScript SDK** | ADR-003, SDK roadmap | ❌ Not Implemented | No JavaScript/TypeScript SDK implementation | **Medium** |
-| **Observability & Metrics** | ADR-003, "Observability" | 🚧 Partially Implemented | Basic no-op metrics interface exists but no actual metrics emission | **Low** |
+| **Credential Manager** | 003, "Credential Management" | ❌ Not Implemented | No automatic credential lifecycle management, caching, or renewal logic | **High** |
+| **Platform Key Storage Integration** | 003, "Key Storage Integration" | 🚧 Partially Implemented | Keys stored in plaintext. Missing: OS keychain integration, encryption, password protection | **High** |
+| **Automatic Retry Logic** | 003, "Automatic Retry Logic" | ❌ Not Implemented | No SDK-level retry with exponential backoff for failed requests | **Medium** |
+| **Bearer Token Compatibility Mode** | 003, "Migration Support" | ❌ Not Implemented | No dual-mode operation for gradual migration from JWT/OAuth | **Medium** |
+| **Python SDK** | 003, SDK roadmap | ❌ Not Implemented | Only Go implementation exists, no Python SDK started | **Medium** |
+| **JavaScript/TypeScript SDK** | 003, SDK roadmap | ❌ Not Implemented | No JavaScript/TypeScript SDK implementation | **Medium** |
+| **Observability & Metrics** | 003, "Observability" | 🚧 Partially Implemented | Basic no-op metrics interface exists but no actual metrics emission | **Low** |
 
 ### 3.5 Operational Features
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Snapshot Distribution via CDN** | ADR-001, "Revocation System" | ❌ Not Implemented | No CDN-based epoch snapshot distribution mechanism | **Medium** |
-| **Grace Period Handling** | ADR-001, "Freshness Requirements" | ❌ Not Implemented | No implementation of 5-minute grace periods for CDN outages | **Medium** |
-| **Issuer Service (HA deployment)** | ADR-001, "Rollout Checklist" | 🚧 Partially Implemented | `signet-authority` is a basic OIDC wrapper, not a production HA issuer service | **High** |
-| **Policy as Code** | ADR-001, "Operational Excellence" | ❌ Not Implemented | No YAML-based security policy system | **Low** |
-| **Audit Context Propagation** | ADR-001, Section 14 (act/del) | ❌ Not Implemented | No audit metadata in tokens (JIRA tickets, reasons, MFA status) | **Low** |
+| **Snapshot Distribution via CDN** | 001, "Revocation System" | ❌ Not Implemented | No CDN-based epoch snapshot distribution mechanism | **Medium** |
+| **Grace Period Handling** | 001, "Freshness Requirements" | ❌ Not Implemented | No implementation of 5-minute grace periods for CDN outages | **Medium** |
+| **Issuer Service (HA deployment)** | 001, "Rollout Checklist" | 🚧 Partially Implemented | `signet-authority` is a basic OIDC wrapper, not a production HA issuer service | **High** |
+| **Policy as Code** | 001, "Operational Excellence" | ❌ Not Implemented | No YAML-based security policy system | **Low** |
+| **Audit Context Propagation** | 001, Section 14 (act/del) | ❌ Not Implemented | No audit metadata in tokens (JIRA tickets, reasons, MFA status) | **Low** |
 
 ### 3.6 Cryptographic & Security Features
 
 | Feature | Specification Source | Implementation Status | Gap / Missing Work | Priority |
 |---------|---------------------|----------------------|-------------------|----------|
-| **Algorithm Agility (COSE)** | ADR-002, Section 8.3 | ❌ Not Implemented | Hard-coded to Ed25519, no COSE algorithm negotiation | **Low** |
-| **Custom Capability Registration** | ADR-002, Section 6.2 | ❌ Not Implemented | No system for registering custom capability tokens to prevent collisions | **Medium** |
-| **Clock Synchronization Handling** | ADR-002, Section 8.2 | 🚧 Partially Implemented | Basic clock skew check exists but no server time sync or NTP guidance | **Low** |
-| **True Zero-Knowledge Proofs** | ADR-003, "Current Limitations" | ❌ Not Implemented | Current ephemeral key ID system is privacy-preserving but not true ZK | **Low** |
-| **Key Rotation Automation** | ADR-001, "Key Rotation Handling" | ❌ Not Implemented | No automated key rotation with graceful handling of old tokens | **Medium** |
+| **Algorithm Agility (COSE)** | 002, Section 8.3 | ❌ Not Implemented | Hard-coded to Ed25519, no COSE algorithm negotiation | **Low** |
+| **Custom Capability Registration** | 002, Section 6.2 | ❌ Not Implemented | No system for registering custom capability tokens to prevent collisions | **Medium** |
+| **Clock Synchronization Handling** | 002, Section 8.2 | 🚧 Partially Implemented | Basic clock skew check exists but no server time sync or NTP guidance | **Low** |
+| **True Zero-Knowledge Proofs** | 003, "Current Limitations" | ❌ Not Implemented | Current ephemeral key ID system is privacy-preserving but not true ZK | **Low** |
+| **Key Rotation Automation** | 001, "Key Rotation Handling" | ❌ Not Implemented | No automated key rotation with graceful handling of old tokens | **Medium** |
 
 ### Component-Level Assessment
 
@@ -183,7 +184,7 @@ This section maps current implementation against the ADR specifications.
 
 The Ephemeral Proof Routines package implements the core two-step verification concept correctly (master→ephemeral→request) but is missing critical protocol elements:
 
-- ❌ Canonical string format doesn't match ADR-002 spec
+- ❌ Canonical string format doesn't match 002 spec
 - ❌ No ephemeral key ID (kid) system for privacy
 - ❌ Missing JTI tracking for nonce scoping
 - ✅ Domain separation is implemented correctly
@@ -202,7 +203,7 @@ Zero implementation of revocation features:
 - No capability version tracking
 - No CDN distribution mechanism
 
-**Work Needed:** Complete implementation from scratch following ADR-001 specification.
+**Work Needed:** Complete implementation from scratch following 001 specification.
 
 #### HTTP Middleware (pkg/http)
 **Status:** **Core Security Complete**
@@ -229,7 +230,7 @@ The entire capability system is missing:
 - No capability validation in middleware
 - No semantic permission checks
 
-**Work Needed:** Complete implementation from scratch following ADR-001 and ADR-002.
+**Work Needed:** Complete implementation from scratch following 001 and 002.
 
 #### signet-authority Service
 **Status:** **Placeholder Only**
@@ -252,20 +253,20 @@ The signet-authority command is a basic OIDC client, not an issuer:
 
 **Priority: CRITICAL** - Blockers for all other work
 
-**Goal:** Make implementation compliant with ADR-002 specification
+**Goal:** Make implementation compliant with 002 specification
 
 **Deliverables:**
 
-1. **Complete CBOR token structure** (add 10 missing fields per ADR-002)
+1. **Complete CBOR token structure** (add 10 missing fields per 002)
 2. **Implement SIG1 wire format** (`SIG1.<token>.<sig>`)
 3. **Add COSE_Sign1 support** (complete empty pkg/crypto/cose)
 4. **Build capability system** (cap_id computation, cap_tokens validation)
-5. **Fix HTTP request canonicalization** (match ADR-002 spec exactly)
+5. **Fix HTTP request canonicalization** (match 002 spec exactly)
 
 **Why Critical:** Current implementation doesn't match specification. Building features on unstable protocol creates technical debt.
 
 **Success Criteria:**
-- [x] All ADR-002 CBOR fields present in token structure
+- [x] All 002 CBOR fields present in token structure
 - [x] Wire format passes interop tests with other COSE implementations
 - [x] Capability computation matches test vectors
 - [x] HTTP middleware verifies signatures correctly per spec
@@ -590,7 +591,7 @@ ssh prod-server                     # SSH with signet identity
 
 ### Long-Term Vision (12+ months post-v1.0)
 
-**Research Directions** (see ARCHITECTURE.md ADR-004):
+**Research Directions** (see ARCHITECTURE.md section 004):
 - Post-quantum cryptography (Dilithium signatures)
 - Zero-knowledge proofs (anonymous credentials)
 - Novel applications (Git SSH certificates, database auth, IoT)
