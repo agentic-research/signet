@@ -28,7 +28,26 @@ make clean build test        # Clean, rebuild, and test
 ```bash
 make docker-test             # Run full test suite in Docker
 make docker-shell           # Interactive shell for debugging
+make openssl-test           # Run OpenSSL compatibility test in Docker
 ```
+
+### Test Coverage Matrix
+
+| Test File | Purpose | Validates | Runs In | Status |
+|-----------|---------|-----------|---------|--------|
+| `test_integration.sh` | Full Git signing workflow | Git commit signing, signature attachment, Git workflow | Docker (Dockerfile.test) | ✅ ACTIVE |
+| `test_openssl_docker.sh` | OpenSSL CMS compatibility | CMS signature generation, OpenSSL verification, **stdout purity** (SHA bug regression) | Docker (self-contained) | ✅ ACTIVE |
+| `test_sig1_http_integration.sh` | HTTP authentication demo | SIG1 wire format, COSE, middleware | Manual only | 🔮 FUTURE |
+
+**Test Scope by Feature**:
+- ✅ **Git commit signing** (`signet commit`) - test_integration.sh
+- ✅ **CMS/PKCS#7 format** (OpenSSL compatibility) - test_openssl_docker.sh
+- ✅ **Stdout purity** (Git SHA corruption prevention) - test_openssl_docker.sh
+- ❌ **File signing** (`signet sign`) - NO TEST (alpha gap)
+- 🔮 **Authority minting** (`signet authority`) - FUTURE
+- 🔮 **External CA signing** (Sigstore integration) - FUTURE
+
+**Docker-First Strategy**: All CI tests run in Docker for environment parity. Local tests (`test_pem_header.sh`) are diagnostic tools only.
 
 ### Code Quality
 

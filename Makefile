@@ -13,7 +13,7 @@ test:
 
 # Run integration test locally (requires permissions)
 integration-test-local: build
-	./test_integration.sh
+	./scripts/testing/test_integration.sh
 
 # Build Docker image for testing
 docker-build:
@@ -23,12 +23,17 @@ docker-build:
 docker-test: docker-build
 	docker run --rm signet-test
 
+# Run OpenSSL compatibility test in Docker
+openssl-test: build
+	./scripts/testing/test_openssl_docker.sh
+
 # Interactive shell in test container for debugging
 docker-shell: docker-build
 	docker run --rm -it -v "$(PWD):/workspace" -w /workspace signet-test bash
 
 # Integration test in Docker (builds for Linux, runs in isolated container)
-integration-test: docker-build
+# Runs both Git signing workflow and OpenSSL compatibility tests
+integration-test: docker-build openssl-test
 	docker run --rm signet-test
 
 # Clean build artifacts
