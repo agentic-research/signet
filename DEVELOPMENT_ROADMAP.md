@@ -43,7 +43,7 @@
 - 🚧 **Capability validation logic** - token structure complete, enforcement missing
 
 **Completed Security Items:**
-- ✅ **Secure key storage** - OS keyring-only, no plaintext keys (PR #22)
+- ✅ **Secure key storage** - OS keyring-first with plaintext fallback for compatibility (PR #22)
 - ✅ **Session security** - Encrypted sessions, rate limiting (PR #24)
 - ✅ **DoS protection** - Request size limits, chunked transfer timeouts (PR #25)
 - ✅ **Timing attack mitigation** - Constant-time operations, dummy verification (PR #25)

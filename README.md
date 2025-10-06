@@ -5,8 +5,10 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 ## ⚠️ Status: v0.0.1 Experimental
 
 - **Not audited** - use for development only
-- Secure key storage implemented (OS keyring), but not all features use it yet
-- APIs will change before v1.0
+- Experimental largely due to [`go-cms`](https://github.com/jamestexas/go-cms) (no external review, passes OpenSSL interop tests)
+- **Platform:** Built for macOS, should work on Linux (minimal testing)
+- **Key storage:** Defaults to OS keyring; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or initialized with `--insecure`
+- See [SECURITY.md](SECURITY.md) for security limitations and best practices
 
 ## What Works Today
 
@@ -119,18 +121,22 @@ Produces `./signet` binary with subcommands.
 
 ## Architecture
 
+Signet uses a layered architecture where all components share the same Ed25519 foundation:
+
 ```
-┌─────────────────────────────────┐
-│  signet  │ sigsign │ authority  │  ← Applications
-├─────────────────────────────────┤
-│   CMS    │  COSE   │    EPR     │  ← Crypto
-├─────────────────────────────────┤
-│      LocalCA      │   Tokens    │  ← Primitives
-└─────────────────────────────────┘
-           Ed25519
+┌──────────────────────────────────────────┐
+│        signet (unified binary)           │
+├──────────────────────────────────────────┤
+│   commit   │   sign   │   authority      │  ← Subcommands
+├──────────────────────────────────────────┤
+│     CMS    │   COSE   │      EPR         │  ← Crypto Layer
+├──────────────────────────────────────────┤
+│         LocalCA        │     Tokens       │  ← Primitives
+└──────────────────────────────────────────┘
+                  Ed25519
 ```
 
-All tools share the same master key and certificate authority.
+All subcommands share the same master key and certificate authority.
 
 ## Development
 
@@ -164,7 +170,7 @@ Signet is in **alpha** (v0.0.1). We're on track for:
 See **[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)** for detailed status, priorities, and timeline.
 
 **Critical gaps before v1.0:**
-- Encrypted key storage (keys currently in plaintext)
+- Complete key storage migration (some features still use plaintext fallback)
 - Revocation system (no way to invalidate compromised tokens)
 - Security audit (required before production use)
 
@@ -187,7 +193,7 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for develop
 **Solution:** Cryptographic proof-of-possession. Every request proves knowledge of a private key without revealing it. Tokens can't be stolen and replayed.
 
 **Unique features:**
-- First Go library with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/jamestexas/go-cms), not yet security reviewed)
+- One of the first Go libraries with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/jamestexas/go-cms), not yet security reviewed)
 - Offline-first design (no network dependencies)
 - Ephemeral certificates (5-minute lifetime)
 - Sub-millisecond verification

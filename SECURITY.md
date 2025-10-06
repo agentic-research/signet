@@ -13,10 +13,16 @@
 ## Known Security Limitations
 
 ### v0.0.1 Alpha
-- Master keys stored in plaintext (`~/.signet/master.key`)
-- No password protection for keys
+- Keys stored in the OS keyring by default; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or Signet is initialized with `--insecure`
+- `signet authority` and other long-running automation currently use file-based master keys (secure keyring support planned)
 - No security audit performed
 - APIs will change before v1.0
+- Tested primarily on macOS (Linux should work but minimal testing)
+
+#### Keyring memory safety
+- OS keyring integration uses `github.com/zalando/go-keyring`, which stores secrets as Go strings
+- Go strings are immutable, so secrets may persist in process memory until garbage collection
+- Private keys are zeroed after use, but short-lived remnants may exist (see `pkg/cli/keystore/secure.go`)
 
 ### What IS Secure
 - Ed25519 cryptographic operations
