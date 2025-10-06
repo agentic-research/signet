@@ -2,7 +2,6 @@
 
 **Status**: Proposed
 **Date**: 2025-10-05
-**Deciders**: Security Architecture Team
 
 ---
 
