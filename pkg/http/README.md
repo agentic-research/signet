@@ -12,7 +12,7 @@ This package implements the Signet HTTP authentication wire format for ephemeral
 - **Security Features**:
   - JTI-scoped nonce tracking (replay protection)
   - Monotonic timestamp enforcement per JTI
-  - Clock skew tolerance (configurable, default 60s per ADR-002)
+  - Clock skew tolerance (configurable, default 60s per protocol spec)
   - Constant-time comparison for signatures
   - Privacy-preserving ephemeral key IDs
 

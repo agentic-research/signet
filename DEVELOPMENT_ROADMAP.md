@@ -591,7 +591,7 @@ ssh prod-server                     # SSH with signet identity
 
 ### Long-Term Vision (12+ months post-v1.0)
 
-**Research Directions** (see ARCHITECTURE.md ADR-004):
+**Research Directions** (see ARCHITECTURE.md section 004):
 - Post-quantum cryptography (Dilithium signatures)
 - Zero-knowledge proofs (anonymous credentials)
 - Novel applications (Git SSH certificates, database auth, IoT)
