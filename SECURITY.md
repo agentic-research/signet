@@ -13,10 +13,11 @@
 ## Known Security Limitations
 
 ### v0.0.1 Alpha
-- Master keys stored in plaintext (`~/.signet/master.key`)
-- No password protection for keys
+- Keys stored in OS keyring (falls back to plaintext if keyring unavailable)
+- Not all features migrated to secure storage yet
 - No security audit performed
 - APIs will change before v1.0
+- Tested primarily on macOS (Linux should work but minimal testing)
 
 ### What IS Secure
 - Ed25519 cryptographic operations
