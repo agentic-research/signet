@@ -120,12 +120,20 @@ Produces `./signet` binary with subcommands.
 
 ## Architecture
 
-| Layer | Components |
-|-------|------------|
-| **Subcommands** | `commit` • `sign` • `authority` |
-| **Crypto** | CMS • COSE • EPR |
-| **Primitives** | LocalCA • Tokens |
-| **Foundation** | Ed25519 |
+Signet uses a layered architecture where all components share the same Ed25519 foundation:
+
+```
+┌──────────────────────────────────────────┐
+│        signet (unified binary)           │
+├──────────────────────────────────────────┤
+│   commit   │   sign   │   authority      │  ← Subcommands
+├──────────────────────────────────────────┤
+│     CMS    │   COSE   │      EPR         │  ← Crypto Layer
+├──────────────────────────────────────────┤
+│         LocalCA        │     Tokens       │  ← Primitives
+└──────────────────────────────────────────┘
+                  Ed25519
+```
 
 All subcommands share the same master key and certificate authority.
 
