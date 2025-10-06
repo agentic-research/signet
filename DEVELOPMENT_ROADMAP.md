@@ -38,6 +38,7 @@
 
 **Security (Remaining):**
 - ❌ **Revocation system** - Design exploration in progress, implementation pending
+- ⚠️ **go-cms library not reviewed** - Extracted CMS/PKCS#7 implementation lacks independent security audit
 - ❌ **4 HIGH severity findings** - Type assertions, mutex protection, key leaks (See SECURITY_AUDIT.md)
 - 🚧 **Capability validation logic** - token structure complete, enforcement missing
 
