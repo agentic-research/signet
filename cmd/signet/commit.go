@@ -142,7 +142,7 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	if verifyFile != "" {
 		// Git passes: --verify <signature-file> <data-file>
 		// Just exit successfully to let Git continue
-		fmt.Printf("Signature verification requested for file delegated to Git: %s\n", verifyFile)
+		fmt.Fprintln(os.Stderr, "Delegating signature verification to gpgsm")
 		return nil
 	}
 
