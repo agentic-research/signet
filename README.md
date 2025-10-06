@@ -7,6 +7,7 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 - **Not audited** - use for development only
 - Experimental largely due to [`go-cms`](https://github.com/jamestexas/go-cms) (no external review, passes OpenSSL interop tests)
 - **Platform:** Built for macOS, should work on Linux (minimal testing)
+- **Key storage:** Defaults to OS keyring; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or initialized with `--insecure`
 - See [SECURITY.md](SECURITY.md) for security limitations and best practices
 
 ## What Works Today
