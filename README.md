@@ -5,7 +5,7 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 ## ⚠️ Status: v0.0.1 Experimental
 
 - **Not audited** - use for development only
-- Keys stored in plaintext (`~/.signet/`)
+- Secure key storage implemented (OS keyring), but not all features use it yet
 - APIs will change before v1.0
 
 ## What Works Today
@@ -149,7 +149,7 @@ make fmt lint
 - **[Architecture](ARCHITECTURE.md)** - Design decisions and technical rationale
 - **[Contributing](CONTRIBUTING.md)** - How to contribute effectively
 - **[Performance](docs/PERFORMANCE.md)** - Benchmarks and analysis
-- **[CMS Implementation](docs/CMS_IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details
+- **[CMS Implementation](https://github.com/jamestexas/go-cms/blob/main/docs/IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details (go-cms repo)
 
 ## Roadmap
 
@@ -202,4 +202,4 @@ Inspired by [Sigstore](https://sigstore.dev) for supply chain security. Signet e
 ---
 
 **Questions?** Open an [issue](https://github.com/jamestexas/signet/issues)
-**Ready to contribute?** Check the [roadmap](ROADMAP.md)
+**Ready to contribute?** Check the [roadmap](DEVELOPMENT_ROADMAP.md)
