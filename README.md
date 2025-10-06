@@ -93,10 +93,12 @@ All tools built on production-ready primitives:
 | Package | Purpose | Security Review |
 |---------|---------|-----------------|
 | [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ **Not reviewed** |
-| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal |
-| [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal |
-| [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal |
-| [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal |
+| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
+| [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
+| [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal† |
+| [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal† |
+
+† *Internal* = Developed in-house, no independent security audit yet
 
 ## Installation
 

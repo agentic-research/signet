@@ -1,6 +1,6 @@
 # Revocation System - Implementation Sequence
 
-**Purpose**: Step-by-step guide for implementing SPIRE-model revocation (ADR-006).
+**Purpose**: Step-by-step guide for implementing SPIRE-model revocation ([006-revocation.md](../design/006-revocation.md)).
 
 **Not a timeline** - just the logical order of what to build and why.
 
