@@ -4,7 +4,7 @@
 
 **Not a timeline** - just the logical order of what to build and why.
 
-**Reference**: See `REVOCATION_INTERFACE.md` for API design and `ADR-006` for architectural decisions.
+**Reference**: See `revocation-interface.md` for API design and `../design/006-revocation.md` for architectural decisions.
 
 ---
 
@@ -12,7 +12,7 @@
 
 Before starting:
 - ✅ ADR-006 approved (SPIRE model decision)
-- ✅ Pluggable interface designed (`REVOCATION_INTERFACE.md`)
+- ✅ Pluggable interface designed (`revocation-interface.md`)
 - ✅ Security analysis complete (surgical review findings incorporated)
 - ✅ Bridge certificate provisioning understood (ADR-004)
 
