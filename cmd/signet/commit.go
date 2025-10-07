@@ -2,7 +2,10 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/sha1"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -189,21 +192,22 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	// Extract the raw key for CMS signing (will be zeroed via defer above)
 	ephemeralKey := secEphemeralKey.Key()
 
+	// Emit BEGIN_SIGNING before creating signature (gpgsm-compatible)
+	if statusFd > 0 {
+		statusFile := os.NewFile(uintptr(statusFd), "status")
+		if statusFile != nil {
+			_, _ = fmt.Fprintln(statusFile, "[GNUPG:] BEGIN_SIGNING")
+		}
+	}
+
 	// Create CMS signature with Ed25519
 	signature, err := cms.SignData(commitData, cert, ed25519.PrivateKey(ephemeralKey))
 	if err != nil {
 		return fmt.Errorf("failed to sign commit: %w", err)
 	}
 
-	// If Git requested status output, emit the required status line
+	// Emit SIG_CREATED with certificate fingerprint (gpgsm-compatible)
 	if statusFd > 0 {
-		// Get the key ID (fingerprint) from arguments after flags
-		keyFpr := ""
-		if len(args) > 0 {
-			keyFpr = args[0]
-		}
-
-		// Create status file from descriptor
 		statusFile := os.NewFile(uintptr(statusFd), "status")
 		if statusFile != nil {
 			// Format: [GNUPG:] SIG_CREATED <type> <pk_algo> <hash_algo> <class> <timestamp> <fingerprint>
@@ -212,7 +216,8 @@ func runCommit(cmd *cobra.Command, args []string) error {
 			// hash_algo: 8 (SHA256)
 			// class: 00 (standard)
 			timestamp := time.Now().Unix()
-			fmt.Fprintf(statusFile, "[GNUPG:] SIG_CREATED D 22 8 00 %d %s\n", timestamp, keyFpr)
+			fpr := certHexFingerprint(cert)
+			_, _ = fmt.Fprintf(statusFile, "[GNUPG:] SIG_CREATED D 22 8 00 %d %s\n", timestamp, fpr)
 		}
 	}
 
@@ -234,6 +239,9 @@ func verifySignature(sigFile, dataFile string, statusFd int) error {
 	// Get configuration
 	cfg := getConfig()
 
+	// Determine status writer (default to stdout if statusFd is 0)
+	statusWriter := getStatusWriter(statusFd)
+
 	// Load master key to create the CA certificate for verification
 	masterKey, err := keystore.LoadMasterKeySecure()
 	if err != nil {
@@ -251,10 +259,17 @@ func verifySignature(sigFile, dataFile string, statusFd int) error {
 		return fmt.Errorf("failed to read signature file: %w", err)
 	}
 
-	// Decode PEM if present
+	// Try to decode as PEM first
 	block, _ := pem.Decode(sigData)
 	if block != nil {
 		sigData = block.Bytes
+	} else {
+		// If not PEM, try base64 decode (Git stores signatures as base64 without PEM headers)
+		decoded, err := base64.StdEncoding.DecodeString(string(sigData))
+		if err == nil && len(decoded) > 0 {
+			sigData = decoded
+		}
+		// If base64 decode fails, assume it's already DER and use as-is
 	}
 
 	// Read commit data - from file if specified, otherwise stdin
@@ -269,6 +284,12 @@ func verifySignature(sigFile, dataFile string, statusFd int) error {
 		if err != nil {
 			return fmt.Errorf("failed to read commit data from file: %w", err)
 		}
+	}
+
+	// Fail fast if no data to verify
+	if len(commitData) == 0 {
+		_, _ = fmt.Fprintf(statusWriter, "[GNUPG:] BADSIG 0000000000000000 \"Signet X509\"\n")
+		return fmt.Errorf("no data to verify")
 	}
 
 	// Create the CA certificate from our master key to use as trust root
@@ -299,38 +320,74 @@ func verifySignature(sigFile, dataFile string, statusFd int) error {
 	roots := x509.NewCertPool()
 	roots.AddCert(caCert)
 
+	// Skip time validation for Git commits with ephemeral certs
+	// Git commits are historical artifacts that need indefinite verification.
+	// We verify the chain of trust (cert was signed by our CA) rather than expiry time.
 	opts := cms.VerifyOptions{
-		Roots:     roots,
-		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
-		// Don't check time validity for now (ephemeral certs may have expired)
-		// CurrentTime: time.Time{},
+		Roots:              roots,
+		KeyUsages:          []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		SkipTimeValidation: true, // Allow verification of expired ephemeral certs
 	}
 
 	// Verify the signature
 	certs, err := cms.Verify(sigData, commitData, opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Signature verification failed: %v\n", err)
+		// Output BADSIG status on verification failure
+		_, _ = fmt.Fprintf(statusWriter, "[GNUPG:] BADSIG 0000000000000000000000000000000000000000 \"Signet X509\"\n")
+		_, _ = fmt.Fprintf(os.Stderr, "Signature verification failed: %v\n", err)
 		return fmt.Errorf("verification failed: %w", err)
 	}
 
-	// Write GPG status output if requested
-	if statusFd > 0 {
-		statusFile := os.NewFile(uintptr(statusFd), "status")
-		if statusFile != nil {
-			// Format: [GNUPG:] GOODSIG <long_keyid_or_fingerprint> <uid>
-			keyID := ""
-			if len(certs) > 0 && certs[0].Subject.CommonName != "" {
-				keyID = certs[0].Subject.CommonName
-			}
-			if _, err := fmt.Fprintf(statusFile, "[GNUPG:] GOODSIG %s %s\n", keyID, keyID); err != nil {
-				return fmt.Errorf("failed to write GPG status: %w", err)
-			}
-			if _, err := fmt.Fprintf(statusFile, "[GNUPG:] VALIDSIG %s\n", keyID); err != nil {
-				return fmt.Errorf("failed to write GPG status: %w", err)
-			}
-		}
+	// Extract metadata for status output
+	var signerCert *x509.Certificate
+	if len(certs) > 0 {
+		signerCert = certs[0]
 	}
 
-	fmt.Fprintln(os.Stderr, "✓ Signature verified successfully")
+	// Use SHA1 fingerprint (gpgsm-compatible) for both GOODSIG and VALIDSIG
+	fpr := certHexFingerprint(signerCert)
+	uid := "Signet X509"
+	if signerCert != nil && signerCert.Subject.CommonName != "" {
+		uid = signerCert.Subject.CommonName
+	}
+
+	// Write GPG status output in required format
+	_, _ = fmt.Fprintf(statusWriter, "[GNUPG:] NEWSIG\n")
+	_, _ = fmt.Fprintf(statusWriter, "[GNUPG:] GOODSIG %s \"%s\"\n", fpr, uid)
+	_, _ = fmt.Fprintf(statusWriter, "[GNUPG:] VALIDSIG %s 0 0 0 0 0 0 0 0 0 0\n", fpr)
+	_, _ = fmt.Fprintf(statusWriter, "[GNUPG:] TRUST_FULLY 0 shell\n")
+
+	_, _ = fmt.Fprintln(os.Stderr, "✓ Signature verified successfully")
 	return nil
+}
+
+// getStatusWriter returns an io.Writer for GNUPG status output
+// Matches gpgsm/gitsign behavior for fd mapping
+func getStatusWriter(statusFd int) io.Writer {
+	const (
+		unixStdout = 1
+		unixStderr = 2
+	)
+
+	// Git always passes fd 1 or 2 even on Windows
+	switch statusFd {
+	case 0:
+		return os.Stdout
+	case unixStdout:
+		return os.Stdout
+	case unixStderr:
+		return os.Stderr
+	default:
+		return os.NewFile(uintptr(statusFd), "status")
+	}
+}
+
+// certHexFingerprint calculates the SHA1 fingerprint of a certificate (gpgsm-compatible)
+// This is what Git expects for the fingerprint in status output
+func certHexFingerprint(cert *x509.Certificate) string {
+	if cert == nil || len(cert.Raw) == 0 {
+		return "0000000000000000000000000000000000000000"
+	}
+	fpr := sha1.Sum(cert.Raw) // #nosec G401 - SHA1 used for fingerprint only, not security
+	return hex.EncodeToString(fpr[:])
 }
