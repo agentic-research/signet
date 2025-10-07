@@ -19,6 +19,7 @@ var (
 	signFormat     string
 	signOutput     string
 	signInitFlag   bool
+	signForceFlag  bool
 	signVerifyFile string
 	signVerifySig  string
 )
@@ -57,6 +58,7 @@ short-lived ephemeral certificates derived from your master key.
 
 func init() {
 	signCmd.Flags().BoolVar(&signInitFlag, "init", false, "Initialize Signet configuration")
+	signCmd.Flags().BoolVar(&signForceFlag, "force", false, "Force re-initialization (overwrites existing key)")
 	signCmd.Flags().StringVarP(&signFormat, "format", "f", "cms", "Output format: cms (more formats planned)")
 	signCmd.Flags().StringVarP(&signOutput, "output", "o", "", "Output file (default: <input>.sig)")
 	signCmd.Flags().StringVar(&signVerifyFile, "verify-data", "", "Data file for verification")
@@ -71,7 +73,7 @@ func runSign(cmd *cobra.Command, args []string) error {
 
 	// Handle initialization
 	if signInitFlag {
-		if err := keystore.InitializeSecure(); err != nil {
+		if err := keystore.InitializeSecure(signForceFlag); err != nil {
 			return fmt.Errorf("initialization failed: %w", err)
 		}
 

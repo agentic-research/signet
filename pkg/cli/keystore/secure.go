@@ -118,11 +118,17 @@ func readSeedFromPEM(keyPath string, checkPermissions bool) ([]byte, error) {
 }
 
 // InitializeSecure generates a master key and stores it in the OS keyring
-func InitializeSecure() error {
+func InitializeSecure(force bool) error {
 	// Check if key already exists
 	_, err := keyring.Get(ServiceName, MasterKeyItem)
 	if err == nil {
-		return errors.New("master key already exists in keyring")
+		if !force {
+			return errors.New("master key already exists in keyring (use --force to overwrite)")
+		}
+		// Delete existing key when forcing
+		if err := keyring.Delete(ServiceName, MasterKeyItem); err != nil {
+			return fmt.Errorf("failed to delete existing key from keyring: %w", err)
+		}
 	}
 
 	// Generate new Ed25519 key pair
@@ -207,7 +213,7 @@ func DeleteMasterKeySecure() error {
 }
 
 // InitializeInsecure generates a master key and stores it in a file (for testing)
-func InitializeInsecure(signetPath string) error {
+func InitializeInsecure(signetPath string, force bool) error {
 	// Create directory with restricted permissions
 	if err := os.MkdirAll(signetPath, 0700); err != nil {
 		return fmt.Errorf("failed to create signet directory: %w", err)
@@ -217,7 +223,13 @@ func InitializeInsecure(signetPath string) error {
 
 	// Check if key already exists
 	if _, err := os.Stat(keyPath); err == nil {
-		return errors.New("master key already exists")
+		if !force {
+			return errors.New("master key already exists (use --force to overwrite)")
+		}
+		// Remove existing key when forcing
+		if err := os.Remove(keyPath); err != nil {
+			return fmt.Errorf("failed to remove existing key: %w", err)
+		}
 	}
 
 	// Generate new Ed25519 key pair

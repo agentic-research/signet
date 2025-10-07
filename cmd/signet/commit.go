@@ -22,6 +22,7 @@ var (
 	// Commit subcommand flags
 	initFlag         bool
 	initInsecureFlag bool
+	forceFlag        bool
 	exportKeyFlag    bool
 	verifyFile       string
 	statusFd         int
@@ -67,6 +68,7 @@ short-lived ephemeral certificate derived from your master key.
 func init() {
 	commitCmd.Flags().BoolVar(&initFlag, "init", false, "Initialize Signet configuration")
 	commitCmd.Flags().BoolVar(&initInsecureFlag, "insecure", false, "Initialize with file-based storage (for testing)")
+	commitCmd.Flags().BoolVar(&forceFlag, "force", false, "Force re-initialization (overwrites existing key)")
 	commitCmd.Flags().BoolVar(&exportKeyFlag, "export-key-id", false, "Export the master key ID")
 	commitCmd.Flags().StringVar(&verifyFile, "verify", "", "Verify signature from file")
 	commitCmd.Flags().IntVar(&statusFd, "status-fd", 0, "File descriptor for GPG status output")
@@ -112,12 +114,12 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	// Handle initialization
 	if initFlag {
 		if initInsecureFlag {
-			if err := keystore.InitializeInsecure(cfg.Home); err != nil {
+			if err := keystore.InitializeInsecure(cfg.Home, forceFlag); err != nil {
 				return fmt.Errorf("insecure initialization failed: %w", err)
 			}
 			fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully (insecure file-based storage)")
 		} else {
-			if err := keystore.InitializeSecure(); err != nil {
+			if err := keystore.InitializeSecure(forceFlag); err != nil {
 				return fmt.Errorf("initialization failed: %w", err)
 			}
 			fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
