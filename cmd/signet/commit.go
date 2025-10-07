@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -138,12 +139,14 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle verify flag (for Git compatibility)
-	// We don't verify - that's gpgsm's job in the Git workflow
 	if verifyFile != "" {
 		// Git passes: --verify <signature-file> <data-file>
-		// Just exit successfully to let Git continue
-		fmt.Fprintln(os.Stderr, "Delegating signature verification to gpgsm")
-		return nil
+		// If data-file is "-", read from stdin; otherwise read from file
+		dataFile := ""
+		if len(args) > 0 {
+			dataFile = args[0]
+		}
+		return verifySignature(verifyFile, dataFile, statusFd)
 	}
 
 	// Load master key from OS keyring
@@ -219,5 +222,111 @@ func runCommit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to encode signature: %w", err)
 	}
 
+	return nil
+}
+
+// verifySignature verifies a CMS signature for Git compatibility
+func verifySignature(sigFile, dataFile string, statusFd int) error {
+	// Get configuration
+	cfg := getConfig()
+
+	// Load master key to create the CA certificate for verification
+	masterKey, err := keystore.LoadMasterKeySecure()
+	if err != nil {
+		// Fallback to file-based if keyring fails
+		masterKey, err = keystore.LoadMasterKeyInsecure(cfg.Home)
+		if err != nil {
+			return fmt.Errorf("failed to load master key for verification: %w", err)
+		}
+	}
+	defer masterKey.Destroy()
+
+	// Read signature file
+	sigData, err := os.ReadFile(sigFile)
+	if err != nil {
+		return fmt.Errorf("failed to read signature file: %w", err)
+	}
+
+	// Decode PEM if present
+	block, _ := pem.Decode(sigData)
+	if block != nil {
+		sigData = block.Bytes
+	}
+
+	// Read commit data - from file if specified, otherwise stdin
+	var commitData []byte
+	if dataFile == "" || dataFile == "-" {
+		commitData, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("failed to read commit data from stdin: %w", err)
+		}
+	} else {
+		commitData, err = os.ReadFile(dataFile)
+		if err != nil {
+			return fmt.Errorf("failed to read commit data from file: %w", err)
+		}
+	}
+
+	// Create the CA certificate from our master key to use as trust root
+	ca := attestx509.NewLocalCA(masterKey, cfg.IssuerDID)
+	caTemplate := ca.CreateCACertificateTemplate()
+	if caTemplate == nil {
+		return fmt.Errorf("failed to create CA template")
+	}
+
+	// Self-sign the CA certificate
+	caCertDER, err := x509.CreateCertificate(
+		nil,
+		caTemplate,
+		caTemplate,
+		masterKey.Public(),
+		masterKey,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create CA certificate: %w", err)
+	}
+
+	caCert, err := x509.ParseCertificate(caCertDER)
+	if err != nil {
+		return fmt.Errorf("failed to parse CA certificate: %w", err)
+	}
+
+	// Create cert pool with our CA as the trust root
+	roots := x509.NewCertPool()
+	roots.AddCert(caCert)
+
+	opts := cms.VerifyOptions{
+		Roots:     roots,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		// Don't check time validity for now (ephemeral certs may have expired)
+		// CurrentTime: time.Time{},
+	}
+
+	// Verify the signature
+	certs, err := cms.Verify(sigData, commitData, opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Signature verification failed: %v\n", err)
+		return fmt.Errorf("verification failed: %w", err)
+	}
+
+	// Write GPG status output if requested
+	if statusFd > 0 {
+		statusFile := os.NewFile(uintptr(statusFd), "status")
+		if statusFile != nil {
+			// Format: [GNUPG:] GOODSIG <long_keyid_or_fingerprint> <uid>
+			keyID := ""
+			if len(certs) > 0 && certs[0].Subject.CommonName != "" {
+				keyID = certs[0].Subject.CommonName
+			}
+			if _, err := fmt.Fprintf(statusFile, "[GNUPG:] GOODSIG %s %s\n", keyID, keyID); err != nil {
+				return fmt.Errorf("failed to write GPG status: %w", err)
+			}
+			if _, err := fmt.Fprintf(statusFile, "[GNUPG:] VALIDSIG %s\n", keyID); err != nil {
+				return fmt.Errorf("failed to write GPG status: %w", err)
+			}
+		}
+	}
+
+	fmt.Fprintln(os.Stderr, "✓ Signature verified successfully")
 	return nil
 }
