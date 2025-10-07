@@ -59,7 +59,9 @@ short-lived ephemeral certificate derived from your master key.
 
   # Sign commits automatically
   git config --global commit.gpgSign true`,
-	RunE: runCommit,
+	RunE:          runCommit,
+	SilenceUsage:  true, // Don't print usage on verification errors (keeps stdout clean)
+	SilenceErrors: true, // Don't print "Error:" prefix (we handle errors ourselves)
 }
 
 func init() {
