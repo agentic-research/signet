@@ -105,6 +105,50 @@ if [ $GIT_LOG_STATUS -ne 0 ]; then
     fi
 fi
 
+echo "--- Step 5.1: Test stdout purity (regression for SHA bug) ---"
+# Create dummy files for --verify test (intentionally invalid)
+# We use dummy files to trigger verification failure and ensure even error paths
+# don't pollute stdout (critical: stdout contamination corrupts Git commit SHAs)
+echo "dummy data" > "$TEST_DIR/test_data.txt"
+echo "dummy signature" > "$TEST_DIR/test_sig.txt"
+
+# Test that --verify produces NO stdout even on failure (critical for Git SHA integrity)
+# This is a regression test for the Cobra usage/error output bug
+VERIFY_STDOUT=$("$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" --verify "$TEST_DIR/test_sig.txt" "$TEST_DIR/test_data.txt" 2>/dev/null || true)
+if [ -n "$VERIFY_STDOUT" ]; then
+    echo "❌ CRITICAL: --verify produced stdout output (will corrupt Git SHA)"
+    echo "Output: $VERIFY_STDOUT"
+    exit 1
+fi
+echo "✅ Stdout purity check PASSED"
+
+echo "--- Step 5.2: Test signet's own verification ---"
+# Extract the signature from the commit (remove "gpgsig " prefix and leading spaces)
+git cat-file commit HEAD | sed -n '/^gpgsig /,/^ -----END CMS-----$/p' | sed 's/^gpgsig //' | sed 's/^ //' > "$TEST_DIR/commit_sig.txt"
+
+# Extract commit data without gpgsig block (preserve the blank line separator)
+git cat-file commit HEAD | awk '
+/^gpgsig / { in_sig=1; next }
+in_sig && /^ / { next }
+in_sig && /^$/ { in_sig=0; print; next }
+{ print }
+' > "$TEST_DIR/commit_clean.txt"
+
+# Verify with signet's own verifier
+set +e
+SIGNET_VERIFY_OUTPUT=$("$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" --verify "$TEST_DIR/commit_sig.txt" "$TEST_DIR/commit_clean.txt" 2>&1)
+SIGNET_VERIFY_STATUS=$?
+set -e
+
+if [ $SIGNET_VERIFY_STATUS -eq 0 ] && echo "$SIGNET_VERIFY_OUTPUT" | grep -q "verified successfully"; then
+    echo "✅ Signet verification PASSED"
+    SIGNET_VERIFICATION_OK=true
+else
+    echo "❌ Signet verification FAILED"
+    echo "Output: $SIGNET_VERIFY_OUTPUT"
+    SIGNET_VERIFICATION_OK=false
+fi
+
 echo "--- Step 6: Additional verification ---"
 echo "Checking commit details:"
 git log -1 --pretty=fuller
@@ -134,15 +178,22 @@ fi
 # Check if verification produces expected output (currently gpgsm doesn't trust our cert)
 # For now, we're checking that no fatal errors occurred
 if $VERIFICATION_OK; then
-    echo "✅ Verification produced expected output"
+    echo "✅ Git verification produced expected output"
 else
-    echo "❌ Verification produced unexpected errors"
+    echo "❌ Git verification produced unexpected errors"
+fi
+
+# Check if signet's own verification succeeded
+if $SIGNET_VERIFICATION_OK; then
+    echo "✅ Signet verification succeeded"
+else
+    echo "❌ Signet verification failed"
 fi
 
 echo ""
-if $COMMIT_CREATED && $SIGNATURE_ATTACHED && $VERIFICATION_OK; then
+if $COMMIT_CREATED && $SIGNATURE_ATTACHED && $VERIFICATION_OK && $SIGNET_VERIFICATION_OK; then
     echo "=== INTEGRATION TEST PASSED ==="
-    echo "Signet successfully signs Git commits!"
+    echo "Signet successfully signs and verifies Git commits!"
     exit 0
 else
     echo "=== INTEGRATION TEST FAILED ==="

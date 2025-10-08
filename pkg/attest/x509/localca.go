@@ -202,13 +202,15 @@ func (ca *LocalCA) CreateCACertificateTemplate() *x509.Certificate {
 	didURI, _ := url.Parse(ca.issuerDID)
 
 	return &x509.Certificate{
-		SerialNumber:          serialNumber,
-		Subject:               EncodeDIDAsSubject(ca.issuerDID),
-		Issuer:                EncodeDIDAsSubject(ca.issuerDID),   // Self-issued
-		NotBefore:             now.Add(-24 * time.Hour),           // Valid from yesterday to avoid clock skew
-		NotAfter:              now.Add(10 * 365 * 24 * time.Hour), // Valid for 10 years
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+		SerialNumber: serialNumber,
+		Subject:      EncodeDIDAsSubject(ca.issuerDID),
+		Issuer:       EncodeDIDAsSubject(ca.issuerDID),   // Self-issued
+		NotBefore:    now.Add(-24 * time.Hour),           // Valid from yesterday to avoid clock skew
+		NotAfter:     now.Add(10 * 365 * 24 * time.Hour), // Valid for 10 years
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		// NOTE: CA certificates should NOT have ExtKeyUsage restrictions.
+		// ExtKeyUsage restricts certificate usage, which conflicts with the CA role.
+		// Only end-entity certificates (ephemeral keys) should have ExtKeyUsageCodeSigning.
 		URIs:                  []*url.URL{didURI},
 		IsCA:                  true,
 		BasicConstraintsValid: true,

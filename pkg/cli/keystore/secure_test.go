@@ -16,15 +16,21 @@ func TestSecureKeystore(t *testing.T) {
 	_ = keyring.Delete(ServiceName, MasterKeyItem)
 
 	t.Run("Initialize", func(t *testing.T) {
-		err := InitializeSecure()
+		err := InitializeSecure(false)
 		if err != nil {
 			t.Fatalf("InitializeSecure failed: %v", err)
 		}
 
-		// Should fail if key already exists
-		err = InitializeSecure()
+		// Should fail if key already exists without force
+		err = InitializeSecure(false)
 		if err == nil {
-			t.Fatal("Expected error when initializing twice")
+			t.Fatal("Expected error when initializing twice without force")
+		}
+
+		// Should succeed with force flag
+		err = InitializeSecure(true)
+		if err != nil {
+			t.Fatalf("InitializeSecure with force failed: %v", err)
 		}
 	})
 

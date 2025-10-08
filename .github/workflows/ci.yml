@@ -76,15 +76,11 @@ jobs:
       - name: Build binaries
         run: |
           make build
-          ./signet-commit --version || ./signet-commit --help || echo "Binary built successfully"
+          ./signet commit --help || echo "Binary built successfully"
 
-      - name: Test CMS headers with OpenSSL
+      - name: Run Docker integration tests
         run: |
-          ./scripts/testing/test_cms_headers.sh || echo "CMS header test skipped (requires signet-commit binary)"
-
-      - name: Run integration tests
-        run: |
-          make integration-test || true  # Don't fail on integration tests for now
+          make integration-test
 
       # Optional: Upload coverage to codecov
       # - name: Upload coverage

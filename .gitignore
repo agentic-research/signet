@@ -55,6 +55,9 @@ Thumbs.db
 # Crumb tracking
 .crumb/
 
+# Agent logs and temporary directories (prefixed with _)
+_*/
+
 # Project-specific ignores
 #
 # Signet user data (never commit master keys!)
@@ -87,3 +90,4 @@ SECURITY_AUDIT.md
 # Demo binaries
 client
 server
+signet-git

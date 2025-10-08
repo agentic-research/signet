@@ -30,6 +30,25 @@ make docker-test             # Run full test suite in Docker
 make docker-shell           # Interactive shell for debugging
 ```
 
+### Test Coverage Matrix
+
+| Test File | Purpose | Validates | Runs In | Status |
+|-----------|---------|-----------|---------|--------|
+| `test_integration.sh` | Full Git signing workflow | Git commit signing, signature attachment, **stdout purity** | Docker (Dockerfile.test) | ✅ ACTIVE |
+| `test_sig1_http_integration.sh` | HTTP authentication demo | SIG1 wire format, COSE, middleware | Manual only | 🔮 FUTURE |
+
+**Test Scope by Feature**:
+- ✅ **Git commit signing** (`signet commit`) - test_integration.sh
+- ✅ **Stdout purity** (Git SHA corruption prevention) - test_integration.sh
+- ❌ **File signing** (`signet sign`) - NO TEST (alpha gap)
+- 🔮 **Authority minting** (`signet authority`) - FUTURE
+- 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)
+
+**Test Separation**:
+- **CMS/PKCS#7 testing** → Lives in [go-cms](https://github.com/jamestexas/go-cms) repo
+- **Git integration testing** → Lives here in signet repo
+- **Docker-First Strategy**: All CI tests run in Docker for environment parity
+
 ### Code Quality
 
 ```bash
