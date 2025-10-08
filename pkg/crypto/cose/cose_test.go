@@ -417,13 +417,55 @@ func TestSignerDestroy(t *testing.T) {
 	// Destroy the signer
 	signer.Destroy()
 
-	// Second sign should fail
+	// Second sign should fail with specific error
 	_, err = signer.Sign([]byte("test"))
 	if err == nil {
 		t.Error("expected error after Destroy(), got nil")
 	}
+	expectedErr := "signer has been destroyed"
+	if err.Error() != expectedErr {
+		t.Errorf("expected error %q, got %q", expectedErr, err.Error())
+	}
 
 	// Multiple destroys should be safe
 	signer.Destroy()
+	signer.Destroy()
+}
+
+// TestConcurrentSignAndDestroy tests for race conditions between Sign() and Destroy()
+// Run with: go test -race ./pkg/crypto/cose/
+func TestConcurrentSignAndDestroy(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	signer, err := NewEd25519Signer(priv)
+	if err != nil {
+		t.Fatalf("failed to create signer: %v", err)
+	}
+
+	done := make(chan bool, 2)
+	payload := []byte("test message")
+
+	// Goroutine 1: Keep signing
+	go func() {
+		defer func() { done <- true }()
+		for i := 0; i < 100; i++ {
+			_, _ = signer.Sign(payload)
+		}
+	}()
+
+	// Goroutine 2: Destroy the signer
+	go func() {
+		defer func() { done <- true }()
+		signer.Destroy()
+	}()
+
+	// Wait for both goroutines
+	<-done
+	<-done
+
+	// Final destroy should be safe
 	signer.Destroy()
 }

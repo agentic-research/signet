@@ -33,67 +33,6 @@ func NewLocalCA(masterKey crypto.Signer, issuerDID string) *LocalCA {
 	}
 }
 
-// IssueCodeSigningCertificate creates an X.509 certificate
-// for code signing with the specified validity duration
-// The certificate is issued by the master key (CA) for an ephemeral key
-// Returns the certificate, DER bytes, and the ephemeral private key
-//
-// SECURITY WARNING: The returned private key is NOT automatically zeroed.
-// Callers MUST explicitly zero the key when done using keys.ZeroizePrivateKey:
-//
-//	cert, der, ephemeralKey, err := ca.IssueCodeSigningCertificate(duration)
-//	if err != nil { return err }
-//	defer keys.ZeroizePrivateKey(ephemeralKey)
-//
-// Deprecated: Use IssueCodeSigningCertificateSecure for automatic key cleanup.
-func (ca *LocalCA) IssueCodeSigningCertificate(validityDuration time.Duration) (*x509.Certificate, []byte, ed25519.PrivateKey, error) {
-	// 1. Generate ephemeral key pair for the certificate
-	ephemeralPub, ephemeralPriv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	// 2. Create CA (issuer) certificate template
-	// This represents the master key acting as CA
-	issuerTemplate := ca.CreateCACertificateTemplate()
-	if issuerTemplate == nil {
-		return nil, nil, nil, errors.New("failed to create issuer template")
-	}
-
-	// 3. Create certificate template for the ephemeral key
-	template := ca.CreateCertificateTemplate(validityDuration)
-	if template == nil {
-		return nil, nil, nil, errors.New("failed to create certificate template")
-	}
-
-	// 4. Add Subject Key Identifier (required for Git)
-	template.SubjectKeyId = generateSubjectKeyID(ephemeralPub)
-
-	// 5. Add Authority Key Identifier (points to master key)
-	issuerTemplate.SubjectKeyId = generateSubjectKeyID(ca.masterKey.Public())
-	template.AuthorityKeyId = issuerTemplate.SubjectKeyId
-
-	// 6. Issue the certificate: master key signs for ephemeral key
-	certDER, err := x509.CreateCertificate(
-		rand.Reader,
-		template,       // certificate being created
-		issuerTemplate, // CA certificate (master key)
-		ephemeralPub,   // public key being certified
-		ca.masterKey,   // CA private key for signing
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	// 7. Parse the certificate to return
-	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	return cert, certDER, ephemeralPriv, nil
-}
-
 // IssueCodeSigningCertificateSecure creates an X.509 certificate
 // for code signing with the specified validity duration.
 // The certificate is issued by the master key (CA) for an ephemeral key.

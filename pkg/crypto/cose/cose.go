@@ -6,13 +6,32 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"sync"
 
 	"github.com/veraison/go-cose"
 )
 
 // Ed25519Signer implements COSE Sign1 signing with Ed25519.
 // The private key is securely managed and automatically zeroed when Destroy() is called.
+//
+// CONCURRENCY: Ed25519Signer is safe for concurrent Sign() calls from multiple goroutines.
+// However, callers MUST externally synchronize Destroy() calls to ensure they happen only
+// after all Sign() operations are complete. Calling Destroy() concurrently with Sign()
+// may result in Sign() operations failing with "signer has been destroyed" errors.
+//
+// Best practice:
+//
+//	signer, _ := NewEd25519Signer(privateKey)
+//
+//	// Safe: Multiple goroutines can call Sign() concurrently
+//	go signer.Sign(payload1)
+//	go signer.Sign(payload2)
+//
+//	// Wait for all Sign() operations to complete before calling Destroy()
+//	waitGroup.Wait()
+//	signer.Destroy()
 type Ed25519Signer struct {
+	mu         sync.RWMutex
 	privateKey ed25519.PrivateKey
 	signer     cose.Signer
 	destroyed  bool
@@ -48,6 +67,8 @@ func NewEd25519Signer(privateKey ed25519.PrivateKey) (*Ed25519Signer, error) {
 // After calling Destroy, the signer cannot be used.
 // This is idempotent - calling multiple times is safe.
 func (s *Ed25519Signer) Destroy() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s != nil && !s.destroyed {
 		// Zero each byte of the private key
 		for i := range s.privateKey {
@@ -61,11 +82,16 @@ func (s *Ed25519Signer) Destroy() {
 // Note: nil payloads are rejected, but empty payloads ([]byte{}) are allowed
 // as they represent valid zero-length data to sign.
 func (s *Ed25519Signer) Sign(payload []byte) ([]byte, error) {
-	if s.destroyed {
-		return nil, fmt.Errorf("signer has been destroyed")
-	}
 	if payload == nil {
 		return nil, fmt.Errorf("payload cannot be nil")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Check destroyed flag while holding the lock to prevent TOCTOU race
+	if s.destroyed {
+		return nil, fmt.Errorf("signer has been destroyed")
 	}
 
 	// Create message headers

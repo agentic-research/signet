@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/jamestexas/signet/pkg/cli/styles"
 	"github.com/spf13/cobra"
@@ -27,6 +28,28 @@ func init() {
 	// Global persistent flags available to all subcommands
 	rootCmd.PersistentFlags().StringVar(&homeDir, "home", "", "Signet home directory (default: ~/.signet)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
+	cobra.OnInitialize(initConfig)
+}
+
+// initConfig sanitizes and validates global flags.
+func initConfig() {
+	if homeDir != "" {
+		// Only validate relative paths with IsLocal to prevent traversal attacks
+		// Absolute paths are user-controlled and should be allowed
+		if !filepath.IsAbs(homeDir) && !filepath.IsLocal(homeDir) {
+			fmt.Fprint(os.Stderr, styles.Error.Render("✗")+" home directory path contains suspicious elements\n")
+			os.Exit(1)
+		}
+
+		// Convert to absolute path and validate
+		absPath, err := filepath.Abs(homeDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, styles.Error.Render("✗")+" invalid home directory: %v\n", err)
+			os.Exit(1)
+		}
+
+		homeDir = absPath
+	}
 }
 
 // Execute runs the root command

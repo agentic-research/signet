@@ -17,10 +17,11 @@ func BenchmarkCertificateGeneration(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_, _, _, err := ca.IssueCodeSigningCertificate(5 * time.Minute)
+		_, _, secKey, err := ca.IssueCodeSigningCertificateSecure(5 * time.Minute)
 		if err != nil {
 			b.Fatal(err)
 		}
+		secKey.Destroy() // Clean up the key
 	}
 }
 
