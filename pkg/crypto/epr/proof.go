@@ -83,7 +83,11 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 
 	// 2. Create domain-separated message with validity period
 	expiresAt := time.Now().Add(request.ValidityPeriod).Unix()
-	message := createBindingMessage(ephemeralPub, expiresAt, request.Purpose)
+	message, err := createBindingMessage(ephemeralPub, expiresAt, request.Purpose)
+	if err != nil {
+		secPriv.Destroy()
+		return nil, err
+	}
 
 	// 3. Sign the message with master key to create BindingSignature
 	bindingSignature, err := g.masterSigner.Sign(rand.Reader, message, crypto.Hash(0))
@@ -105,8 +109,11 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 }
 
 // createBindingMessage creates the domain-separated message to sign
-func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) []byte {
-	pubBytes := ephemeralPub.(ed25519.PublicKey)
+func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) ([]byte, error) {
+	pubBytes, ok := ephemeralPub.(ed25519.PublicKey)
+	if !ok {
+		return nil, signetErrors.NewKeyError("create-binding", "ephemeral public key", signetErrors.ErrInvalidKeyType)
+	}
 
 	// Domain separator + public key + expiry + purpose
 	message := append([]byte(DomainSeparator), pubBytes...)
@@ -121,7 +128,7 @@ func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpos
 	// Add purpose string
 	message = append(message, []byte(purpose)...)
 
-	return message
+	return message, nil
 }
 
 // Verifier verifies ephemeral proofs of possession
@@ -154,7 +161,10 @@ func (v *Verifier) VerifyBinding(ctx context.Context, proof *EphemeralProof, mas
 	}
 
 	// Recreate the domain-separated message
-	message := createBindingMessage(proof.EphemeralPublicKey, expiresAt, purpose)
+	message, err := createBindingMessage(proof.EphemeralPublicKey, expiresAt, purpose)
+	if err != nil {
+		return err
+	}
 
 	// Verify the binding signature
 	masterPub, ok := masterPublicKey.(ed25519.PublicKey)

@@ -430,7 +430,11 @@ func TestCreateBindingMessage(t *testing.T) {
 	expiresAt := time.Now().Add(5 * time.Minute).Unix()
 	purpose := "test-purpose"
 
-	message := createBindingMessage(pub, expiresAt, purpose)
+	message, err := createBindingMessage(pub, expiresAt, purpose)
+	if err != nil {
+		t.Errorf("createBindingMessage() unexpected error: %v", err)
+		return
+	}
 
 	// Verify message structure
 	if len(message) == 0 {
@@ -454,6 +458,27 @@ func TestCreateBindingMessage(t *testing.T) {
 	minLength := len(DomainSeparator) + ed25519.PublicKeySize + 8 + len(purpose)
 	if len(message) != minLength {
 		t.Errorf("Message length = %d, want %d", len(message), minLength)
+	}
+}
+
+// TestCreateBindingMessage_InvalidKeyType tests that createBindingMessage
+// returns an error when given a non-Ed25519 public key instead of panicking
+func TestCreateBindingMessage_InvalidKeyType(t *testing.T) {
+	// Use a non-Ed25519 key type (e.g., []byte or string)
+	invalidKey := []byte("this is not an ed25519 key")
+	expiresAt := time.Now().Add(5 * time.Minute).Unix()
+	purpose := "test-purpose"
+
+	message, err := createBindingMessage(crypto.PublicKey(invalidKey), expiresAt, purpose)
+
+	if err == nil {
+		t.Error("createBindingMessage() expected error for invalid key type, got nil")
+	}
+	if message != nil {
+		t.Error("createBindingMessage() should return nil message on error")
+	}
+	if !errors.Is(err, signetErrors.ErrInvalidKeyType) {
+		t.Errorf("createBindingMessage() error = %v, want %v", err, signetErrors.ErrInvalidKeyType)
 	}
 }
 
