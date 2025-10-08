@@ -112,7 +112,7 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) ([]byte, error) {
 	pubBytes, ok := ephemeralPub.(ed25519.PublicKey)
 	if !ok {
-		return nil, signetErrors.NewKeyError("create-binding", "ephemeral public key", signetErrors.ErrInvalidKeyType)
+		return nil, signetErrors.NewKeyError("binding", "ephemeral", signetErrors.ErrInvalidKeyType)
 	}
 
 	// Domain separator + public key + expiry + purpose

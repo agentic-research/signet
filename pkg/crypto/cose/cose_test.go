@@ -417,10 +417,14 @@ func TestSignerDestroy(t *testing.T) {
 	// Destroy the signer
 	signer.Destroy()
 
-	// Second sign should fail
+	// Second sign should fail with specific error
 	_, err = signer.Sign([]byte("test"))
 	if err == nil {
 		t.Error("expected error after Destroy(), got nil")
+	}
+	expectedErr := "signer has been destroyed"
+	if err.Error() != expectedErr {
+		t.Errorf("expected error %q, got %q", expectedErr, err.Error())
 	}
 
 	// Multiple destroys should be safe
