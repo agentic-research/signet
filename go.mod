@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coreos/go-oidc/v3 v3.15.0
 	github.com/fxamacker/cbor/v2 v2.9.0
-	github.com/jamestexas/go-cms v0.0.1
+	github.com/jamestexas/go-cms v0.0.2-0.20251008180343-d570bd1f08e1
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.10.0
@@ -40,5 +40,3 @@ require (
 	golang.org/x/sys v0.36.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/jamestexas/go-cms => ../go-cms
