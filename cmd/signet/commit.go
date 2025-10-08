@@ -234,7 +234,22 @@ func runCommit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// verifySignature verifies a CMS signature for Git compatibility
+// verifySignature verifies a CMS signature for Git x509 compatibility.
+//
+// This function implements the GPG-compatible verification interface that Git expects.
+// It verifies ephemeral certificate signatures against the local CA trust root,
+// intentionally skipping time validation to allow historical commit verification.
+//
+// Parameters:
+//   - sigFile: Path to the CMS signature file (PEM or DER encoded)
+//   - dataFile: Path to the file containing the signed data (typically Git commit object)
+//   - statusFd: File descriptor for GPG-compatible status output (0 = stdout, 2 = stderr)
+//
+// Returns:
+//   - error: nil on successful verification, error describing failure otherwise
+//
+// The function outputs GPG-compatible status messages (GOODSIG/BADSIG/VALIDSIG)
+// to the specified file descriptor for Git integration.
 func verifySignature(sigFile, dataFile string, statusFd int) error {
 	// Get configuration
 	cfg := getConfig()

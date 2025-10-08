@@ -106,12 +106,14 @@ if [ $GIT_LOG_STATUS -ne 0 ]; then
 fi
 
 echo "--- Step 5.1: Test stdout purity (regression for SHA bug) ---"
-# Create dummy files for --verify test
+# Create dummy files for --verify test (intentionally invalid)
+# We use dummy files to trigger verification failure and ensure even error paths
+# don't pollute stdout (critical: stdout contamination corrupts Git commit SHAs)
 echo "dummy data" > "$TEST_DIR/test_data.txt"
 echo "dummy signature" > "$TEST_DIR/test_sig.txt"
 
-# Test that --verify produces NO stdout (critical for Git SHA integrity)
-# Note: verification will fail with dummy files, but we only care about stdout purity
+# Test that --verify produces NO stdout even on failure (critical for Git SHA integrity)
+# This is a regression test for the Cobra usage/error output bug
 VERIFY_STDOUT=$("$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" --verify "$TEST_DIR/test_sig.txt" "$TEST_DIR/test_data.txt" 2>/dev/null || true)
 if [ -n "$VERIFY_STDOUT" ]; then
     echo "❌ CRITICAL: --verify produced stdout output (will corrupt Git SHA)"

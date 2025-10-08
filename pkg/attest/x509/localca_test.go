@@ -76,8 +76,8 @@ func TestCertificateChainValidation(t *testing.T) {
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
 	})
 
-	// This test will FAIL with current code because the CA cert has ExtKeyUsage: [CodeSigning]
-	// which prevents it from being used to validate certificate chains
+	// Regression test: Verify CA cert properly validates chains (no ExtKeyUsage conflicts)
+	// Previously failed when CA cert incorrectly had ExtKeyUsage: [CodeSigning]
 	if err != nil {
 		t.Fatalf("Certificate chain validation failed: %v\n"+
 			"This indicates the CA certificate has incompatible ExtKeyUsage restrictions.\n"+
