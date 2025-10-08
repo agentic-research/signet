@@ -34,21 +34,17 @@ func init() {
 // initConfig sanitizes and validates global flags.
 func initConfig() {
 	if homeDir != "" {
-		// Validate path is local (not a symlink traversal attack)
-		if !filepath.IsLocal(homeDir) {
-			fmt.Fprint(os.Stderr, styles.Error.Render("✗")+" home directory path is not local or contains suspicious elements\n")
+		// Only validate relative paths with IsLocal to prevent traversal attacks
+		// Absolute paths are user-controlled and should be allowed
+		if !filepath.IsAbs(homeDir) && !filepath.IsLocal(homeDir) {
+			fmt.Fprint(os.Stderr, styles.Error.Render("✗")+" home directory path contains suspicious elements\n")
 			os.Exit(1)
 		}
 
+		// Convert to absolute path and validate
 		absPath, err := filepath.Abs(homeDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, styles.Error.Render("✗")+" invalid home directory: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Double-check the absolute path is also local
-		if !filepath.IsLocal(absPath) {
-			fmt.Fprint(os.Stderr, styles.Error.Render("✗")+" resolved home directory path is not local\n")
 			os.Exit(1)
 		}
 
