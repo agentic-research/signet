@@ -11,8 +11,9 @@ RUN go mod download
 # Copy full source
 COPY . .
 
-# Build the signet binary
+# Build the signet and signet-git binaries
 RUN go build -o signet ./cmd/signet
+RUN go build -o signet-git ./cmd/signet-git
 
 # Runtime stage with required tooling
 FROM golang:1.25-trixie
@@ -24,9 +25,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git gnupg dbus \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy repository contents and the prebuilt binary
+# Copy repository contents and the prebuilt binaries
 COPY . .
 COPY --from=builder /workspace/signet ./signet
+COPY --from=builder /workspace/signet-git ./signet-git
 
 # Ensure scripts are executable
 RUN chmod +x scripts/testing/test_integration.sh

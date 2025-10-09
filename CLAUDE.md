@@ -38,7 +38,7 @@ make docker-shell           # Interactive shell for debugging
 | `test_sig1_http_integration.sh` | HTTP authentication demo | SIG1 wire format, COSE, middleware | Manual only | 🔮 FUTURE |
 
 **Test Scope by Feature**:
-- ✅ **Git commit signing** (`signet commit`) - test_integration.sh
+- ✅ **Git commit signing** (`signet-git`) - test_integration.sh
 - ✅ **Stdout purity** (Git SHA corruption prevention) - test_integration.sh
 - ❌ **File signing** (`signet sign`) - NO TEST (alpha gap)
 - 🔮 **Authority minting** (`signet authority`) - FUTURE
@@ -75,9 +75,14 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 **signet (cmd/signet/)** - Unified CLI with Cobra and Lipgloss:
 
 - `main.go` & `root.go`: Root command and global configuration
-- `commit.go`: Git commit signing (GPG drop-in replacement)
 - `sign.go`: Universal file signing with ephemeral certificates
 - `authority.go`: OIDC certificate authority server
+
+**signet-git (cmd/signet-git/)** - Git integration binary:
+
+- Standalone binary for Git's gpg.x509.program interface
+- Subcommands: `init`, `export-key-id`
+- GPG-compatible signing and verification for Git commits
 
 ### Key Design Patterns
 
@@ -118,19 +123,22 @@ Tokens use CBOR with integer keys for deterministic serialization:
 
 ### CLI Structure
 
-The unified `signet` binary provides three subcommands:
-
-**signet commit** - Git commit signing (GPG drop-in replacement):
+**signet-git** - Standalone Git integration binary:
 
 ```bash
 # Initialize
-signet commit --init
+signet-git init
+
+# Export key ID
+signet-git export-key-id
 
 # Configure Git
 git config --global gpg.format x509
 git config --global gpg.x509.program signet-git
-git config --global user.signingKey $(signet commit --export-key-id)
+git config --global user.signingKey $(signet-git export-key-id)
 ```
+
+The unified `signet` binary provides two subcommands:
 
 **signet sign** - Universal file signing:
 
@@ -157,11 +165,11 @@ signet authority --help
 
 **What Works (Alpha):**
 
-- `signet commit`: Git signing with ephemeral certificates (GPG replacement)
+- `signet-git`: Git signing with ephemeral certificates (GPG replacement)
 - `signet sign`: Universal file signing with CMS/PKCS#7 format
 - `signet authority`: OIDC-based certificate authority (experimental)
 - Unified Cobra-based CLI with Lipgloss styling
-- Shared keystore and configuration across subcommands
+- Shared keystore and configuration across binaries
 
 **In Progress:**
 

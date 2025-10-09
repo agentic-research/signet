@@ -8,9 +8,9 @@ set -e
 echo "=== Signet Integration Test ==="
 
 # Ensure we have the binary
-if [ ! -f "./signet" ]; then
-    echo "Building signet..."
-    go build -o signet ./cmd/signet
+if [ ! -f "./signet-git" ]; then
+    echo "Building signet-git..."
+    go build -o signet-git ./cmd/signet-git
 fi
 
 # Store original directory
@@ -41,14 +41,14 @@ git commit -m "Initial commit"
 
 echo "--- Step 2: Initialize Signet ---"
 SIGNET_HOME="$TEST_DIR/.signet"
-SIGNET_CMD_PATH="$ORIGINAL_DIR/signet"
+SIGNET_GIT_PATH="$ORIGINAL_DIR/signet-git"
 
 # Initialize signet
 echo "Initializing signet with home: $SIGNET_HOME"
-$SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --init --insecure
+$SIGNET_GIT_PATH init --home "$SIGNET_HOME" --insecure
 
 # Ask the tool for its canonical key ID
-MASTER_KEY_ID=$($SIGNET_CMD_PATH commit --home "$SIGNET_HOME" --export-key-id)
+MASTER_KEY_ID=$($SIGNET_GIT_PATH export-key-id --home "$SIGNET_HOME")
 echo "--- Using Signet Master Key ID: $MASTER_KEY_ID ---"
 
 echo "--- Step 3: Configure Git to use signet ---"
@@ -60,8 +60,8 @@ WRAPPER_SCRIPT="$TEST_DIR/signet-wrapper.sh"
 cat > "$WRAPPER_SCRIPT" << EOF
 #!/bin/bash
 echo "Wrapper called with args: \$@" >&2
-echo "Calling: $SIGNET_CMD_PATH commit --home $SIGNET_HOME \$@" >&2
-exec "$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" "\$@"
+echo "Calling: $SIGNET_GIT_PATH --home $SIGNET_HOME \$@" >&2
+exec "$SIGNET_GIT_PATH" --home "$SIGNET_HOME" "\$@"
 EOF
 chmod +x "$WRAPPER_SCRIPT"
 
@@ -114,7 +114,7 @@ echo "dummy signature" > "$TEST_DIR/test_sig.txt"
 
 # Test that --verify produces NO stdout even on failure (critical for Git SHA integrity)
 # This is a regression test for the Cobra usage/error output bug
-VERIFY_STDOUT=$("$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" --verify "$TEST_DIR/test_sig.txt" "$TEST_DIR/test_data.txt" 2>/dev/null || true)
+VERIFY_STDOUT=$("$SIGNET_GIT_PATH" --home "$SIGNET_HOME" --verify "$TEST_DIR/test_sig.txt" "$TEST_DIR/test_data.txt" 2>/dev/null || true)
 if [ -n "$VERIFY_STDOUT" ]; then
     echo "❌ CRITICAL: --verify produced stdout output (will corrupt Git SHA)"
     echo "Output: $VERIFY_STDOUT"
@@ -136,7 +136,7 @@ in_sig && /^$/ { in_sig=0; print; next }
 
 # Verify with signet's own verifier
 set +e
-SIGNET_VERIFY_OUTPUT=$("$SIGNET_CMD_PATH" commit --home "$SIGNET_HOME" --verify "$TEST_DIR/commit_sig.txt" "$TEST_DIR/commit_clean.txt" 2>&1)
+SIGNET_VERIFY_OUTPUT=$("$SIGNET_GIT_PATH" --home "$SIGNET_HOME" --verify "$TEST_DIR/commit_sig.txt" "$TEST_DIR/commit_clean.txt" 2>&1)
 SIGNET_VERIFY_STATUS=$?
 set -e
 

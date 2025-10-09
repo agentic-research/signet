@@ -21,12 +21,12 @@ Replace GPG with modern Ed25519 signatures:
 make install
 
 # Initialize
-signet commit --init
+signet-git init
 
 # Configure Git
 git config --global gpg.format x509
 git config --global gpg.x509.program signet-git
-git config --global user.signingKey $(signet commit --export-key-id)
+git config --global user.signingKey $(signet-git export-key-id)
 
 # Sign commits
 git commit -S -m "Signed with Signet"

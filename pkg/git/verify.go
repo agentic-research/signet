@@ -147,9 +147,10 @@ func getStatusWriter(statusFd int) io.Writer {
 	)
 
 	// Git always passes fd 1 or 2 even on Windows
+	// If statusFd is 0 (not specified), default to stderr to prevent stdout pollution
 	switch statusFd {
 	case 0:
-		return os.Stdout
+		return os.Stderr
 	case unixStdout:
 		return os.Stdout
 	case unixStderr:

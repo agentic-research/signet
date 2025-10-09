@@ -78,6 +78,7 @@ INVESTIGATION_LOG.md
 AGENT_PROMPT.md
 IMPLEMENTATION.md
 docs/REVOCATION_IMPLEMENTATION_PLAN.md
+proposed_fixes.md
 
 # Local client binary for http-auth
 demo/http-auth/client/client
