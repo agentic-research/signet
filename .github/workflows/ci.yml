@@ -76,7 +76,8 @@ jobs:
       - name: Build binaries
         run: |
           make build
-          ./signet commit --help || echo "Binary built successfully"
+          ./signet --help || echo "signet binary built successfully"
+          ./signet-git --help || echo "signet-git binary built successfully"
 
       - name: Run Docker integration tests
         run: |
@@ -150,7 +151,8 @@ jobs:
       - name: Build binaries with pkcs11 tag
         run: |
           make build TAGS=pkcs11
-          ./signet commit --help || echo "Binary built successfully with PKCS#11 support"
+          ./signet --help || echo "signet binary built successfully with PKCS#11 support"
+          ./signet-git --help || echo "signet-git binary built successfully with PKCS#11 support"
 
       # Optional: Upload coverage to codecov
       # - name: Upload coverage

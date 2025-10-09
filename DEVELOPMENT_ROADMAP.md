@@ -20,7 +20,7 @@
 
 ### What Works Today
 
-- ✅ **Git commit signing** (`signet commit`) - Production-ready offline signing with CMS/PKCS#7
+- ✅ **Git commit signing** (`signet-git`) - Production-ready offline signing with CMS/PKCS#7
 - ✅ **Complete 18-field CBOR token structure** - All 002-protocol-spec fields implemented with validation
 - ✅ **COSE_Sign1 implementation** - Full Ed25519 COSE signing/verification (PR #25)
 - ✅ **SIG1 wire format** - End-to-end integration in demo server/client/middleware (PR #25)
