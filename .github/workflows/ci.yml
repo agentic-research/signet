@@ -85,7 +85,6 @@ jobs:
   test-pkcs11:
     name: Test Suite (PKCS#11 with CGO)
     runs-on: ubuntu-latest
-    continue-on-error: true  # Allow failure while PKCS#11 implementation is in progress
     permissions:
       contents: read
       pull-requests: read
