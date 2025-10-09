@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jamestexas/signet/pkg/cli/config"
 	"github.com/jamestexas/signet/pkg/cli/styles"
 	"github.com/spf13/cobra"
 )
@@ -58,4 +59,20 @@ func Execute() {
 		fmt.Fprintf(os.Stderr, styles.Error.Render("✗")+" %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// getConfig loads configuration with flag overrides
+func getConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		// Fallback to default config
+		cfg = config.New(config.DefaultHome())
+	}
+
+	// Override with --home flag if provided
+	if homeDir != "" {
+		cfg.Home = homeDir
+	}
+
+	return cfg
 }

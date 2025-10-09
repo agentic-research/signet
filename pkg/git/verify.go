@@ -16,8 +16,9 @@ import (
 
 // VerifySignature verifies a CMS signature for Git compatibility
 func VerifySignature(cfg *config.Config, sigFile, dataFile string, statusFd int) error {
-	// Determine status writer
-	statusWriter := getStatusWriter(statusFd)
+	// Determine status writer and cleanup function
+	statusWriter, cleanup := getStatusWriter(statusFd)
+	defer cleanup() // Ensure file descriptor is closed on exit
 
 	// Load master key to create the CA certificate for verification
 	masterKey, err := keystore.LoadMasterKeySecure()
@@ -138,23 +139,35 @@ func VerifySignature(cfg *config.Config, sigFile, dataFile string, statusFd int)
 	return nil
 }
 
-// getStatusWriter returns an io.Writer for GNUPG status output
+// getStatusWriter returns an io.Writer for GNUPG status output and a cleanup function
+// The cleanup function must be called to prevent file descriptor leaks
 // Matches gpgsm/gitsign behavior for fd mapping
-func getStatusWriter(statusFd int) io.Writer {
+func getStatusWriter(statusFd int) (io.Writer, func()) {
 	const (
 		unixStdout = 1
 		unixStderr = 2
 	)
 
+	// No-op cleanup for standard file descriptors
+	noopCleanup := func() {}
+
 	// Git always passes fd 1 or 2 even on Windows
+	// If statusFd is 0 (not specified), default to stderr to prevent stdout pollution
 	switch statusFd {
 	case 0:
-		return os.Stdout
+		return os.Stderr, noopCleanup
 	case unixStdout:
-		return os.Stdout
+		return os.Stdout, noopCleanup
 	case unixStderr:
-		return os.Stderr
+		return os.Stderr, noopCleanup
 	default:
-		return os.NewFile(uintptr(statusFd), "status")
+		// Custom file descriptor - must be closed to prevent leak
+		file := os.NewFile(uintptr(statusFd), "status")
+		cleanup := func() {
+			if file != nil {
+				_ = file.Close()
+			}
+		}
+		return file, cleanup
 	}
 }

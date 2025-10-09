@@ -57,7 +57,10 @@ func SignCommit(cfg *config.Config, localUser string, statusFd int) error {
 	if statusFd > 0 {
 		statusFile := os.NewFile(uintptr(statusFd), "status")
 		if statusFile != nil {
-			_, _ = fmt.Fprintln(statusFile, "[GNUPG:] BEGIN_SIGNING")
+			if _, err := fmt.Fprintln(statusFile, "[GNUPG:] BEGIN_SIGNING"); err != nil {
+				// Log to stderr but don't fail - status output is informational
+				fmt.Fprintf(os.Stderr, "Warning: failed to write BEGIN_SIGNING status: %v\n", err)
+			}
 		}
 	}
 
@@ -73,7 +76,10 @@ func SignCommit(cfg *config.Config, localUser string, statusFd int) error {
 		if statusFile != nil {
 			timestamp := time.Now().Unix()
 			fpr := certHexFingerprint(cert)
-			_, _ = fmt.Fprintf(statusFile, "[GNUPG:] SIG_CREATED D 22 8 00 %d %s\n", timestamp, fpr)
+			if _, err := fmt.Fprintf(statusFile, "[GNUPG:] SIG_CREATED D 22 8 00 %d %s\n", timestamp, fpr); err != nil {
+				// Log to stderr but don't fail - status output is informational
+				fmt.Fprintf(os.Stderr, "Warning: failed to write SIG_CREATED status: %v\n", err)
+			}
 		}
 	}
 
