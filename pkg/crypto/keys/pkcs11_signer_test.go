@@ -7,6 +7,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
+
+	platformpkcs11 "github.com/jamestexas/go-platform-signers/pkcs11"
 )
 
 // TestPKCS11Signer_Public tests that Public() returns the correct public key from the token
@@ -123,7 +125,7 @@ func TestPKCS11Signer_CryptoSignerInterface(t *testing.T) {
 		// Test expectation: PKCS11Signer must implement crypto.Signer
 
 		// This is a compile-time check, but we verify runtime behavior too
-		var _ crypto.Signer = (*PKCS11Signer)(nil)
+		var _ crypto.Signer = (*platformpkcs11.PKCS11Signer)(nil)
 
 		// TODO: Verify interface methods work correctly
 		// signer, err := NewPKCS11Signer(mockConfig)
