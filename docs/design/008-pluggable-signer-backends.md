@@ -46,15 +46,21 @@ This allows for a highly portable default with optional, specialized builds for 
 *   **Model:** Truly ephemeral. A new key is generated in memory for each signing operation and is securely destroyed immediately after.
 *   **Dependencies:** Pure Go.
 
-### 3.2. `PKCS11Signer` (First Pluggable Backend)
+### 3.2. External `cgo`-based Signers
 
+For `crypto.Signer` implementations that require `cgo` to interface with platform-native or hardware-backed security features, these will reside in a separate, external Go module (e.g., `github.com/yourorg/go-platform-signers`). `signet` will consume these signers by importing this external library.
+
+#### 3.2.1. `PKCS11Signer` (First External Backend)
+
+*   **Location:** `github.com/yourorg/go-platform-signers`
 *   **Build Tag:** `pkcs11`
 *   **Model:** Persistent key with a short-lived certificate. The private key remains on the hardware token, and the `LocalCA` issues a short-lived certificate for it.
 *   **Dependencies:** `cgo`, a C compiler, and a PKCS#11 wrapper library.
 
-### 3.3. `TouchIDSigner` (Future Backend Example)
+#### 3.2.2. `TouchIDSigner` (Future External Backend)
 
-*   **Build Tag:** `touchid,darwin`
+*   **Location:** `github.com/yourorg/go-platform-signers`
+*   **Build Tag:** `darwin,cgo,touchid`
 *   **Model:** Persistent key protected by the Secure Enclave. Signing operations are gated by a biometric prompt.
 *   **Dependencies:** `cgo`, Apple's `Security.framework` and `LocalAuthentication.framework`.
 
