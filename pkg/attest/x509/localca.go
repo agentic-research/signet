@@ -97,6 +97,75 @@ func (ca *LocalCA) IssueCodeSigningCertificateSecure(validityDuration time.Durat
 	return cert, certDER, secPriv, nil
 }
 
+// IssueCertificateForSigner creates an X.509 certificate for code signing
+// for a provided crypto.Signer with the specified validity duration.
+// The certificate is issued by the master key (CA) for the signer's public key.
+//
+// This method is designed to work with any crypto.Signer implementation,
+// including hardware-backed signers (PKCS#11, HSM) where the private key
+// never leaves the secure hardware.
+//
+// Returns the certificate and DER bytes. The caller is responsible for
+// managing the lifecycle of the provided signer.
+func (ca *LocalCA) IssueCertificateForSigner(signer crypto.Signer, validityDuration time.Duration) (*x509.Certificate, []byte, error) {
+	// 1. Validate inputs
+	if signer == nil {
+		return nil, nil, errors.New("signer cannot be nil")
+	}
+	if validityDuration <= 0 {
+		return nil, nil, errors.New("validity duration must be positive")
+	}
+
+	// 2. Get public key from the signer
+	publicKey := signer.Public()
+	if publicKey == nil {
+		return nil, nil, errors.New("signer returned nil public key")
+	}
+
+	// 3. Create CA (issuer) certificate template
+	// This represents the master key acting as CA
+	issuerTemplate := ca.CreateCACertificateTemplate()
+	if issuerTemplate == nil {
+		return nil, nil, errors.New("failed to create issuer template")
+	}
+
+	// 4. Create certificate template for the signer's public key
+	template := ca.CreateCertificateTemplate(validityDuration)
+	if template == nil {
+		return nil, nil, errors.New("failed to create certificate template")
+	}
+
+	// 5. Add Subject Key Identifier (required for Git)
+	template.SubjectKeyId = generateSubjectKeyID(publicKey)
+	if template.SubjectKeyId == nil {
+		return nil, nil, errors.New("failed to generate subject key ID (unsupported key type)")
+	}
+
+	// 6. Add Authority Key Identifier (points to master key)
+	issuerTemplate.SubjectKeyId = generateSubjectKeyID(ca.masterKey.Public())
+	template.AuthorityKeyId = issuerTemplate.SubjectKeyId
+
+	// 7. Issue the certificate: master key signs for signer's public key
+	certDER, err := x509.CreateCertificate(
+		rand.Reader,
+		template,       // certificate being created
+		issuerTemplate, // CA certificate (master key)
+		publicKey,      // public key being certified (from signer)
+		ca.masterKey,   // CA private key for signing
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 8. Parse the certificate to return
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return cert, certDER, nil
+}
+
 // IssueEphemeralCertificate creates a self-signed ephemeral certificate
 // with the given public key and validity duration
 func (ca *LocalCA) IssueEphemeralCertificate(publicKey crypto.PublicKey, validityDuration time.Duration) (*x509.Certificate, []byte, error) {
