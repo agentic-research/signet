@@ -144,14 +144,15 @@ func runSign(cmd *cobra.Command, args []string) error {
 	}
 	defer secEphemeralKey.Destroy()
 
-	// Extract the raw key for CMS signing
+	// Extract the raw key and wrap as crypto.Signer for CMS signing
 	ephemeralKey := secEphemeralKey.Key()
+	signer := ed25519.PrivateKey(ephemeralKey) // ed25519.PrivateKey implements crypto.Signer
 
 	// Create CMS signature based on format
 	var signature []byte
 	switch signFormat {
 	case "cms":
-		signature, err = cms.SignData(data, cert, ed25519.PrivateKey(ephemeralKey))
+		signature, err = cms.SignDataWithSigner(data, cert, signer)
 		if err != nil {
 			return fmt.Errorf("failed to create CMS signature: %w", err)
 		}

@@ -40,3 +40,5 @@ require (
 	golang.org/x/sys v0.36.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/jamestexas/go-cms => /Users/jamesgardner/remotes/jamestexas/go-cms
