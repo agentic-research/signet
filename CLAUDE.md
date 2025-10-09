@@ -128,7 +128,7 @@ signet commit --init
 
 # Configure Git
 git config --global gpg.format x509
-git config --global gpg.x509.program $(which signet)
+git config --global gpg.x509.program signet-git
 git config --global user.signingKey $(signet commit --export-key-id)
 ```
 

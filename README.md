@@ -17,14 +17,16 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 Replace GPG with modern Ed25519 signatures:
 
 ```bash
-# Build and initialize
-make build
-./signet commit --init
+# Build and install
+make install
+
+# Initialize
+signet commit --init
 
 # Configure Git
 git config --global gpg.format x509
-git config --global gpg.x509.program "$(pwd)/signet commit"
-git config --global user.signingKey $(./signet commit --export-key-id)
+git config --global gpg.x509.program signet-git
+git config --global user.signingKey $(signet commit --export-key-id)
 
 # Sign commits
 git commit -S -m "Signed with Signet"

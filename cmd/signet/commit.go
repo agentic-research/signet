@@ -58,7 +58,7 @@ short-lived ephemeral certificate derived from your master key.
 
   # Configure Git to use Signet
   git config --global gpg.format x509
-  git config --global gpg.x509.program $(which signet)
+  git config --global gpg.x509.program signet-git
   git config --global user.signingKey $(signet commit --export-key-id)
 
   # Sign commits automatically
