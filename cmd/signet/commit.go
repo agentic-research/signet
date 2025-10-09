@@ -86,10 +86,10 @@ func init() {
 	commitCmd.Flags().BoolP("S-flag", "S", false, "GPG compatibility flag (ignored)")
 
 	// Mark GPG compat flags as hidden for cleaner help output
-	commitCmd.Flags().MarkHidden("sign")
-	commitCmd.Flags().MarkHidden("armor")
-	commitCmd.Flags().MarkHidden("local-user")
-	commitCmd.Flags().MarkHidden("S-flag")
+	_ = commitCmd.Flags().MarkHidden("sign")
+	_ = commitCmd.Flags().MarkHidden("armor")
+	_ = commitCmd.Flags().MarkHidden("local-user")
+	_ = commitCmd.Flags().MarkHidden("S-flag")
 
 	rootCmd.AddCommand(commitCmd)
 }

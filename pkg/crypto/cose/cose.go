@@ -69,7 +69,7 @@ func NewEd25519Signer(privateKey ed25519.PrivateKey) (*Ed25519Signer, error) {
 func (s *Ed25519Signer) Destroy() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s != nil && !s.destroyed {
+	if !s.destroyed {
 		// Zero each byte of the private key
 		for i := range s.privateKey {
 			s.privateKey[i] = 0

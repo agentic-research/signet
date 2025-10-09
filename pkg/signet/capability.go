@@ -27,7 +27,7 @@ import (
 func ComputeCapabilityID(capTokens []uint64) ([]byte, error) {
 	// Handle nil and empty slices - normalize to empty array
 	// Empty capabilities are valid and produce a deterministic hash
-	if capTokens == nil || len(capTokens) == 0 {
+	if len(capTokens) == 0 {
 		capTokens = []uint64{}
 	}
 
