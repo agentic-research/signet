@@ -1,16 +1,22 @@
 .PHONY: all build test integration-test clean docker-build docker-test docker-shell
 
+# Build tags for optional features (e.g., TAGS=pkcs11 for hardware signer support)
+TAGS ?=
+
+# Go build flags
+BUILD_FLAGS := $(if $(TAGS),-tags=$(TAGS),)
+
 # Default target
 all: build
 
 # Build the signet binaries
 build:
-	go build -o signet ./cmd/signet
-	go build -o signet-git ./cmd/signet-git
+	go build $(BUILD_FLAGS) -o signet ./cmd/signet
+	go build $(BUILD_FLAGS) -o signet-git ./cmd/signet-git
 
 # Run unit tests
 test:
-	go test -v ./...
+	go test -v $(BUILD_FLAGS) ./...
 
 # Run integration test locally (requires permissions)
 integration-test-local: build
@@ -75,3 +81,7 @@ help:
 	@echo "  make fmt                - Format code"
 	@echo "  make lint               - Run linters"
 	@echo "  make help               - Show this help"
+	@echo ""
+	@echo "Build tags (use TAGS=<tag>):"
+	@echo "  make build TAGS=pkcs11  - Build with PKCS#11 hardware signer support (requires CGO)"
+	@echo "  make test TAGS=pkcs11   - Run tests with PKCS#11 support enabled"

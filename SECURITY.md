@@ -75,6 +75,67 @@ Planned for v1.0:
 - **Certificates**: X.509 v3 with 5-minute validity
 - **Key derivation**: Not yet implemented (planned)
 
+## External Dependency Vetting
+
+Signet follows a **minimal wrapper code** philosophy for cryptographic and hardware operations. External dependencies are carefully vetted:
+
+### Vetting Criteria
+
+1. **Memory Safety**: Dependencies that handle cryptographic material must demonstrate proper memory zeroization
+2. **Audit Trail**: Preferably maintained by organizations with security expertise
+3. **API Stability**: Mature APIs with documented security properties
+4. **Build Tag Isolation**: CGO dependencies are isolated behind build tags to keep the default Pure Go build portable
+
+### Current Dependencies
+
+#### Core Cryptography (Always Required)
+- **`golang.org/x/crypto`** - Official Go crypto extensions
+  - Maintained by Go team
+  - Used for Ed25519 operations
+  - Well-audited standard library extensions
+
+- **`github.com/jamestexas/go-cms`** - CMS/PKCS#7 with Ed25519
+  - Extracted from this project for reuse
+  - OpenSSL-compatible signatures
+  - No CGO dependencies
+
+#### Hardware Signers (Optional, CGO Required)
+- **`github.com/jamestexas/go-platform-signers`** - Hardware token integration
+  - Public repository: https://github.com/jamestexas/go-platform-signers
+  - Provides `crypto.Signer` implementations for PKCS#11
+  - Only compiled when `-tags=pkcs11` is specified
+  - **Status**: Under active security review
+  - **PIN Handling**: Delegates PIN zeroization to underlying PKCS#11 module
+
+- **`github.com/miekg/pkcs11`** - PKCS#11 Go bindings (transitive via go-platform-signers)
+  - Widely used in Go ecosystem
+  - Thin CGO wrapper around native PKCS#11 libraries
+  - Security properties depend on the underlying HSM/token vendor libraries
+
+### Adding New Dependencies
+
+Before adding a new cryptographic or hardware dependency:
+
+1. **Security Review**:
+   - Check for memory safety issues (buffer overflows, use-after-free)
+   - Verify zeroization of sensitive material
+   - Review issue tracker for security vulnerabilities
+
+2. **Maintainer Assessment**:
+   - Who maintains it? (Individual, organization, community)
+   - How active is development?
+   - How are security issues handled?
+
+3. **Build Tag Strategy**:
+   - Pure Go implementations: default build
+   - CGO/platform-specific: behind build tags
+   - Document the tradeoff between portability and features
+
+4. **Documentation**:
+   - Add to this SECURITY.md with vetting rationale
+   - Document security properties and limitations
+   - Clarify who is responsible for memory safety
+
 ## Acknowledgments
 
 Thanks to researchers and developers who review and provide feedback on Signet's security model.

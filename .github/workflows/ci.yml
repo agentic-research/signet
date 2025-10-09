@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Test Suite
+    name: Test Suite (Pure Go)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,7 +23,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
           cache: true
 
       - name: Install dependencies
@@ -82,6 +82,76 @@ jobs:
         run: |
           make integration-test
 
+  test-pkcs11:
+    name: Test Suite (PKCS#11 with CGO)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better git operations
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Install SoftHSM and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y softhsm2 build-essential
+
+      - name: Install dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Run unit tests with pkcs11 tag
+        run: |
+          set -euo pipefail
+
+          # Get list of packages excluding demo directories
+          PKGS="$(go list ./... | grep -v '/demo/' || true)"
+
+          if [ -z "${PKGS}" ]; then
+            echo "No packages to test."
+            exit 0
+          fi
+
+          # Create empty coverage file with header
+          echo "mode: atomic" > coverage-pkcs11.out
+
+          # Test each package individually with pkcs11 tag and merge coverage
+          echo "${PKGS}" | while read -r pkg; do
+            if [ -n "$pkg" ]; then
+              echo "Testing ${pkg} with pkcs11 tag..."
+              # Check if package has test files
+              if go list -f '{{.TestGoFiles}}' "$pkg" | grep -q '\[.*\.go\]'; then
+                go test -v -race -tags=pkcs11 -coverprofile=tmp.out -covermode=atomic "$pkg"
+                # Merge coverage data (skip mode line)
+                if [ -f tmp.out ]; then
+                  grep -h -v "^mode:" tmp.out >> coverage-pkcs11.out 2>/dev/null || true
+                  rm tmp.out
+                fi
+              else
+                echo "  No test files found, skipping..."
+              fi
+            fi
+          done
+
+          # Display coverage report
+          go tool cover -func=coverage-pkcs11.out
+
+      - name: Build binaries with pkcs11 tag
+        run: |
+          make build TAGS=pkcs11
+          ./signet commit --help || echo "Binary built successfully with PKCS#11 support"
+
       # Optional: Upload coverage to codecov
       # - name: Upload coverage
       #   uses: codecov/codecov-action@v3
@@ -101,7 +171,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
           cache: true
 
       - name: Run benchmarks
