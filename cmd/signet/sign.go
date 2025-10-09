@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"os"
 	"time"
@@ -12,16 +11,19 @@ import (
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/keystore"
 	"github.com/jamestexas/signet/pkg/cli/styles"
+	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
 
 var (
 	// Sign subcommand flags
-	signFormat     string
-	signOutput     string
-	signInitFlag   bool
-	signForceFlag  bool
-	signVerifyFile string
-	signVerifySig  string
+	signFormat       string
+	signOutput       string
+	signInitFlag     bool
+	signForceFlag    bool
+	signVerifyFile   string
+	signVerifySig    string
+	signSignerModule string
+	signSignerOpts   string
 )
 
 var signCmd = &cobra.Command{
@@ -63,6 +65,8 @@ func init() {
 	signCmd.Flags().StringVarP(&signOutput, "output", "o", "", "Output file (default: <input>.sig)")
 	signCmd.Flags().StringVar(&signVerifyFile, "verify-data", "", "Data file for verification")
 	signCmd.Flags().StringVar(&signVerifySig, "verify-sig", "", "Signature file for verification")
+	signCmd.Flags().StringVar(&signSignerModule, "signer-module", "software", "Signer module: software (default) or pkcs11")
+	signCmd.Flags().StringVar(&signSignerOpts, "signer-opts", "", "Module-specific options (e.g., for pkcs11: module-path=/path/to/lib.so,slot-id=0)")
 
 	rootCmd.AddCommand(signCmd)
 }
@@ -137,16 +141,26 @@ func runSign(cmd *cobra.Command, args []string) error {
 	// Calculate certificate validity
 	certValidity := time.Duration(cfg.CertificateValidityMinutes) * time.Minute
 
-	// Generate ephemeral certificate with secure key handling
-	cert, _, secEphemeralKey, err := ca.IssueCodeSigningCertificateSecure(certValidity)
+	// Create signer using factory (supports software and hardware backends)
+	signer, err := keys.NewSigner(
+		keys.WithModule(signSignerModule),
+		keys.WithOptions(signSignerOpts),
+		keys.WithValidity(certValidity),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create signer: %w", err)
+	}
+
+	// Clean up signer resources if it implements Destroy()
+	if destroyer, ok := signer.(interface{ Destroy() }); ok {
+		defer destroyer.Destroy()
+	}
+
+	// Issue certificate for the signer (works with any crypto.Signer implementation)
+	cert, _, err := ca.IssueCertificateForSigner(signer, certValidity)
 	if err != nil {
 		return fmt.Errorf("failed to generate certificate: %w", err)
 	}
-	defer secEphemeralKey.Destroy()
-
-	// Extract the raw key and wrap as crypto.Signer for CMS signing
-	ephemeralKey := secEphemeralKey.Key()
-	signer := ed25519.PrivateKey(ephemeralKey) // ed25519.PrivateKey implements crypto.Signer
 
 	// Create CMS signature based on format
 	var signature []byte
