@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/jamestexas/signet/pkg/crypto/epr"
 	"github.com/jamestexas/signet/pkg/http/middleware"
 	"github.com/jamestexas/signet/pkg/revocation"
@@ -30,22 +31,26 @@ func TestRevocation(t *testing.T) {
 
 	// 1. Set up a test CA bundle server.
 	bundle := &types.CABundle{
-		Epoch: 2, // The current, valid epoch.
-		Seqno: 1,
-		Keys:  make(map[string][]byte),
+		Epoch:     2, // The current, valid epoch.
+		Seqno:     1,
+		Keys:      make(map[string][]byte),
+		KeyID:     "",
+		PrevKeyID: "",
+		IssuedAt:  time.Now().Unix(),
 	}
 
-	// Sign the bundle
-	bundleMsg := struct {
-		Epoch uint64            `json:"epoch"`
-		Seqno uint64            `json:"seqno"`
-		Keys  map[string][]byte `json:"keys"`
-	}{
-		Epoch: bundle.Epoch,
-		Seqno: bundle.Seqno,
-		Keys:  bundle.Keys,
+	// Sign the bundle using CBOR
+	message := map[int]interface{}{
+		1: bundle.Epoch,     // epoch
+		2: bundle.Seqno,     // seqno
+		3: bundle.Keys,      // keys map
+		4: bundle.KeyID,     // current key ID
+		5: bundle.PrevKeyID, // previous key ID
+		6: bundle.IssuedAt,  // issued timestamp
 	}
-	bundleCanonical, _ := json.Marshal(bundleMsg)
+
+	encMode, _ := cbor.CanonicalEncOptions().EncMode()
+	bundleCanonical, _ := encMode.Marshal(message)
 	bundle.Signature = ed25519.Sign(bundlePriv, bundleCanonical)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

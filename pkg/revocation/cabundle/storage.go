@@ -2,11 +2,15 @@ package cabundle
 
 import (
 	"context"
-
+	"errors"
 	"sync"
 
 	"github.com/jamestexas/signet/pkg/revocation/types"
 )
+
+// ErrNotFound is returned when a key is not found in storage.
+// This is typically returned on first request when no seqno has been stored yet.
+var ErrNotFound = errors.New("cabundle: key not found")
 
 // MemoryStorage is an in-memory implementation of the types.Storage interface.
 type MemoryStorage struct {

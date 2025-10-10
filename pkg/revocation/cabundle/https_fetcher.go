@@ -4,9 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/jamestexas/signet/pkg/revocation/types"
+)
+
+const (
+	// maxBundleSize is the maximum allowed size for a CA bundle response.
+	// This prevents DoS attacks via excessively large responses.
+	maxBundleSize = 10 * 1024 * 1024 // 10MB
 )
 
 // HTTPSFetcher is an implementation of the revocation.Fetcher interface that fetches
@@ -44,8 +51,21 @@ func (f *HTTPSFetcher) Fetch(ctx context.Context, issuerID string) (*types.CABun
 		return nil, fmt.Errorf("failed to fetch CA bundle: status code %d", resp.StatusCode)
 	}
 
+	// Limit response body size to prevent DoS attacks
+	// io.LimitReader will return EOF after maxBundleSize bytes are read
+	limitedReader := io.LimitReader(resp.Body, maxBundleSize)
+
 	var bundle types.CABundle
-	if err := json.NewDecoder(resp.Body).Decode(&bundle); err != nil {
+	decoder := json.NewDecoder(limitedReader)
+	if err := decoder.Decode(&bundle); err != nil {
+		// Check if we hit the size limit
+		if err == io.EOF {
+			// Try to read one more byte to confirm we hit the limit
+			var buf [1]byte
+			if n, _ := resp.Body.Read(buf[:]); n > 0 {
+				return nil, fmt.Errorf("CA bundle response too large (max %d bytes)", maxBundleSize)
+			}
+		}
 		return nil, fmt.Errorf("failed to decode CA bundle: %w", err)
 	}
 

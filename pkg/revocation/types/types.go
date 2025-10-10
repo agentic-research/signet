@@ -15,6 +15,16 @@ type CABundle struct {
 	// Keys is a map of key IDs to public keys.
 	Keys map[string][]byte `json:"keys"`
 
+	// KeyID is the current primary key identifier (for quick checks)
+	KeyID string `json:"keyId,omitempty"`
+
+	// PrevKeyID is the previous key identifier (for grace period during rotation)
+	PrevKeyID string `json:"prevKeyId,omitempty"`
+
+	// IssuedAt is the Unix timestamp when this bundle was issued.
+	// Used to detect stale bundles that might have been cached or backed up.
+	IssuedAt int64 `json:"issuedAt,omitempty"`
+
 	// Signature is a signature of the bundle, used to verify its authenticity.
 	Signature []byte `json:"signature"`
 }
