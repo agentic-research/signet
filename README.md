@@ -72,6 +72,7 @@ handler := middleware.SignetMiddleware(
 - Replay attack prevention
 - Pluggable token/nonce stores (memory, Redis)
 - Clock skew tolerance
+- **Token revocation** via SPIRE-model CA bundle rotation (new!)
 
 See [`pkg/http/middleware/README.md`](./pkg/http/middleware/README.md) for details.
 
@@ -90,6 +91,40 @@ export OIDC_CLIENT_ID="your-client-id"
 
 See [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md) for detailed setup and configuration.
 
+### 5. Token Revocation System (New!)
+
+SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
+
+**Features:**
+- **Instant revocation** of compromised keys via CA rotation
+- **Rollback protection** with monotonic sequence numbers
+- **Fail-closed design** - infrastructure failures deny access
+- **Grace periods** for smooth key rotation
+- **Offline-first** - no CRL/OCSP dependency
+
+**How it works:**
+```go
+// Configure revocation checker
+checker := revocation.NewCABundleChecker(
+    fetcher:  cabundle.NewHTTPSFetcher(bundleServerURL, nil),
+    storage:  cabundle.NewMemoryStorage(),
+    cache:    cabundle.NewBundleCache(30*time.Second),
+    trustAnchor: bundleSigningPublicKey,
+)
+
+// Add to middleware
+handler := middleware.SignetMiddleware(
+    middleware.WithRevocationChecker(checker),
+)(yourHandler)
+```
+
+Tokens are automatically checked against the CA bundle for:
+- Epoch validity (instant revocation of old epochs)
+- Key ID matching (CA rotation detection)
+- Sequence number monotonicity (rollback attack prevention)
+
+See [`docs/design/006-revocation.md`](./docs/design/006-revocation.md) for architecture details.
+
 ## Core Libraries
 
 All tools built on production-ready primitives:
@@ -101,6 +136,7 @@ All tools built on production-ready primitives:
 | [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
 | [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal† |
 | [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal† |
+| [`pkg/revocation`](./pkg/revocation) | SPIRE-model token revocation system | Internal† |
 
 † *Internal* = Developed in-house, no independent security audit yet
 
@@ -173,8 +209,8 @@ See **[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)** for detailed status, pr
 
 **Critical gaps before v1.0:**
 - Complete key storage migration (some features still use plaintext fallback)
-- Revocation system (no way to invalidate compromised tokens)
 - Security audit (required before production use)
+- Issuer-side integration (tokens need to embed KeyID and Epoch from CA bundle)
 
 ## Contributing
 

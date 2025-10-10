@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/jamestexas/signet/pkg/revocation"
 	"github.com/jamestexas/signet/pkg/revocation/cabundle"
 	"github.com/jamestexas/signet/pkg/revocation/types"
@@ -24,22 +25,26 @@ func TestSignatureVerification_InvalidSignature(t *testing.T) {
 
 	// Create a valid bundle
 	bundle := &types.CABundle{
-		Epoch: 1,
-		Seqno: 1,
-		Keys:  make(map[string][]byte),
+		Epoch:     1,
+		Seqno:     1,
+		Keys:      make(map[string][]byte),
+		KeyID:     "",
+		PrevKeyID: "",
+		IssuedAt:  time.Now().Unix(),
 	}
 
-	// Sign it with the correct key
-	bundleMsg := struct {
-		Epoch uint64            `json:"epoch"`
-		Seqno uint64            `json:"seqno"`
-		Keys  map[string][]byte `json:"keys"`
-	}{
-		Epoch: bundle.Epoch,
-		Seqno: bundle.Seqno,
-		Keys:  bundle.Keys,
+	// Sign it with the correct key using CBOR
+	message := map[int]interface{}{
+		1: bundle.Epoch,     // epoch
+		2: bundle.Seqno,     // seqno
+		3: bundle.Keys,      // keys map
+		4: bundle.KeyID,     // current key ID
+		5: bundle.PrevKeyID, // previous key ID
+		6: bundle.IssuedAt,  // issued timestamp
 	}
-	bundleCanonical, _ := json.Marshal(bundleMsg)
+
+	encMode, _ := cbor.CanonicalEncOptions().EncMode()
+	bundleCanonical, _ := encMode.Marshal(message)
 	bundle.Signature = ed25519.Sign(bundlePriv, bundleCanonical)
 
 	// Tamper with the signature
@@ -63,13 +68,14 @@ func TestSignatureVerification_InvalidSignature(t *testing.T) {
 		KeyID:    []byte("test-key"),
 	}
 
-	// IsRevoked should fail due to signature verification
+	// IsRevoked should fail-closed due to signature verification
 	revoked, err := checker.IsRevoked(context.Background(), token)
 	if err == nil {
 		t.Fatal("expected error for invalid signature, got nil")
 	}
-	if !revoked {
-		t.Error("expected token to be marked as revoked on signature failure")
+	// Fail-closed means return false (not revoked) with error
+	if revoked {
+		t.Error("expected false (fail-closed) on signature failure, got true")
 	}
 }
 
@@ -109,8 +115,9 @@ func TestSignatureVerification_MissingSignature(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing signature, got nil")
 	}
-	if !revoked {
-		t.Error("expected token to be marked as revoked on missing signature")
+	// Fail-closed means return false (not revoked) with error
+	if revoked {
+		t.Error("expected false (fail-closed) on missing signature, got true")
 	}
 }
 
@@ -128,21 +135,26 @@ func TestSignatureVerification_WrongKey(t *testing.T) {
 	}
 
 	bundle := &types.CABundle{
-		Epoch: 1,
-		Seqno: 1,
-		Keys:  make(map[string][]byte),
+		Epoch:     1,
+		Seqno:     1,
+		Keys:      make(map[string][]byte),
+		KeyID:     "",
+		PrevKeyID: "",
+		IssuedAt:  time.Now().Unix(),
 	}
 
-	bundleMsg := struct {
-		Epoch uint64            `json:"epoch"`
-		Seqno uint64            `json:"seqno"`
-		Keys  map[string][]byte `json:"keys"`
-	}{
-		Epoch: bundle.Epoch,
-		Seqno: bundle.Seqno,
-		Keys:  bundle.Keys,
+	// Sign with wrong key using CBOR
+	message := map[int]interface{}{
+		1: bundle.Epoch,     // epoch
+		2: bundle.Seqno,     // seqno
+		3: bundle.Keys,      // keys map
+		4: bundle.KeyID,     // current key ID
+		5: bundle.PrevKeyID, // previous key ID
+		6: bundle.IssuedAt,  // issued timestamp
 	}
-	bundleCanonical, _ := json.Marshal(bundleMsg)
+
+	encMode, _ := cbor.CanonicalEncOptions().EncMode()
+	bundleCanonical, _ := encMode.Marshal(message)
 	bundle.Signature = ed25519.Sign(wrongPriv, bundleCanonical) // Wrong key!
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,8 +178,9 @@ func TestSignatureVerification_WrongKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for wrong signing key, got nil")
 	}
-	if !revoked {
-		t.Error("expected token to be marked as revoked on wrong signing key")
+	// Fail-closed means return false (not revoked) with error
+	if revoked {
+		t.Error("expected false (fail-closed) on wrong signing key, got true")
 	}
 }
 
@@ -185,18 +198,23 @@ func TestSignatureVerification_ValidSignature(t *testing.T) {
 		Keys: map[string][]byte{
 			"test-key": []byte("dummy-public-key"),
 		},
+		KeyID:     "test-key",
+		PrevKeyID: "",
+		IssuedAt:  time.Now().Unix(),
 	}
 
-	bundleMsg := struct {
-		Epoch uint64            `json:"epoch"`
-		Seqno uint64            `json:"seqno"`
-		Keys  map[string][]byte `json:"keys"`
-	}{
-		Epoch: bundle.Epoch,
-		Seqno: bundle.Seqno,
-		Keys:  bundle.Keys,
+	// Sign with correct key using CBOR
+	message := map[int]interface{}{
+		1: bundle.Epoch,     // epoch
+		2: bundle.Seqno,     // seqno
+		3: bundle.Keys,      // keys map
+		4: bundle.KeyID,     // current key ID
+		5: bundle.PrevKeyID, // previous key ID
+		6: bundle.IssuedAt,  // issued timestamp
 	}
-	bundleCanonical, _ := json.Marshal(bundleMsg)
+
+	encMode, _ := cbor.CanonicalEncOptions().EncMode()
+	bundleCanonical, _ := encMode.Marshal(message)
 	bundle.Signature = ed25519.Sign(bundlePriv, bundleCanonical)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
