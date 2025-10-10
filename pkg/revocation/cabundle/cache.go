@@ -2,9 +2,7 @@ package cabundle
 
 import (
 	"context"
-
 	"sync"
-
 	"time"
 
 	"github.com/jamestexas/signet/pkg/revocation/types"
@@ -24,20 +22,14 @@ type cachedBundle struct {
 }
 
 // NewBundleCache creates a new BundleCache.
-
 func NewBundleCache(ttl time.Duration) *BundleCache {
-
 	return &BundleCache{
-
 		bundles: make(map[string]*cachedBundle),
-
-		ttl: ttl,
+		ttl:     ttl,
 	}
-
 }
 
 // Get returns a CA bundle from the cache or fetches it if it's not present or expired.
-
 func (c *BundleCache) Get(ctx context.Context, issuerID string, fetcher types.Fetcher) (*types.CABundle, error) {
 	c.mu.RLock()
 	if cached, ok := c.bundles[issuerID]; ok && time.Now().Before(cached.expiresAt) {
