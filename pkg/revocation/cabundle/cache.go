@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"github.com/jamestexas/signet/pkg/revocation/types"
+	"golang.org/x/sync/singleflight"
 )
 
-// BundleCache is a simple in-memory cache for CA bundles.
+// BundleCache is a simple in-memory cache for CA bundles with request deduplication.
 type BundleCache struct {
 	mu      sync.RWMutex
 	bundles map[string]*cachedBundle
 	ttl     time.Duration
+	group   singleflight.Group // Deduplicates concurrent requests for the same key
 }
 
 // cachedBundle is a wrapper around a CA bundle that includes an expiration time.
@@ -30,8 +32,9 @@ func NewBundleCache(ttl time.Duration) *BundleCache {
 }
 
 // Get returns a CA bundle from the cache or fetches it if it's not present or expired.
+// Uses singleflight to deduplicate concurrent requests for the same issuerID.
 func (c *BundleCache) Get(ctx context.Context, issuerID string, fetcher types.Fetcher) (*types.CABundle, error) {
-	// First check with read lock
+	// First check with read lock for cached value
 	c.mu.RLock()
 	if cached, ok := c.bundles[issuerID]; ok && time.Now().Before(cached.expiresAt) {
 		c.mu.RUnlock()
@@ -39,31 +42,36 @@ func (c *BundleCache) Get(ctx context.Context, issuerID string, fetcher types.Fe
 	}
 	c.mu.RUnlock()
 
-	// Upgrade to write lock to prevent double-fetch race condition
-	c.mu.Lock()
+	// Use singleflight to deduplicate concurrent requests
+	v, err, _ := c.group.Do(issuerID, func() (interface{}, error) {
+		// Double-check cache inside singleflight (another request might have just populated it)
+		c.mu.RLock()
+		if cached, ok := c.bundles[issuerID]; ok && time.Now().Before(cached.expiresAt) {
+			c.mu.RUnlock()
+			return cached.bundle, nil
+		}
+		c.mu.RUnlock()
 
-	// Double-check after acquiring write lock (another goroutine might have fetched it)
-	if cached, ok := c.bundles[issuerID]; ok && time.Now().Before(cached.expiresAt) {
+		// Fetch the bundle
+		bundle, err := fetcher.Fetch(ctx, issuerID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Store in cache
+		c.mu.Lock()
+		c.bundles[issuerID] = &cachedBundle{
+			bundle:    bundle,
+			expiresAt: time.Now().Add(c.ttl),
+		}
 		c.mu.Unlock()
-		return cached.bundle, nil
-	}
 
-	// We hold the write lock, release it before the potentially slow fetch operation
-	c.mu.Unlock()
+		return bundle, nil
+	})
 
-	// Fetch the bundle (outside the lock to avoid blocking other reads)
-	bundle, err := fetcher.Fetch(ctx, issuerID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Re-acquire write lock to store the bundle
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.bundles[issuerID] = &cachedBundle{
-		bundle:    bundle,
-		expiresAt: time.Now().Add(c.ttl),
-	}
-
-	return bundle, nil
+	return v.(*types.CABundle), nil
 }
