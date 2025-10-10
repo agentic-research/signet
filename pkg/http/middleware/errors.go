@@ -23,6 +23,9 @@ var (
 	// ErrTokenNotYetValid indicates the token's NotBefore time hasn't arrived
 	ErrTokenNotYetValid = errors.New("token not yet valid")
 
+	// ErrTokenRevoked indicates the token has been revoked
+	ErrTokenRevoked = errors.New("token revoked")
+
 	// ErrClockSkew indicates the request timestamp is outside acceptable bounds
 	ErrClockSkew = errors.New("clock skew detected")
 
@@ -50,6 +53,9 @@ func defaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	status := errorToHTTPStatus(err)
 	http.Error(w, err.Error(), status)
 }
+
+// DefaultErrorHandler is the default error handler for testing/direct use
+var DefaultErrorHandler ErrorHandler = defaultErrorHandler
 
 // jsonErrorHandler returns JSON-formatted error responses
 func jsonErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
@@ -79,6 +85,8 @@ func errorToHTTPStatus(err error) int {
 	case errors.Is(err, ErrTokenExpired):
 		return http.StatusUnauthorized
 	case errors.Is(err, ErrTokenNotYetValid):
+		return http.StatusUnauthorized
+	case errors.Is(err, ErrTokenRevoked):
 		return http.StatusUnauthorized
 	case errors.Is(err, ErrClockSkew):
 		return http.StatusUnauthorized
@@ -112,6 +120,8 @@ func errorToCode(err error) string {
 		return "TOKEN_EXPIRED"
 	case errors.Is(err, ErrTokenNotYetValid):
 		return "TOKEN_NOT_YET_VALID"
+	case errors.Is(err, ErrTokenRevoked):
+		return "TOKEN_REVOKED"
 	case errors.Is(err, ErrClockSkew):
 		return "CLOCK_SKEW"
 	case errors.Is(err, ErrReplayDetected):
@@ -142,6 +152,8 @@ func errorToMessage(err error) string {
 		return "The token has expired. Please obtain a new token."
 	case errors.Is(err, ErrTokenNotYetValid):
 		return "The token is not yet valid. Please check your system time."
+	case errors.Is(err, ErrTokenRevoked):
+		return "The token has been revoked."
 	case errors.Is(err, ErrClockSkew):
 		return "Request timestamp is outside acceptable bounds. Please sync your clock."
 	case errors.Is(err, ErrReplayDetected):
