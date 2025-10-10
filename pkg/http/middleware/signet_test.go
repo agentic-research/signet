@@ -25,15 +25,18 @@ func setupTestMiddleware(t *testing.T) (*Config, ed25519.PublicKey, ed25519.Priv
 	}
 
 	config := &Config{
-		clockSkew:      30 * time.Second,
-		tokenStore:     NewMemoryTokenStore(),
-		nonceStore:     NewMemoryNonceStore(),
-		keyProvider:    &staticKeyProvider{key: masterPub},
-		errorHandler:   defaultErrorHandler,
-		requestBuilder: defaultRequestBuilder,
-		logger:         &testLogger{t: t},
-		metrics:        &noOpMetrics{},
+		ClockSkew:      30 * time.Second,
+		TokenStore:     NewMemoryTokenStore(),
+		NonceStore:     NewMemoryNonceStore(),
+		ErrorHandler:   DefaultErrorHandler,
+		RequestBuilder: DefaultRequestBuilder,
+		Logger:         &testLogger{t: t},
+		Metrics:        &NoOpMetrics{},
 	}
+
+	// Use WithMasterKey option to set the key provider
+	opt := WithMasterKey(masterPub)
+	opt(config)
 
 	return config, masterPub, masterPriv
 }
@@ -60,7 +63,6 @@ func (l *testLogger) Error(msg string, args ...interface{}) {
 }
 
 // generateTestToken creates a valid token with ephemeral binding
-// IMPORTANT: The ephemeral key is NOT destroyed automatically. The caller must handle cleanup.
 func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose string) (*TokenRecord, ed25519.PrivateKey) {
 	// Generate ephemeral proof
 	generator := epr.NewGenerator(masterPriv)
@@ -78,11 +80,8 @@ func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose stri
 	if ephemeralPriv == nil {
 		t.Fatal("ephemeralPriv is nil")
 	}
-	// NOTE: Not destroying here since caller needs the key for signing
-	// The key would be zeroed before use if we defer here
 
 	// Verify key consistency
-	// Verify public key matches
 	derivedPub := ephemeralPriv.Public().(ed25519.PublicKey)
 	if !bytes.Equal(derivedPub, ephemeralPub) {
 		t.Fatal("public keys don't match")
@@ -102,6 +101,7 @@ func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose stri
 	if err != nil {
 		t.Fatal(err)
 	}
+	token.Epoch = 1
 
 	record := &TokenRecord{
 		Token:              token,
@@ -154,7 +154,7 @@ func TestSignetMiddleware_Success(t *testing.T) {
 	record, ephemeralPriv := generateTestToken(t, masterPriv, "test-purpose")
 
 	// Store token
-	tokenID, err := config.tokenStore.Store(context.Background(), record)
+	tokenID, err := config.TokenStore.Store(context.Background(), record)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,9 +162,9 @@ func TestSignetMiddleware_Success(t *testing.T) {
 	// Create middleware
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
-		WithLogger(config.logger),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
+		WithLogger(config.Logger),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
@@ -211,8 +211,8 @@ func TestSignetMiddleware_MissingHeader(t *testing.T) {
 
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
@@ -239,7 +239,7 @@ func TestSignetMiddleware_InvalidSignature(t *testing.T) {
 	record, _ := generateTestToken(t, masterPriv, "test-purpose")
 
 	// Store token
-	_, err := config.tokenStore.Store(context.Background(), record)
+	_, err := config.TokenStore.Store(context.Background(), record)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,9 +247,9 @@ func TestSignetMiddleware_InvalidSignature(t *testing.T) {
 	// Create middleware
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
-		WithLogger(config.logger),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
+		WithLogger(config.Logger),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
@@ -318,12 +318,12 @@ func TestSignetMiddleware_ExpiredToken(t *testing.T) {
 	}
 
 	// Store expired token
-	_, _ = config.tokenStore.Store(context.Background(), record)
+	_, _ = config.TokenStore.Store(context.Background(), record)
 
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
@@ -350,7 +350,7 @@ func TestSignetMiddleware_ReplayDetection(t *testing.T) {
 	record, ephemeralPriv := generateTestToken(t, masterPriv, "test-purpose")
 
 	// Store token
-	_, err := config.tokenStore.Store(context.Background(), record)
+	_, err := config.TokenStore.Store(context.Background(), record)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,9 +358,9 @@ func TestSignetMiddleware_ReplayDetection(t *testing.T) {
 	// Create middleware
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
-		WithLogger(config.logger),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
+		WithLogger(config.Logger),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
@@ -398,18 +398,18 @@ func TestSignetMiddleware_ReplayDetection(t *testing.T) {
 
 func TestSignetMiddleware_ClockSkew(t *testing.T) {
 	config, masterPub, masterPriv := setupTestMiddleware(t)
-	config.clockSkew = 10 * time.Second // Strict clock skew
+	config.ClockSkew = 10 * time.Second // Strict clock skew
 
 	// Generate test token
 	record, ephemeralPriv := generateTestToken(t, masterPriv, "test-purpose")
 
 	// Store token
-	_, _ = config.tokenStore.Store(context.Background(), record)
+	_, _ = config.TokenStore.Store(context.Background(), record)
 
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
 		WithClockSkew(10*time.Second),
 	)
 	if err != nil {
@@ -620,15 +620,15 @@ func TestQueryParamCanonicalization(t *testing.T) {
 	}()
 
 	// Store token
-	_, err := config.tokenStore.Store(context.Background(), record)
+	_, err := config.TokenStore.Store(context.Background(), record)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	middleware, err := SignetMiddleware(
 		WithMasterKey(masterPub),
-		WithTokenStore(config.tokenStore),
-		WithNonceStore(config.nonceStore),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
 	)
 	if err != nil {
 		t.Fatalf("Failed to create middleware: %v", err)
