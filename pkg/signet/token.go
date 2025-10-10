@@ -41,6 +41,7 @@ type Token struct {
 	AudienceStr    string                 `cbor:"16,keyasint,omitempty"`
 	Nonce          []byte                 `cbor:"17,keyasint,omitempty"`
 	EphemeralKeyID []byte                 `cbor:"18,keyasint,omitempty"`
+	Epoch          uint64                 `cbor:"19,keyasint,omitempty"`
 }
 
 // NewToken creates a new Signet token with sensible defaults derived from the
@@ -153,6 +154,7 @@ func (t *Token) validate() error {
 	case t.ExpiresAt < t.IssuedAt:
 		return fmt.Errorf("%w: expires-at precedes issued-at", ErrInvalidToken)
 	}
+	// Epoch is optional - it's only required when using revocation features
 	return nil
 }
 

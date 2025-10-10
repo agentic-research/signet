@@ -34,6 +34,7 @@ func TestEncodeSIG1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create token: %v", err)
 	}
+	token.Epoch = 1
 
 	// Create COSE signer
 	signer, err := cose.NewEd25519Signer(priv)
@@ -84,8 +85,13 @@ func TestDecodeSIG1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create token: %v", err)
 	}
+	originalToken.Epoch = 1
 
-	signer, _ := cose.NewEd25519Signer(priv)
+	signer, err := cose.NewEd25519Signer(priv)
+	if err != nil {
+		t.Fatalf("failed to create signer: %v", err)
+	}
+
 	sig1, err := EncodeSIG1(originalToken, signer)
 	if err != nil {
 		t.Fatalf("EncodeSIG1 failed: %v", err)
@@ -134,6 +140,7 @@ func TestVerifySIG1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create token: %v", err)
 	}
+	originalToken.Epoch = 1
 
 	// Encode
 	signer, _ := cose.NewEd25519Signer(priv)
@@ -171,6 +178,7 @@ func TestVerifySIG1WithWrongKey(t *testing.T) {
 	rand.Read(nonce)
 
 	token, _ := NewToken("test", masterHash[:], ephemeralHash[:], nonce, 5*time.Minute)
+	token.Epoch = 1
 	signer, _ := cose.NewEd25519Signer(priv1)
 	sig1, _ := EncodeSIG1(token, signer)
 
@@ -200,6 +208,7 @@ func TestEncodeSIG1NilSigner(t *testing.T) {
 	rand.Read(nonce)
 
 	token, _ := NewToken("test", masterHash[:], ephemeralHash[:], nonce, 5*time.Minute)
+	token.Epoch = 1
 
 	_, err := EncodeSIG1(token, nil)
 	if err == nil {
@@ -252,6 +261,7 @@ func TestSIG1String(t *testing.T) {
 	rand.Read(nonce)
 
 	token, _ := NewToken("test", masterHash[:], ephemeralHash[:], nonce, 5*time.Minute)
+	token.Epoch = 1
 	signer, _ := cose.NewEd25519Signer(priv)
 	sig1Str, _ := EncodeSIG1(token, signer)
 
@@ -270,6 +280,7 @@ func TestSIG1RoundTrip(t *testing.T) {
 	rand.Read(nonce)
 
 	token1, _ := NewToken("test", masterHash[:], ephemeralHash[:], nonce, 5*time.Minute)
+	token1.Epoch = 1
 	signer, _ := cose.NewEd25519Signer(priv)
 
 	// First encoding

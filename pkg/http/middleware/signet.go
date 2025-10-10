@@ -13,6 +13,7 @@ import (
 
 	"github.com/jamestexas/signet/pkg/crypto/epr"
 	"github.com/jamestexas/signet/pkg/http/header"
+	"github.com/jamestexas/signet/pkg/revocation"
 	"github.com/jamestexas/signet/pkg/signet"
 )
 
@@ -39,15 +40,15 @@ import (
 func SignetMiddleware(opts ...Option) (func(http.Handler) http.Handler, error) {
 	// Apply default configuration
 	config := &Config{
-		clockSkew:      30 * time.Second,
-		tokenStore:     NewMemoryTokenStore(),
-		nonceStore:     NewMemoryNonceStore(),
-		keyProvider:    &staticKeyProvider{},
-		errorHandler:   defaultErrorHandler,
-		requestBuilder: defaultRequestBuilder,
-		logger:         &noOpLogger{},
-		metrics:        &noOpMetrics{},
-		observer:       &noOpObserver{},
+		ClockSkew:      30 * time.Second,
+		TokenStore:     NewMemoryTokenStore(),
+		NonceStore:     NewMemoryNonceStore(),
+		KeyProvider:    &staticKeyProvider{},
+		ErrorHandler:   defaultErrorHandler,
+		RequestBuilder: defaultRequestBuilder,
+		Logger:         &noOpLogger{},
+		Metrics:        &noOpMetrics{},
+		Observer:       &noOpObserver{},
 	}
 
 	// Apply user options
@@ -83,25 +84,25 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Call observer hook for authentication start (enables distributed tracing)
-	ctx = h.config.observer.OnAuthStart(ctx, r)
+	ctx = h.config.Observer.OnAuthStart(ctx, r)
 	r = r.WithContext(ctx)
 
 	// Extract and parse the Signet-Proof header
 	proofHeader := r.Header.Get("Signet-Proof")
 	if proofHeader == "" {
-		h.config.observer.OnAuthFailure(ctx, ErrMissingProof, "header_missing")
-		h.config.metrics.RecordAuthResult("missing_header", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrMissingProof)
+		h.config.Observer.OnAuthFailure(ctx, ErrMissingProof, "header_missing")
+		h.config.Metrics.RecordAuthResult("missing_header", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrMissingProof)
 		return
 	}
 
 	// Parse the proof components
 	proof, err := header.ParseSignetProof(proofHeader)
 	if err != nil {
-		h.config.logger.Debug("invalid proof format", "error", err, "header", proofHeader[:min(100, len(proofHeader))])
-		h.config.observer.OnAuthFailure(ctx, err, "proof_parsing")
-		h.config.metrics.RecordAuthResult("invalid_format", time.Since(startTime))
-		h.config.errorHandler(w, r, fmt.Errorf("%w: %v", ErrInvalidProof, err))
+		h.config.Logger.Debug("invalid proof format", "error", err, "header", proofHeader[:min(100, len(proofHeader))])
+		h.config.Observer.OnAuthFailure(ctx, err, "proof_parsing")
+		h.config.Metrics.RecordAuthResult("invalid_format", time.Since(startTime))
+		h.config.ErrorHandler(w, r, fmt.Errorf("%w: %v", ErrInvalidProof, err))
 		return
 	}
 
@@ -111,15 +112,15 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//
 	// Security Note: An attacker with a valid (even expired) token could previously
 	// trigger expensive operations before size validation. Now we reject early.
-	maxSize := h.config.maxRequestSize
+	maxSize := h.config.MaxRequestSize
 	if maxSize == 0 {
 		maxSize = 1 * 1024 * 1024 // Default: 1MB
 	}
 	if r.ContentLength > 0 && r.ContentLength > maxSize {
-		h.config.logger.Warn("request too large", "content_length", r.ContentLength, "max", maxSize)
-		h.config.observer.OnAuthFailure(ctx, ErrRequestTooLarge, "request_size")
-		h.config.metrics.RecordAuthResult("request_too_large", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrRequestTooLarge)
+		h.config.Logger.Warn("request too large", "content_length", r.ContentLength, "max", maxSize)
+		h.config.Observer.OnAuthFailure(ctx, ErrRequestTooLarge, "request_size")
+		h.config.Metrics.RecordAuthResult("request_too_large", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrRequestTooLarge)
 		return
 	}
 
@@ -132,7 +133,7 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(ctx, chunkedTimeout)
 		defer cancel()
 		r = r.WithContext(ctx)
-		h.config.logger.Debug("chunked transfer detected, enforcing timeout", "timeout", chunkedTimeout)
+		h.config.Logger.Debug("chunked transfer detected, enforcing timeout", "timeout", chunkedTimeout)
 	}
 
 	// Token ID Format & Migration Notes
@@ -157,60 +158,79 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tokenID := hex.EncodeToString(proof.JTI)
 
 	// Retrieve token record from store
-	record, err := h.config.tokenStore.Get(ctx, tokenID)
+	record, err := h.config.TokenStore.Get(ctx, tokenID)
 	if err != nil {
-		h.config.logger.Debug("token lookup failed", "token_id", tokenID, "error", err)
-		h.config.observer.OnAuthFailure(ctx, err, "token_lookup")
-		h.config.metrics.RecordAuthResult("token_not_found", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrTokenNotFound)
+		h.config.Logger.Debug("token lookup failed", "token_id", tokenID, "error", err)
+		h.config.Observer.OnAuthFailure(ctx, err, "token_lookup")
+		h.config.Metrics.RecordAuthResult("token_not_found", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrTokenNotFound)
 		return
+	}
+
+	// Check if the token has been revoked
+	if h.config.RevocationChecker != nil {
+		revoked, err := h.config.RevocationChecker.IsRevoked(ctx, record.Token)
+		if err != nil {
+			h.config.Logger.Error("revocation check failed", "token_id", tokenID, "error", err)
+			h.config.Observer.OnAuthFailure(ctx, err, "revocation_check")
+			h.config.Metrics.RecordAuthResult("revocation_error", time.Since(startTime))
+			h.config.ErrorHandler(w, r, ErrInternalError)
+			return
+		}
+		if revoked {
+			h.config.Logger.Warn("revoked token presented", "token_id", tokenID)
+			h.config.Observer.OnAuthFailure(ctx, ErrTokenRevoked, "token_revoked")
+			h.config.Metrics.RecordAuthResult("token_revoked", time.Since(startTime))
+			h.config.ErrorHandler(w, r, ErrTokenRevoked)
+			return
+		}
 	}
 
 	// Validate token time bounds
 	if err := h.validateTokenTime(record.Token); err != nil {
-		h.config.logger.Debug("token time validation failed", "token_id", tokenID, "error", err)
-		h.config.observer.OnAuthFailure(ctx, err, "token_time")
-		h.config.metrics.RecordAuthResult("token_invalid_time", time.Since(startTime))
-		h.config.errorHandler(w, r, err)
+		h.config.Logger.Debug("token time validation failed", "token_id", tokenID, "error", err)
+		h.config.Observer.OnAuthFailure(ctx, err, "token_time")
+		h.config.Metrics.RecordAuthResult("token_invalid_time", time.Since(startTime))
+		h.config.ErrorHandler(w, r, err)
 		return
 	}
 
 	// Check clock skew
 	if err := h.validateClockSkew(proof.Timestamp); err != nil {
-		h.config.logger.Debug("clock skew detected", "token_id", tokenID, "timestamp", proof.Timestamp, "error", err)
-		h.config.observer.OnAuthFailure(ctx, err, "clock_skew")
-		h.config.metrics.RecordAuthResult("clock_skew", time.Since(startTime))
-		h.config.errorHandler(w, r, err)
+		h.config.Logger.Debug("clock skew detected", "token_id", tokenID, "timestamp", proof.Timestamp, "error", err)
+		h.config.Observer.OnAuthFailure(ctx, err, "clock_skew")
+		h.config.Metrics.RecordAuthResult("clock_skew", time.Since(startTime))
+		h.config.ErrorHandler(w, r, err)
 		return
 	}
 
 	// Check for replay attacks
 	nonceKey := fmt.Sprintf("%s:%d", tokenID, proof.Timestamp)
-	if err := h.config.nonceStore.CheckAndStore(ctx, nonceKey, record.Token.ExpiresAt); err != nil {
-		h.config.logger.Warn("replay attack detected", "token_id", tokenID, "timestamp", proof.Timestamp)
-		h.config.observer.OnAuthFailure(ctx, err, "replay_check")
-		h.config.metrics.RecordAuthResult("replay_detected", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrReplayDetected)
+	if err := h.config.NonceStore.CheckAndStore(ctx, nonceKey, record.Token.ExpiresAt); err != nil {
+		h.config.Logger.Warn("replay attack detected", "token_id", tokenID, "timestamp", proof.Timestamp)
+		h.config.Observer.OnAuthFailure(ctx, err, "replay_check")
+		h.config.Metrics.RecordAuthResult("replay_detected", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrReplayDetected)
 		return
 	}
 
 	// Get master public key for verification
-	masterKey, err := h.config.keyProvider.GetMasterKey(ctx, record.Token.IssuerID)
+	masterKey, err := h.config.KeyProvider.GetMasterKey(ctx, record.Token.IssuerID)
 	if err != nil {
-		h.config.logger.Error("failed to get master key", "issuer", record.Token.IssuerID, "error", err)
-		h.config.observer.OnAuthFailure(ctx, err, "key_provider")
-		h.config.metrics.RecordAuthResult("key_provider_error", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrInternalError)
+		h.config.Logger.Error("failed to get master key", "issuer", record.Token.IssuerID, "error", err)
+		h.config.Observer.OnAuthFailure(ctx, err, "key_provider")
+		h.config.Metrics.RecordAuthResult("key_provider_error", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrInternalError)
 		return
 	}
 
 	// Build canonical request representation
-	canonical, err := h.config.requestBuilder.Build(r, proof)
+	canonical, err := h.config.RequestBuilder.Build(r, proof)
 	if err != nil {
-		h.config.logger.Error("failed to build canonical request", "error", err)
-		h.config.observer.OnAuthFailure(ctx, err, "canonical_request")
-		h.config.metrics.RecordAuthResult("canonical_error", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrInternalError)
+		h.config.Logger.Error("failed to build canonical request", "error", err)
+		h.config.Observer.OnAuthFailure(ctx, err, "canonical_request")
+		h.config.Metrics.RecordAuthResult("canonical_error", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrInternalError)
 		return
 	}
 
@@ -233,16 +253,16 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		h.config.logger.Debug("cryptographic verification failed", "token_id", tokenID, "error", err)
-		h.config.observer.OnAuthFailure(ctx, err, "signature_verification")
-		h.config.metrics.RecordAuthResult("invalid_signature", time.Since(startTime))
-		h.config.errorHandler(w, r, ErrInvalidSignature)
+		h.config.Logger.Debug("cryptographic verification failed", "token_id", tokenID, "error", err)
+		h.config.Observer.OnAuthFailure(ctx, err, "signature_verification")
+		h.config.Metrics.RecordAuthResult("invalid_signature", time.Since(startTime))
+		h.config.ErrorHandler(w, r, ErrInvalidSignature)
 		return
 	}
 
 	// Success! Add authentication context to request
-	h.config.logger.Info("request authenticated", "token_id", tokenID, "purpose", record.Purpose)
-	h.config.metrics.RecordAuthResult("success", time.Since(startTime))
+	h.config.Logger.Info("request authenticated", "token_id", tokenID, "purpose", record.Purpose)
+	h.config.Metrics.RecordAuthResult("success", time.Since(startTime))
 
 	// Create authentication context
 	authCtx := &AuthContext{
@@ -256,7 +276,7 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Call observer hook for successful authentication
-	h.config.observer.OnAuthSuccess(ctx, authCtx)
+	h.config.Observer.OnAuthSuccess(ctx, authCtx)
 
 	// Add context to request
 	r = r.WithContext(context.WithValue(ctx, authContextKey, authCtx))
@@ -279,7 +299,7 @@ func (h *signetHandler) validateTokenTime(token *signet.Token) error {
 // validateClockSkew checks if the request timestamp is within acceptable bounds
 func (h *signetHandler) validateClockSkew(timestamp int64) error {
 	now := time.Now().Unix()
-	skew := int64(h.config.clockSkew.Seconds())
+	skew := int64(h.config.ClockSkew.Seconds())
 
 	if timestamp < now-skew {
 		return fmt.Errorf("%w: request too old", ErrClockSkew)
@@ -294,38 +314,39 @@ func (h *signetHandler) validateClockSkew(timestamp int64) error {
 // Config holds middleware configuration
 type Config struct {
 	// Core configuration
-	clockSkew      time.Duration
-	tokenStore     TokenStore
-	nonceStore     NonceStore
-	keyProvider    KeyProvider
-	errorHandler   ErrorHandler
-	requestBuilder RequestBuilder
+	ClockSkew         time.Duration
+	TokenStore        TokenStore
+	NonceStore        NonceStore
+	KeyProvider       KeyProvider
+	ErrorHandler      ErrorHandler
+	RequestBuilder    RequestBuilder
+	RevocationChecker revocation.Checker
 
 	// Observability
-	logger   Logger
-	metrics  Metrics
-	observer ObserverHook // Context-based monitoring hook
+	Logger   Logger
+	Metrics  Metrics
+	Observer ObserverHook // Context-based monitoring hook
 
 	// Security settings
-	maxRequestSize int64 // Maximum request body size (0 = use default 1MB)
+	MaxRequestSize int64 // Maximum request body size (0 = use default 1MB)
 
 	// Advanced options
-	skipPaths        []string
-	requiredPurposes []string
+	SkipPaths        []string
+	RequiredPurposes []string
 }
 
 // validate checks if the configuration is valid
 func (c *Config) validate() error {
-	if c.tokenStore == nil {
+	if c.TokenStore == nil {
 		return fmt.Errorf("token store is required")
 	}
-	if c.nonceStore == nil {
+	if c.NonceStore == nil {
 		return fmt.Errorf("nonce store is required")
 	}
-	if c.keyProvider == nil {
+	if c.KeyProvider == nil {
 		return fmt.Errorf("key provider is required")
 	}
-	if c.clockSkew < 0 {
+	if c.ClockSkew < 0 {
 		return fmt.Errorf("clock skew must be non-negative")
 	}
 	return nil

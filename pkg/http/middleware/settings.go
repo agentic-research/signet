@@ -211,6 +211,6 @@ func (s *Settings) Validate() error {
 func (s *Settings) ApplyToConfig(config *Config) error {
 	// Placeholder for future implementation
 	// Will be implemented when configuration system is built (issue #23)
-	config.clockSkew = s.Security.ClockSkew
+	config.ClockSkew = s.Security.ClockSkew
 	return nil
 }

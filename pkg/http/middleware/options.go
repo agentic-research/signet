@@ -9,16 +9,24 @@ import (
 	"time"
 
 	"github.com/jamestexas/signet/pkg/http/header"
+	"github.com/jamestexas/signet/pkg/revocation"
 )
 
 // Option configures the Signet middleware.
 type Option func(*Config)
 
+// WithRevocationChecker sets a custom revocation checker for the middleware.
+func WithRevocationChecker(checker revocation.Checker) Option {
+	return func(c *Config) {
+		c.RevocationChecker = checker
+	}
+}
+
 // WithClockSkew sets the maximum allowed time difference between client and server.
 // Default is 30 seconds.
 func WithClockSkew(duration time.Duration) Option {
 	return func(c *Config) {
-		c.clockSkew = duration
+		c.ClockSkew = duration
 	}
 }
 
@@ -26,7 +34,7 @@ func WithClockSkew(duration time.Duration) Option {
 // Default is in-memory storage.
 func WithTokenStore(store TokenStore) Option {
 	return func(c *Config) {
-		c.tokenStore = store
+		c.TokenStore = store
 	}
 }
 
@@ -34,7 +42,7 @@ func WithTokenStore(store TokenStore) Option {
 // Default is in-memory storage.
 func WithNonceStore(store NonceStore) Option {
 	return func(c *Config) {
-		c.nonceStore = store
+		c.NonceStore = store
 	}
 }
 
@@ -42,7 +50,7 @@ func WithNonceStore(store NonceStore) Option {
 // This enables dynamic key management and rotation.
 func WithKeyProvider(provider KeyProvider) Option {
 	return func(c *Config) {
-		c.keyProvider = provider
+		c.KeyProvider = provider
 	}
 }
 
@@ -50,42 +58,42 @@ func WithKeyProvider(provider KeyProvider) Option {
 // This is a convenience method for simple deployments.
 func WithMasterKey(key ed25519.PublicKey) Option {
 	return func(c *Config) {
-		c.keyProvider = &staticKeyProvider{key: key}
+		c.KeyProvider = &staticKeyProvider{key: key}
 	}
 }
 
 // WithErrorHandler sets a custom error response handler.
 func WithErrorHandler(handler ErrorHandler) Option {
 	return func(c *Config) {
-		c.errorHandler = handler
+		c.ErrorHandler = handler
 	}
 }
 
 // WithJSONErrors configures JSON error responses.
 func WithJSONErrors() Option {
 	return func(c *Config) {
-		c.errorHandler = jsonErrorHandler
+		c.ErrorHandler = jsonErrorHandler
 	}
 }
 
 // WithRequestBuilder sets a custom canonical request builder.
 func WithRequestBuilder(builder RequestBuilder) Option {
 	return func(c *Config) {
-		c.requestBuilder = builder
+		c.RequestBuilder = builder
 	}
 }
 
 // WithLogger sets a custom logger for the middleware.
 func WithLogger(logger Logger) Option {
 	return func(c *Config) {
-		c.logger = logger
+		c.Logger = logger
 	}
 }
 
 // WithMetrics enables metrics collection.
 func WithMetrics(metrics Metrics) Option {
 	return func(c *Config) {
-		c.metrics = metrics
+		c.Metrics = metrics
 	}
 }
 
@@ -107,7 +115,7 @@ func WithMetrics(metrics Metrics) Option {
 //	)
 func WithObserver(observer ObserverHook) Option {
 	return func(c *Config) {
-		c.observer = observer
+		c.Observer = observer
 	}
 }
 
@@ -122,7 +130,7 @@ func WithObserver(observer ObserverHook) Option {
 //	)
 func WithMaxRequestSize(size int64) Option {
 	return func(c *Config) {
-		c.maxRequestSize = size
+		c.MaxRequestSize = size
 	}
 }
 
@@ -130,7 +138,7 @@ func WithMaxRequestSize(size int64) Option {
 // Useful for health checks and public endpoints.
 func WithSkipPaths(paths ...string) Option {
 	return func(c *Config) {
-		c.skipPaths = append(c.skipPaths, paths...)
+		c.SkipPaths = append(c.SkipPaths, paths...)
 	}
 }
 
@@ -138,7 +146,7 @@ func WithSkipPaths(paths ...string) Option {
 // This provides additional access control beyond cryptographic verification.
 func WithRequiredPurposes(purposes ...string) Option {
 	return func(c *Config) {
-		c.requiredPurposes = append(c.requiredPurposes, purposes...)
+		c.RequiredPurposes = append(c.RequiredPurposes, purposes...)
 	}
 }
 
@@ -162,6 +170,9 @@ func (p *staticKeyProvider) RefreshKeys(ctx context.Context) error {
 type defaultRequestBuilderImpl struct{}
 
 var defaultRequestBuilder = &defaultRequestBuilderImpl{}
+
+// DefaultRequestBuilder is the default request builder for testing/direct use
+var DefaultRequestBuilder RequestBuilder = defaultRequestBuilder
 
 func (b *defaultRequestBuilderImpl) Build(r *http.Request, proof *header.SignetProof) ([]byte, error) {
 	// Format: METHOD|PATH[?QUERY]|TIMESTAMP|NONCE_BASE64
@@ -194,6 +205,9 @@ type noOpMetrics struct{}
 
 func (m *noOpMetrics) RecordAuthResult(result string, duration time.Duration) {}
 func (m *noOpMetrics) RecordTokenUsage(tokenID string, purpose string)        {}
+
+// NoOpMetrics is an exported no-op metrics implementation for testing
+type NoOpMetrics = noOpMetrics
 
 // noOpObserver discards all observer events
 type noOpObserver struct{}
