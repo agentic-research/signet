@@ -3,6 +3,7 @@ package revocation_test
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,11 +14,11 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
-	"github.com/jamestexas/signet/pkg/http/middleware"
 	"github.com/jamestexas/signet/pkg/revocation"
 	"github.com/jamestexas/signet/pkg/revocation/cabundle"
 	"github.com/jamestexas/signet/pkg/revocation/types"
 	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -123,6 +124,8 @@ func TestSignatureEncoding_JSONTransportCBORVerification(t *testing.T) {
 		IssuerID:      "test-issuer",
 		CapabilityVer: 2,
 		KeyID:         []byte("key1"),
+		ExpiresAt:     time.Now().Add(5 * time.Minute).Unix(),
+		JTI:           []byte("test-jti-123456"),
 	}
 
 	// Verify signature works after JSON round-trip
@@ -346,6 +349,8 @@ func TestIntegration_CompleteRevocationFlow(t *testing.T) {
 		IssuerID:      "test-issuer",
 		CapabilityVer: 1,
 		KeyID:         []byte("key1"),
+		ExpiresAt:     time.Now().Add(5 * time.Minute).Unix(),
+		JTI:           []byte("test-jti-456789"),
 	}
 
 	isRevoked, err := checker.IsRevoked(context.Background(), validToken)
@@ -375,198 +380,226 @@ func TestIntegration_CompleteRevocationFlow(t *testing.T) {
 	}
 }
 
-// --- Mock Implementations for Middleware Dependencies ---
-
-// TestMainState holds the shared state for the integration tests.
-type TestMainState struct {
-	mu            sync.RWMutex
-	currentBundle *types.CABundle
-}
-
-// setCurrentBundle safely updates the current CA bundle.
-func (m *TestMainState) setCurrentBundle(bundle *types.CABundle) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.currentBundle = bundle
-}
-
-// getCurrentBundle safely retrieves the current CA bundle.
-func (m *TestMainState) getCurrentBundle() *types.CABundle {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.currentBundle
-}
-
-// newTestServer creates a mock CA bundle server.
-func newTestServer(state *TestMainState) *httptest.Server {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		bundle := state.getCurrentBundle()
-		if bundle == nil {
-			http.Error(w, "bundle not available", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
-	})
-	return httptest.NewServer(handler)
-}
-
-// newTestRevocationChecker creates a revocation checker configured to use the test server.
-func newTestRevocationChecker(serverURL string, trustAnchor ed25519.PublicKey) (revocation.Checker, error) {
-	fetcher := cabundle.NewHTTPSFetcher(serverURL, nil) // No bridge cert needed for this test
-	cache := cabundle.NewBundleCache(1 * time.Second)   // Short TTL for testing
-	storage := cabundle.NewMemoryStorage()              // Use in-memory storage for sequence numbers
-
-	return revocation.NewCABundleChecker(fetcher, storage, cache, trustAnchor), nil
-}
-
-// issueTestToken simulates a client issuing a token.
-func issueTestToken(t *testing.T, epoch uint64, keyID string) *signet.Token {
-	token, err := signet.NewToken("test-issuer", make([]byte, 32), make([]byte, 32), nil, 5*time.Minute)
-	require.NoError(t, err)
-
-	token.Epoch = epoch
-	token.KeyID = []byte(keyID)
-
-	return token
-}
-
+// TestRevocationIntegration uses existing test helpers for complete integration testing
 func TestRevocationIntegration(t *testing.T) {
-	// --- Setup ---
-	state := &TestMainState{}
-	mockServer := newTestServer(state)
-	defer mockServer.Close()
-
-	// Generate trust anchor for bundle verification
-	bundlePub, _, _ := ed25519.GenerateKey(nil)
-
-	// Initial CA Bundle
-	initialBundle := &types.CABundle{
-		KeyID: "key-id-v1",
-		Epoch: 1,
-		Seqno: 100,
-	}
-	state.setCurrentBundle(initialBundle)
-
-	// Create the revocation checker
-	checker, err := newTestRevocationChecker(mockServer.URL, bundlePub)
-	require.NoError(t, err)
-
-	// Create the Signet middleware configured with the checker
-	// For this test, we don't need a real master key or token store, as we are focusing on the revocation path.
-	authMiddleware, err := middleware.SignetMiddleware(
-		middleware.WithRevocationChecker(checker),
-		// Use mock components for other middleware dependencies to isolate the test
-		middleware.WithTokenStore(&mockTokenStore{}),
-		middleware.WithNonceStore(middleware.NewMemoryNonceStore()),
-		middleware.WithKeyProvider(&mockKeyProvider{}),
+	// Define test constants
+	const (
+		currentEpoch  = 2
+		oldEpoch      = 1
+		futureEpoch   = 3
+		currentKeyID  = "key-2024"
+		previousKeyID = "key-2023"
+		unknownKeyID  = "unknown-key"
+		initialSeqno  = 100
 	)
-	require.NoError(t, err)
 
-	// Create a protected handler
-	protectedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-	testServer := httptest.NewServer(authMiddleware(protectedHandler))
-	defer testServer.Close()
+	t.Run("ValidToken_ReturnsOK", func(t *testing.T) {
+		// Setup bundle server and middleware
+		bundleServer, bundlePub, _ := setupBundleServer(t, currentEpoch, initialSeqno, currentKeyID, "")
+		defer bundleServer.Close()
 
-	t.Run("HappyPath_ValidToken", func(t *testing.T) {
-		// Step 1: Issue a token with the CURRENT epoch and KeyID.
-		// Step 2: Create a new HTTP request to the protected endpoint.
-		// Step 3: Add the token to the request via a mock token store record.
-		// Step 4: Assert that the server responds with HTTP 200 OK.
+		mw, config, masterPriv := setupMiddlewareWithRevocation(t, bundleServer.URL, bundlePub)
 
-		// This test is left as an exercise for the developer.
-		// You will need to implement the mockTokenStore to return a valid record
-		// and construct a request that the middleware can process.
-		t.Skip("TODO: Implement Happy Path test")
-	})
+		// Generate valid token with current epoch and key
+		record, ephemeralPriv := generateTestTokenWithRevocation(t, masterPriv, "test-purpose", currentEpoch, currentKeyID)
 
-	t.Run("RevokedPath_OldEpoch", func(t *testing.T) {
-		// Step 1: Issue a token with an OLD epoch (e.g., 0).
-		// Step 2: Create a new HTTP request.
-		// Step 3: Add the token to the request via the mock token store.
-		// Step 4: Assert that the server responds with HTTP 401 Unauthorized.
-		t.Skip("TODO: Implement Old Epoch test")
-	})
+		// Store token
+		_, err := config.TokenStore.Store(context.Background(), record)
+		require.NoError(t, err)
 
-	t.Run("RevokedPath_WrongKeyID", func(t *testing.T) {
-		// Step 1: Issue a token with a KeyID that does not match the bundle ("unknown-key").
-		// Step 2: Create a new HTTP request.
-		// Step 3: Add the token to the request via the mock token store.
-		// Step 4: Assert that the server responds with HTTP 401 Unauthorized.
-		t.Skip("TODO: Implement Wrong KeyID test")
+		// Create signed request
+		req := createSignedRequestForTest(t, "GET", "/api/test", record, ephemeralPriv)
+
+		// Handler that should be called
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("success"))
+		})
+
+		// Execute request
+		rr := httptest.NewRecorder()
+		mw(handler).ServeHTTP(rr, req)
+
+		// Assert success
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "success", rr.Body.String())
 	})
 
-	t.Run("RevokedPath_AfterCARotation", func(t *testing.T) {
-		// Step 1: Issue a token with the CURRENT epoch and KeyID (v1).
-		// Step 2: Make a request and assert it succeeds (200 OK).
-		// Step 3: Update the CA bundle on the mock server to a new version (epoch 2, key-id-v2, seqno 101).
-		// Step 4: Wait for the checker's cache to expire (e.g., time.Sleep(1.1 * time.Second)).
-		// Step 5: Make another request with the OLD token from Step 1.
-		// Step 6: Assert that this second request is now rejected with HTTP 401 Unauthorized.
-		t.Skip("TODO: Implement CA Rotation test")
+	t.Run("OldEpoch_Returns401", func(t *testing.T) {
+		// Setup bundle server with future epoch
+		bundleServer, bundlePub, _ := setupBundleServer(t, futureEpoch, initialSeqno, currentKeyID, previousKeyID)
+		defer bundleServer.Close()
+
+		mw, config, masterPriv := setupMiddlewareWithRevocation(t, bundleServer.URL, bundlePub)
+
+		// Generate token with OLD epoch
+		record, ephemeralPriv := generateTestTokenWithRevocation(t, masterPriv, "test-purpose", oldEpoch, previousKeyID)
+
+		// Store token
+		_, err := config.TokenStore.Store(context.Background(), record)
+		require.NoError(t, err)
+
+		// Create signed request
+		req := createSignedRequestForTest(t, "GET", "/api/test", record, ephemeralPriv)
+
+		// Handler that should NOT be called
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not be called for revoked token")
+		})
+
+		// Execute request
+		rr := httptest.NewRecorder()
+		mw(handler).ServeHTTP(rr, req)
+
+		// Assert rejection
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		assert.Contains(t, rr.Body.String(), "token revoked")
 	})
 
-	t.Run("FailurePath_UpstreamError", func(t *testing.T) {
-		// Step 1: Shut down the mock CA bundle server.
-		// Step 2: Issue a new token.
-		// Step 3: Make a request to the protected endpoint.
-		// Step 4: Assert that the server responds with HTTP 503 Service Unavailable, proving it fails closed.
-		t.Skip("TODO: Implement Upstream Error test")
+	t.Run("WrongKeyID_Returns401", func(t *testing.T) {
+		// Setup bundle server with specific keys
+		bundleServer, bundlePub, _ := setupBundleServer(t, currentEpoch, initialSeqno, currentKeyID, previousKeyID)
+		defer bundleServer.Close()
+
+		mw, config, masterPriv := setupMiddlewareWithRevocation(t, bundleServer.URL, bundlePub)
+
+		// Generate token with UNKNOWN key ID
+		record, ephemeralPriv := generateTestTokenWithRevocation(t, masterPriv, "test-purpose", currentEpoch, unknownKeyID)
+
+		// Store token
+		_, err := config.TokenStore.Store(context.Background(), record)
+		require.NoError(t, err)
+
+		// Create signed request
+		req := createSignedRequestForTest(t, "GET", "/api/test", record, ephemeralPriv)
+
+		// Handler that should NOT be called
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not be called for token with unknown key")
+		})
+
+		// Execute request
+		rr := httptest.NewRecorder()
+		mw(handler).ServeHTTP(rr, req)
+
+		// Assert rejection
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		assert.Contains(t, rr.Body.String(), "token revoked")
+	})
+
+	t.Run("AfterCARotation_PreviouslyValidTokenRejected", func(t *testing.T) {
+		bundlePub, bundlePriv, err := ed25519.GenerateKey(nil)
+		require.NoError(t, err)
+
+		// Dynamic bundle server that can change its response
+		var bundleMu sync.Mutex
+		var currentBundle *types.CABundle
+
+		bundleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bundleMu.Lock()
+			defer bundleMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(currentBundle)
+		}))
+		defer bundleServer.Close()
+
+		// Start with initial bundle
+		currentBundle = createTestBundle(t, currentEpoch, initialSeqno, currentKeyID, "", bundlePriv)
+
+		mw, config, masterPriv := setupMiddlewareWithRevocation(t, bundleServer.URL, bundlePub)
+
+		// Generate token with current epoch and key
+		record, ephemeralPriv := generateTestTokenWithRevocation(t, masterPriv, "test-purpose", currentEpoch, currentKeyID)
+
+		// Store token
+		_, err = config.TokenStore.Store(context.Background(), record)
+		require.NoError(t, err)
+
+		// First request should succeed
+		req1 := createSignedRequestForTest(t, "GET", "/api/test", record, ephemeralPriv)
+		rr1 := httptest.NewRecorder()
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("success"))
+		})
+		mw(handler).ServeHTTP(rr1, req1)
+		assert.Equal(t, http.StatusOK, rr1.Code, "Token should be valid initially")
+
+		// Rotate the CA bundle (without grace period - no prevKeyID)
+		bundleMu.Lock()
+		currentBundle = createTestBundle(t, futureEpoch, initialSeqno+1, "new-key", "", bundlePriv)
+		bundleMu.Unlock()
+
+		// Wait for cache to expire
+		time.Sleep(1100 * time.Millisecond)
+
+		// Create new middleware instance to force re-check with new bundle
+		mw2, config2, _ := setupMiddlewareWithRevocation(t, bundleServer.URL, bundlePub)
+
+		// Create new request with a new token (to avoid nonce replay detection)
+		// This token has the OLD epoch and OLD key which should now be rejected
+		record2, ephemeralPriv2 := generateTestTokenWithRevocation(t, masterPriv, "test-purpose", currentEpoch, currentKeyID)
+		_, err = config2.TokenStore.Store(context.Background(), record2)
+		require.NoError(t, err)
+
+		// Second request should be rejected due to old epoch
+		req2 := createSignedRequestForTest(t, "GET", "/api/test", record2, ephemeralPriv2)
+		rr2 := httptest.NewRecorder()
+		mw2(handler).ServeHTTP(rr2, req2)
+		assert.Equal(t, http.StatusUnauthorized, rr2.Code, "Token should be rejected after CA rotation")
+	})
+
+	t.Run("BundleServerDown_Returns500", func(t *testing.T) {
+		// Setup bundle server that will fail
+		bundleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Simulate server error
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer bundleServer.Close()
+
+		bundlePub, _, err := ed25519.GenerateKey(nil)
+		require.NoError(t, err)
+
+		mw, config, masterPriv := setupMiddlewareWithRevocation(t, bundleServer.URL, bundlePub)
+
+		// Generate token
+		record, ephemeralPriv := generateTestTokenWithRevocation(t, masterPriv, "test-purpose", currentEpoch, currentKeyID)
+
+		// Store token
+		_, err = config.TokenStore.Store(context.Background(), record)
+		require.NoError(t, err)
+
+		// Create signed request
+		req := createSignedRequestForTest(t, "GET", "/api/test", record, ephemeralPriv)
+
+		// Handler that should NOT be called (fail closed)
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("handler should not be called when bundle server fails")
+		})
+
+		// Execute request
+		rr := httptest.NewRecorder()
+		mw(handler).ServeHTTP(rr, req)
+
+		// Assert fail-closed (500 Internal Server Error)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
+		assert.Contains(t, rr.Body.String(), "internal server error")
 	})
 }
 
-type mockTokenStore struct {
-	sync.RWMutex
-	records map[string]*middleware.TokenRecord
+// Mock implementations for testing middleware
+type mockKeyProvider struct {
+	masterPub ed25519.PublicKey
 }
-
-func (m *mockTokenStore) Store(ctx context.Context, record *middleware.TokenRecord) (string, error) {
-	m.Lock()
-	defer m.Unlock()
-	if m.records == nil {
-		m.records = make(map[string]*middleware.TokenRecord)
-	}
-	// In a real scenario, the token ID would be the JTI. For the test, we can simplify.
-	tokenID := string(record.Token.JTI)
-	m.records[tokenID] = record
-	return tokenID, nil
-}
-
-func (m *mockTokenStore) Get(ctx context.Context, tokenID string) (*middleware.TokenRecord, error) {
-	m.RLock()
-	defer m.RUnlock()
-	if record, ok := m.records[tokenID]; ok {
-		return record, nil
-	}
-	return nil, middleware.ErrTokenNotFound
-}
-
-func (m *mockTokenStore) Delete(ctx context.Context, tokenID string) error {
-	m.Lock()
-	defer m.Unlock()
-	delete(m.records, tokenID)
-	return nil
-}
-
-func (m *mockTokenStore) Cleanup(ctx context.Context) error {
-	m.Lock()
-	defer m.Unlock()
-	m.records = make(map[string]*middleware.TokenRecord)
-	return nil
-}
-
-type mockKeyProvider struct{}
 
 func (m *mockKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (ed25519.PublicKey, error) {
-	// Return a dummy public key, as it's not needed for the revocation check itself.
-	pub, _, _ := ed25519.GenerateKey(nil)
-	return pub, nil
+	if m.masterPub == nil {
+		pub, _, _ := ed25519.GenerateKey(rand.Reader)
+		return pub, nil
+	}
+	return m.masterPub, nil
 }
 
 func (m *mockKeyProvider) RefreshKeys(ctx context.Context) error {
-	// No-op for tests
 	return nil
 }
