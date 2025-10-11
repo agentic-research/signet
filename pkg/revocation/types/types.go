@@ -43,3 +43,37 @@ type Storage interface {
 	// SetLastSeenSeqno sets the last seen sequence number for a given issuer ID.
 	SetLastSeenSeqno(ctx context.Context, issuerID string, seqno uint64) error
 }
+
+// GetKeys returns a defensive copy of the Keys map to prevent external modifications.
+// The returned map and all byte slices are copies that can be safely modified.
+func (b *CABundle) GetKeys() map[string][]byte {
+	if b.Keys == nil {
+		return nil
+	}
+
+	result := make(map[string][]byte, len(b.Keys))
+	for k, v := range b.Keys {
+		// Create a copy of each byte slice
+		vcopy := make([]byte, len(v))
+		copy(vcopy, v)
+		result[k] = vcopy
+	}
+	return result
+}
+
+// SetKeys sets the Keys map with defensive copying to prevent external modifications.
+// The provided map values are copied to prevent external changes affecting the bundle.
+func (b *CABundle) SetKeys(keys map[string][]byte) {
+	if keys == nil {
+		b.Keys = nil
+		return
+	}
+
+	b.Keys = make(map[string][]byte, len(keys))
+	for k, v := range keys {
+		// Create a copy of each byte slice
+		vcopy := make([]byte, len(v))
+		copy(vcopy, v)
+		b.Keys[k] = vcopy
+	}
+}
