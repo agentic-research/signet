@@ -2,7 +2,9 @@ package x509
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"testing"
@@ -294,5 +296,104 @@ func TestLocalCA_Backward_Compatibility(t *testing.T) {
 		if cert.PublicKeyAlgorithm != x509.Ed25519 {
 			t.Errorf("Expected Ed25519, got %v", cert.PublicKeyAlgorithm)
 		}
+	})
+}
+
+// TestLocalCA_ECDSA_Support tests ECDSA key support for Touch ID integration
+func TestLocalCA_ECDSA_Support(t *testing.T) {
+	t.Run("issues certificate for ECDSA P-256 signer", func(t *testing.T) {
+		// Setup: Create LocalCA with Ed25519 master key
+		_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ca := NewLocalCA(masterPriv, "did:example:touchid")
+
+		// Create ECDSA P-256 signer (like Touch ID)
+		ecdsaPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Issue certificate for ECDSA signer
+		cert, certDER, err := ca.IssueCertificateForSigner(ecdsaPriv, 5*time.Minute)
+		if err != nil {
+			t.Fatalf("IssueCertificateForSigner() error = %v", err)
+		}
+
+		if cert == nil {
+			t.Fatal("Certificate is nil")
+		}
+		if certDER == nil || len(certDER) == 0 {
+			t.Fatal("Certificate DER is empty")
+		}
+
+		// Verify certificate has correct algorithm
+		if cert.PublicKeyAlgorithm != x509.ECDSA {
+			t.Errorf("Expected ECDSA algorithm, got %v", cert.PublicKeyAlgorithm)
+		}
+
+		// Verify certificate public key matches signer
+		certPubKey, ok := cert.PublicKey.(*ecdsa.PublicKey)
+		if !ok {
+			t.Fatal("Certificate public key is not *ecdsa.PublicKey")
+		}
+		if !certPubKey.Equal(&ecdsaPriv.PublicKey) {
+			t.Error("Certificate public key doesn't match signer public key")
+		}
+
+		// Verify Subject Key Identifier was set correctly
+		if cert.SubjectKeyId == nil || len(cert.SubjectKeyId) != 20 {
+			t.Errorf("SubjectKeyId should be 20 bytes (SHA-1), got %d", len(cert.SubjectKeyId))
+		}
+
+		// Verify Authority Key Identifier points to master key
+		if cert.AuthorityKeyId == nil {
+			t.Error("AuthorityKeyId should be set")
+		}
+
+		t.Logf("✓ Successfully issued ECDSA P-256 certificate for Touch ID integration")
+	})
+
+	t.Run("supports mixed key types in same CA", func(t *testing.T) {
+		// Test that the same CA can issue certificates for both Ed25519 and ECDSA
+		_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ca := NewLocalCA(masterPriv, "did:example:mixed")
+
+		// Issue Ed25519 certificate
+		_, ed25519Priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cert1, _, err := ca.IssueCertificateForSigner(ed25519Priv, 5*time.Minute)
+		if err != nil {
+			t.Fatalf("Failed to issue Ed25519 cert: %v", err)
+		}
+		if cert1.PublicKeyAlgorithm != x509.Ed25519 {
+			t.Error("First certificate should be Ed25519")
+		}
+
+		// Issue ECDSA certificate
+		ecdsaPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cert2, _, err := ca.IssueCertificateForSigner(ecdsaPriv, 5*time.Minute)
+		if err != nil {
+			t.Fatalf("Failed to issue ECDSA cert: %v", err)
+		}
+		if cert2.PublicKeyAlgorithm != x509.ECDSA {
+			t.Error("Second certificate should be ECDSA")
+		}
+
+		// Both should have same issuer (the CA)
+		if cert1.Issuer.String() != cert2.Issuer.String() {
+			t.Error("Both certificates should have same issuer")
+		}
+
+		t.Logf("✓ CA can issue both Ed25519 and ECDSA certificates")
 	})
 }

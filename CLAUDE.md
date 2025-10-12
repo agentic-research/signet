@@ -91,6 +91,9 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 3. **Short-Lived Certificates**: 5-minute ephemeral certificates for each operation
 4. **CBOR Tokens**: Binary encoding with integer keys (1-6) for efficiency
 5. **Domain Separation**: Cryptographic contexts prevent cross-protocol attacks
+6. **Generic Lifecycle Management**: Type-safe memory zeroization with `lifecycle.SecureValue[T]`
+7. **Generic Error Handling**: Structured error codes with `errors.CodedError[T]`
+8. **Generic Concurrency**: Thread-safe collections with `collections.ConcurrentMap[K, V]`
 
 ### Testing Strategy
 
@@ -99,6 +102,81 @@ The project uses integration tests that verify end-to-end workflows:
 - `scripts/testing/test_integration.sh`: Full git signing workflow
 
 ## Implementation Notes
+
+### Generic Architecture Patterns
+
+The codebase uses Go 1.18+ generics to provide type-safe, reusable patterns for common operations:
+
+#### Lifecycle Management (`pkg/lifecycle`)
+
+Sensitive data (keys, secrets) is wrapped in `lifecycle.SecureValue[T]` to ensure proper zeroization:
+
+```go
+// Wrap a sensitive key
+zeroizer := func(key *ed25519.PrivateKey) {
+    for i := range *key {
+        (*key)[i] = 0
+    }
+}
+secureKey := lifecycle.New(privateKey, zeroizer)
+defer secureKey.Destroy()
+
+// Use the key safely
+err := secureKey.Use(func(key ed25519.PrivateKey) error {
+    signature := ed25519.Sign(key, message)
+    return nil
+})
+```
+
+**Key Features:**
+- Type-safe zeroization with custom zeroizer functions
+- Concurrency-safe (RWMutex for Use/Destroy)
+- Prevents use-after-destroy bugs
+- Used in: COSE signers (Ed25519, ECDSA P-256)
+
+#### Structured Error Handling (`pkg/errors`)
+
+Type-safe error codes for programmatic error handling:
+
+```go
+type StoreErrorCode int
+const (
+    TokenNotFound StoreErrorCode = 1
+    TokenExpired  StoreErrorCode = 2
+)
+
+// Create structured error
+err := errors.NewCoded(TokenNotFound, "token not found", nil)
+
+// Check error code
+if errors.HasCode(err, TokenNotFound) {
+    // Return 404
+}
+```
+
+**Key Features:**
+- Compile-time type safety (can't mix different error code types)
+- Error wrapping support
+- Works with Go's `errors.Is()` and `errors.As()`
+- Used in: HTTP middleware (planned)
+
+#### Thread-Safe Collections (`pkg/collections`)
+
+Generic concurrent map with RWMutex locking:
+
+```go
+cm := collections.NewConcurrentMap[string, *TokenRecord]()
+cm.Set("token123", record)
+value, ok := cm.Get("token123")
+cm.Delete("token123")
+```
+
+**Key Features:**
+- Type-safe key-value storage
+- Read-write locking for performance
+- Atomic operations (GetOrSet, CompareAndDelete)
+- Race-detector verified
+- Used in: HTTP middleware stores (planned)
 
 ### CMS/PKCS#7 with Ed25519
 

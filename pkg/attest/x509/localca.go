@@ -2,6 +2,7 @@ package x509
 
 import (
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha1"
@@ -317,9 +318,16 @@ func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	switch pub := publicKey.(type) {
 	case ed25519.PublicKey:
 		pubBytes = pub
+	case *ecdsa.PublicKey:
+		// For ECDSA, we need to marshal the public key to SubjectPublicKeyInfo format
+		// This is the standard X.509 format for public keys
+		var err error
+		pubBytes, err = x509.MarshalPKIXPublicKey(pub)
+		if err != nil {
+			return nil
+		}
 	default:
-		// For other key types, we'd need to marshal them appropriately
-		// For MVP, we only support Ed25519
+		// Unsupported key type
 		return nil
 	}
 
