@@ -439,3 +439,87 @@ func TestConcurrentMap_IntegerKeys(t *testing.T) {
 		t.Errorf("Expected 'two', got '%s', ok=%v", value, ok)
 	}
 }
+
+// TestConcurrentMap_CompareAndDeleteFunc verifies custom comparator
+func TestConcurrentMap_CompareAndDeleteFunc(t *testing.T) {
+	type Record struct {
+		ID   string
+		Data int
+	}
+
+	cm := collections.NewConcurrentMap[string, Record]()
+
+	record := Record{ID: "test", Data: 42}
+	cm.Set("key", record)
+
+	// CompareAndDelete would fail for structs due to any() comparison
+	// But CompareAndDeleteFunc should work
+	equal := func(a, b Record) bool {
+		return a.ID == b.ID && a.Data == b.Data
+	}
+
+	deleted := cm.CompareAndDeleteFunc("key", Record{ID: "test", Data: 42}, equal)
+	if !deleted {
+		t.Error("Expected CompareAndDeleteFunc to succeed with matching struct")
+	}
+
+	if cm.Has("key") {
+		t.Error("Key should be deleted after successful CompareAndDeleteFunc")
+	}
+}
+
+// TestConcurrentMap_CompareAndDeleteFunc_NoMatch verifies non-matching deletion fails
+func TestConcurrentMap_CompareAndDeleteFunc_NoMatch(t *testing.T) {
+	type Record struct {
+		ID   string
+		Data int
+	}
+
+	cm := collections.NewConcurrentMap[string, Record]()
+
+	cm.Set("key", Record{ID: "test", Data: 42})
+
+	equal := func(a, b Record) bool {
+		return a.ID == b.ID && a.Data == b.Data
+	}
+
+	// Try to delete with wrong data
+	deleted := cm.CompareAndDeleteFunc("key", Record{ID: "test", Data: 99}, equal)
+	if deleted {
+		t.Error("Expected CompareAndDeleteFunc to fail with non-matching struct")
+	}
+
+	if !cm.Has("key") {
+		t.Error("Key should still exist after failed CompareAndDeleteFunc")
+	}
+}
+
+// TestConcurrentMap_ForEachCanCallMethods verifies ForEach no longer deadlocks
+func TestConcurrentMap_ForEachCanCallMethods(t *testing.T) {
+	cm := collections.NewConcurrentMap[int, int]()
+
+	// Populate map
+	for i := 0; i < 10; i++ {
+		cm.Set(i, i*2)
+	}
+
+	// This used to deadlock, but now works because ForEach uses a snapshot
+	deleted := 0
+	cm.ForEach(func(key, value int) bool {
+		if value > 10 {
+			cm.Delete(key) // Safe now!
+			deleted++
+		}
+		return true
+	})
+
+	if deleted == 0 {
+		t.Error("Expected some deletions to occur")
+	}
+
+	// Verify deletions worked
+	finalLen := cm.Len()
+	if finalLen >= 10 {
+		t.Errorf("Expected fewer than 10 entries after deletion, got %d", finalLen)
+	}
+}

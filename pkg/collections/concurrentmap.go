@@ -102,18 +102,26 @@ func (m *ConcurrentMap[K, V]) Keys() []K {
 }
 
 // ForEach applies a function to each key-value pair in the map.
-// The function is called while holding the read lock, so it should be fast.
+// The callback receives a point-in-time snapshot of the map, so it's safe
+// to call other ConcurrentMap methods from within the callback without deadlock.
+//
+// Note: The callback sees a snapshot taken at the time ForEach is called.
+// Concurrent modifications during iteration won't be visible to the callback.
+//
 // If the function returns false, iteration stops early.
 //
-// WARNING: Do not call other ConcurrentMap methods from within the callback,
-// as this may cause a deadlock.
-//
-// This operation acquires a read lock for the entire iteration.
+// This operation copies the map entries, so it uses O(n) memory.
 func (m *ConcurrentMap[K, V]) ForEach(fn func(key K, value V) bool) {
+	// Create a snapshot to avoid holding the lock during callback execution
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+	snapshot := make(map[K]V, len(m.data))
 	for k, v := range m.data {
+		snapshot[k] = v
+	}
+	m.mu.RUnlock()
+
+	// Iterate over snapshot without holding any locks
+	for k, v := range snapshot {
 		if !fn(k, v) {
 			break
 		}
@@ -150,8 +158,10 @@ func (m *ConcurrentMap[K, V]) GetOrSet(key K, value V) (actual V, loaded bool) {
 // CompareAndDelete deletes a key only if its value matches the expected value.
 // Returns true if the key was deleted, false otherwise.
 //
-// Note: This uses direct value comparison. For pointer types, this compares
-// pointer equality, not deep equality of the pointed-to values.
+// IMPORTANT: This uses direct == comparison after type erasure via any().
+// - Works correctly for: basic types (int, string, bool), pointers
+// - Does NOT work reliably for: structs, slices, maps, arrays
+// - For complex types, use CompareAndDeleteFunc() instead.
 //
 // This operation acquires a write lock.
 func (m *ConcurrentMap[K, V]) CompareAndDelete(key K, expected V) bool {
@@ -159,11 +169,36 @@ func (m *ConcurrentMap[K, V]) CompareAndDelete(key K, expected V) bool {
 	defer m.mu.Unlock()
 
 	if actual, ok := m.data[key]; ok {
-		// Note: This is a simple equality check. For complex types, you may need
-		// to use a custom comparison function.
-		// Go 1.18+ generics don't have a way to compare arbitrary values deeply.
-		// For now, we rely on == which works for basic types and pointer equality.
+		// Note: This uses type erasure comparison which has limitations.
+		// For complex types requiring deep equality, use CompareAndDeleteFunc.
 		if any(actual) == any(expected) {
+			delete(m.data, key)
+			return true
+		}
+	}
+
+	return false
+}
+
+// CompareAndDeleteFunc deletes a key only if its value matches according to
+// the provided equality function. Returns true if the key was deleted, false otherwise.
+//
+// This variant allows custom comparison logic for complex types like structs,
+// where deep equality checking is required.
+//
+// Example:
+//
+//	type Record struct { ID string; Data int }
+//	equal := func(a, b Record) bool { return a.ID == b.ID && a.Data == b.Data }
+//	cm.CompareAndDeleteFunc("key", expected, equal)
+//
+// This operation acquires a write lock.
+func (m *ConcurrentMap[K, V]) CompareAndDeleteFunc(key K, expected V, equal func(a, b V) bool) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if actual, ok := m.data[key]; ok {
+		if equal(actual, expected) {
 			delete(m.data, key)
 			return true
 		}

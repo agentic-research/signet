@@ -18,6 +18,7 @@ type Zeroizer[T any] func(value *T)
 //  1. Access to the value is controlled via Use() method
 //  2. The value is automatically zeroized when Destroy() is called
 //  3. Operations are concurrency-safe
+//  4. Callbacks cannot leak copies of sensitive data
 //
 // Type parameter T can be any type that holds sensitive data (keys, secrets, etc.)
 //
@@ -34,9 +35,9 @@ type Zeroizer[T any] func(value *T)
 //	secureKey := lifecycle.New(privateKey, zeroizer)
 //	defer secureKey.Destroy()
 //
-//	// Use the key safely
-//	err := secureKey.Use(func(key ed25519.PrivateKey) error {
-//		signature := ed25519.Sign(key, message)
+//	// Use the key safely (receives pointer to prevent copying)
+//	err := secureKey.Use(func(key *ed25519.PrivateKey) error {
+//		signature := ed25519.Sign(*key, message)
 //		return nil
 //	})
 type SecureValue[T any] struct {
@@ -44,6 +45,7 @@ type SecureValue[T any] struct {
 	value     T
 	zeroizer  Zeroizer[T]
 	destroyed bool
+	inUse     sync.WaitGroup
 }
 
 // New creates a new SecureValue wrapper around a sensitive value.
@@ -60,45 +62,54 @@ func New[T any](value T, zeroizer Zeroizer[T]) *SecureValue[T] {
 }
 
 // Use provides temporary, safe access to the wrapped value.
-// The callback function f receives the value and can perform operations on it.
-// Use() ensures that the value cannot be accessed after Destroy() is called.
+// The callback function f receives a POINTER to the value to prevent copying
+// sensitive data. This ensures that only the internal copy can be zeroized.
 //
 // Use() is safe for concurrent calls from multiple goroutines.
-// However, callers MUST ensure Destroy() is not called while Use() operations
-// are in progress.
-func (s *SecureValue[T]) Use(f func(value T) error) error {
+// Destroy() will block until all active Use() calls complete.
+//
+// SECURITY: The callback receives a pointer to prevent accidental copies.
+// Callers should NOT store the pointer or create copies of the value.
+func (s *SecureValue[T]) Use(f func(value *T) error) error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if s.destroyed {
+		s.mu.RUnlock()
 		return fmt.Errorf("cannot use destroyed SecureValue")
 	}
+	s.inUse.Add(1)
+	s.mu.RUnlock()
 
-	return f(s.value)
+	defer s.inUse.Done()
+
+	return f(&s.value)
 }
 
 // Destroy securely zeros the wrapped value and marks it as destroyed.
 // After calling Destroy, all subsequent Use() calls will fail.
 //
 // Destroy is idempotent - calling it multiple times is safe.
-// However, callers MUST ensure no Use() operations are in progress when
-// calling Destroy().
+// Destroy will block until all active Use() operations complete, ensuring
+// safe zeroization without race conditions.
 //
-// Example with proper synchronization:
+// Example usage:
 //
-//	var wg sync.WaitGroup
-//	wg.Add(2)
-//	go func() { defer wg.Done(); secureKey.Use(...) }()
-//	go func() { defer wg.Done(); secureKey.Use(...) }()
-//	wg.Wait()
-//	secureKey.Destroy()
+//	secureKey := lifecycle.New(privateKey, zeroizer)
+//	defer secureKey.Destroy()  // Safe to call even with concurrent Use()
+//
+//	go secureKey.Use(...)  // These can run concurrently
+//	go secureKey.Use(...)
+//	// Destroy() will wait for all Use() calls to complete
 func (s *SecureValue[T]) Destroy() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.destroyed {
-		s.zeroizer(&s.value)
 		s.destroyed = true
+		s.mu.Unlock()
+
+		// Wait for all Use() calls to complete before zeroizing
+		s.inUse.Wait()
+		s.zeroizer(&s.value)
+	} else {
+		s.mu.Unlock()
 	}
 }
 

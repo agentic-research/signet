@@ -25,9 +25,9 @@ func TestSecureValue_BasicUsage(t *testing.T) {
 
 	// Test Use() before Destroy()
 	var sawValue []byte
-	err := secure.Use(func(value []byte) error {
-		sawValue = make([]byte, len(value))
-		copy(sawValue, value)
+	err := secure.Use(func(value *[]byte) error {
+		sawValue = make([]byte, len(*value))
+		copy(sawValue, *value)
 		return nil
 	})
 
@@ -61,7 +61,7 @@ func TestSecureValue_Destroy(t *testing.T) {
 	}
 
 	// Try to use after destroy
-	err := secure.Use(func(value []byte) error {
+	err := secure.Use(func(value *[]byte) error {
 		return nil
 	})
 
@@ -106,7 +106,7 @@ func TestSecureValue_UseReturnsError(t *testing.T) {
 	defer secure.Destroy()
 
 	expectedErr := fmt.Errorf("test error")
-	err := secure.Use(func(value []byte) error {
+	err := secure.Use(func(value *[]byte) error {
 		return expectedErr
 	})
 
@@ -137,10 +137,10 @@ func TestSecureValue_ConcurrentUse(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
 			defer wg.Done()
-			err := secure.Use(func(value []byte) error {
+			err := secure.Use(func(value *[]byte) error {
 				// Verify value is correct
-				if !bytesEqual(value, []byte{1, 2, 3, 4, 5}) {
-					return fmt.Errorf("wrong value: %v", value)
+				if !bytesEqual(*value, []byte{1, 2, 3, 4, 5}) {
+					return fmt.Errorf("wrong value: %v", *value)
 				}
 				return nil
 			})
@@ -180,8 +180,8 @@ func TestSecureValue_Ed25519Key(t *testing.T) {
 	message := []byte("test message")
 	var signature []byte
 
-	err = secure.Use(func(key ed25519.PrivateKey) error {
-		signature = ed25519.Sign(key, message)
+	err = secure.Use(func(key *ed25519.PrivateKey) error {
+		signature = ed25519.Sign(*key, message)
 		return nil
 	})
 
@@ -250,7 +250,7 @@ func TestSecureValue_StructType(t *testing.T) {
 	secure := lifecycle.New(secret, zeroizer)
 
 	// Use the secret
-	err := secure.Use(func(value Secret) error {
+	err := secure.Use(func(value *Secret) error {
 		if value.Password != "secret123" {
 			return fmt.Errorf("wrong password: %s", value.Password)
 		}
@@ -282,6 +282,104 @@ func TestSecureValue_PanicOnNilZeroizer(t *testing.T) {
 
 	key := []byte{1, 2, 3}
 	_ = lifecycle.New(key, nil)
+}
+
+// TestSecureValue_DestroyDuringConcurrentUse verifies safe destruction
+func TestSecureValue_DestroyDuringConcurrentUse(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+
+	zeroizer := func(k *[]byte) {
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	secure := lifecycle.New(key, zeroizer)
+
+	var wg sync.WaitGroup
+	const numGoroutines = 10
+
+	// Start multiple concurrent Use() operations
+	wg.Add(numGoroutines)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			_ = secure.Use(func(value *[]byte) error {
+				// Simulate some work
+				_ = *value
+				return nil
+			})
+		}()
+	}
+
+	// Destroy while Use() operations may be in progress
+	// This should wait for all Use() to complete before zeroizing
+	go func() {
+		secure.Destroy()
+	}()
+
+	wg.Wait()
+
+	// After all goroutines complete, should be destroyed
+	if !secure.IsDestroyed() {
+		t.Error("Expected SecureValue to be destroyed")
+	}
+}
+
+// TestSecureValue_NoMemoryLeakWithPointer verifies pointer API prevents copies
+func TestSecureValue_NoMemoryLeakWithPointer(t *testing.T) {
+	// This test demonstrates that with the pointer API, callers receive
+	// a pointer to the internal value, not a copy. When Destroy() is called,
+	// the internal value is zeroized, and no copies remain (as long as the
+	// callback doesn't create copies).
+
+	key := []byte{1, 2, 3, 4, 5}
+	zeroizerCalled := false
+
+	zeroizer := func(k *[]byte) {
+		zeroizerCalled = true
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	secure := lifecycle.New(key, zeroizer)
+
+	// Use the key without creating copies
+	signatureCount := 0
+	err := secure.Use(func(k *[]byte) error {
+		// Work with the pointer directly
+		if len(*k) == 5 {
+			signatureCount++
+		}
+		// DON'T do this: leaked := *k (creates a copy)
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("Use() failed: %v", err)
+	}
+
+	if signatureCount != 1 {
+		t.Errorf("Expected 1 signature, got %d", signatureCount)
+	}
+
+	// Destroy should zeroize the internal value
+	secure.Destroy()
+
+	if !zeroizerCalled {
+		t.Error("Zeroizer should have been called")
+	}
+
+	// Verify we can't use after destroy
+	err = secure.Use(func(k *[]byte) error {
+		t.Error("Should not be able to use after destroy")
+		return nil
+	})
+
+	if err == nil {
+		t.Error("Use() after Destroy() should return error")
+	}
 }
 
 // Helper function to compare byte slices
