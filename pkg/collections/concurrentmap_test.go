@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jamestexas/signet/pkg/collections"
 )
@@ -522,4 +523,108 @@ func TestConcurrentMap_ForEachCanCallMethods(t *testing.T) {
 	if finalLen >= 10 {
 		t.Errorf("Expected fewer than 10 entries after deletion, got %d", finalLen)
 	}
+}
+
+// TestConcurrentMap_AttackForEachDeadlock demonstrates the deadlock vulnerability
+// This test would DEADLOCK with the old implementation (holding RLock during callback).
+// With the new snapshot approach, it completes successfully.
+//
+// NOTE: This test uses a timeout to detect deadlock instead of actually deadlocking,
+// because we want the test suite to pass :)
+func TestConcurrentMap_AttackForEachDeadlock(t *testing.T) {
+	t.Run("old_implementation_would_deadlock", func(t *testing.T) {
+		cm := collections.NewConcurrentMap[string, int]()
+
+		cm.Set("key1", 1)
+		cm.Set("key2", 2)
+		cm.Set("key3", 3)
+
+		// ATTACK: Try to cause deadlock by calling Delete during ForEach
+		// Old implementation: ForEach holds RLock, Delete tries to acquire Lock -> DEADLOCK
+		// New implementation: ForEach uses snapshot, no locks held during callback -> SUCCESS
+
+		done := make(chan bool, 1)
+
+		go func() {
+			cm.ForEach(func(key string, value int) bool {
+				// This would deadlock in old implementation
+				cm.Delete(key)
+				return true
+			})
+			done <- true
+		}()
+
+		// Wait with timeout
+		select {
+		case <-done:
+			t.Log("✓ ForEach with Delete completed without deadlock")
+		case <-time.After(2 * time.Second):
+			t.Fatal("DEADLOCK DETECTED: ForEach with Delete timed out")
+		}
+	})
+
+	t.Run("multiple_concurrent_operations_during_foreach", func(t *testing.T) {
+		cm := collections.NewConcurrentMap[int, string]()
+
+		// Populate
+		for i := 0; i < 100; i++ {
+			cm.Set(i, fmt.Sprintf("value%d", i))
+		}
+
+		// ATTACK: Perform multiple dangerous operations during ForEach
+		done := make(chan bool, 1)
+
+		go func() {
+			cm.ForEach(func(key int, value string) bool {
+				// All of these would cause deadlock with old implementation
+				cm.Get(key % 50)        // RLock during RLock (ok)
+				cm.Set(key+1000, "new") // Lock during RLock (DEADLOCK in old)
+				cm.Delete(key % 10)     // Lock during RLock (DEADLOCK in old)
+				cm.Has(key)             // RLock during RLock (ok)
+				return true
+			})
+			done <- true
+		}()
+
+		select {
+		case <-done:
+			t.Log("✓ Complex operations during ForEach completed without deadlock")
+		case <-time.After(2 * time.Second):
+			t.Fatal("DEADLOCK DETECTED: Complex ForEach operations timed out")
+		}
+	})
+
+	t.Run("nested_foreach_calls", func(t *testing.T) {
+		cm := collections.NewConcurrentMap[int, int]()
+
+		for i := 0; i < 10; i++ {
+			cm.Set(i, i*2)
+		}
+
+		// ATTACK: Nest ForEach calls
+		// Old implementation: Outer ForEach holds RLock, inner ForEach tries RLock -> DEADLOCK
+		// New implementation: Each ForEach uses independent snapshot -> SUCCESS
+
+		done := make(chan bool, 1)
+
+		go func() {
+			count := 0
+			cm.ForEach(func(key1, value1 int) bool {
+				// Nested ForEach would deadlock in old implementation
+				cm.ForEach(func(key2, value2 int) bool {
+					count++
+					return true
+				})
+				return true
+			})
+			done <- true
+		}()
+
+		select {
+		case <-done:
+			t.Log("✓ Nested ForEach completed without deadlock")
+		case <-time.After(2 * time.Second):
+			t.Fatal("DEADLOCK DETECTED: Nested ForEach timed out")
+		}
+	})
 }
