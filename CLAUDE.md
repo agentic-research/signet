@@ -109,30 +109,61 @@ The codebase uses Go 1.18+ generics to provide type-safe, reusable patterns for 
 
 #### Lifecycle Management (`pkg/lifecycle`)
 
-Sensitive data (keys, secrets) is wrapped in `lifecycle.SecureValue[T]` to ensure proper zeroization:
+Sensitive data (keys, secrets) is wrapped in `lifecycle.SecureValue[T]` to ensure proper zeroization.
+
+**Recommended API - Loan Pattern (WithSecureValue):**
 
 ```go
-// Wrap a sensitive key
+// For one-shot operations (recommended)
 zeroizer := func(key *ed25519.PrivateKey) {
     for i := range *key {
         (*key)[i] = 0
     }
 }
+
+// Simple case - just need error
+err := lifecycle.WithSecureValue(privateKey, zeroizer, func(key *ed25519.PrivateKey) error {
+    signature := ed25519.Sign(*key, message)
+    return sendSignature(signature)
+})
+// Key automatically zeroized, even if sendSignature panics
+
+// With return value
+signature, err := lifecycle.WithSecureValueResult(privateKey, zeroizer,
+    func(key *ed25519.PrivateKey) ([]byte, error) {
+        sig := ed25519.Sign(*key, message)
+        return sig, nil
+    },
+)
+// Key automatically zeroized, signature extracted safely
+```
+
+**Low-level API (New/Destroy):**
+
+For long-lived objects, use the explicit API:
+
+```go
 secureKey := lifecycle.New(privateKey, zeroizer)
 defer secureKey.Destroy()
 
-// Use the key safely
-err := secureKey.Use(func(key ed25519.PrivateKey) error {
-    signature := ed25519.Sign(key, message)
+// Use the key safely (note: receives pointer)
+err := secureKey.Use(func(key *ed25519.PrivateKey) error {
+    signature := ed25519.Sign(*key, message)
     return nil
 })
 ```
 
 **Key Features:**
-- Type-safe zeroization with custom zeroizer functions
-- Concurrency-safe (RWMutex for Use/Destroy)
-- Prevents use-after-destroy bugs
+- **Loan pattern eliminates lifecycle bugs** - Cannot forget to Destroy()
+- **Panic-safe** - Cleanup guaranteed even if user code panics
+- **Type-safe zeroization** with custom zeroizer functions
+- **Concurrency-safe** - RWMutex allows parallel Use(), WaitGroup blocks Destroy()
+- **Pointer API prevents accidental copies** - Forces explicit dereferencing
 - Used in: COSE signers (Ed25519, ECDSA P-256)
+
+**Design Philosophy:**
+- `WithSecureValue()` - Recommended for 99% of use cases (ephemeral operations)
+- `New()/Destroy()` - Only for long-lived objects (e.g., server-lifetime keys)
 
 #### Structured Error Handling (`pkg/errors`)
 

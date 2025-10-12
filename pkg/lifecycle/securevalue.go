@@ -120,3 +120,62 @@ func (s *SecureValue[T]) IsDestroyed() bool {
 	defer s.mu.RUnlock()
 	return s.destroyed
 }
+
+// WithSecureValue provides a "loan pattern" for secure lifecycle management.
+// It handles the entire New()->Use()->Destroy() lifecycle automatically,
+// eliminating the possibility of forgetting to call Destroy().
+//
+// This is the recommended API for most use cases. It guarantees:
+//  1. The value is always zeroized, even if userFunc panics
+//  2. No possibility of use-after-destroy bugs
+//  3. Clean, self-contained code blocks
+//
+// Example usage:
+//
+//	// Sign a message with ephemeral Ed25519 key
+//	err := lifecycle.WithSecureValue(privateKey, zeroizer, func(key *ed25519.PrivateKey) error {
+//	    signature := ed25519.Sign(*key, message)
+//	    return sendSignature(signature)
+//	})
+//
+//	// The key is automatically zeroized here, even if sendSignature panicked
+//
+// For long-lived objects, use New()/Destroy() directly instead.
+func WithSecureValue[T any](value T, zeroizer Zeroizer[T], userFunc func(value *T) error) error {
+	secure := New(value, zeroizer)
+	defer secure.Destroy()
+
+	return secure.Use(userFunc)
+}
+
+// WithSecureValueResult provides the loan pattern with a return value.
+// This is useful when you need to extract a result from the secure operation
+// without leaking the sensitive value.
+//
+// Example usage:
+//
+//	signature, err := lifecycle.WithSecureValueResult(privateKey, zeroizer,
+//	    func(key *ed25519.PrivateKey) ([]byte, error) {
+//	        sig := ed25519.Sign(*key, message)
+//	        return sig, nil
+//	    },
+//	)
+func WithSecureValueResult[T any, R any](value T, zeroizer Zeroizer[T], userFunc func(value *T) (R, error)) (R, error) {
+	secure := New(value, zeroizer)
+	defer secure.Destroy()
+
+	var result R
+	var err error
+
+	useErr := secure.Use(func(v *T) error {
+		result, err = userFunc(v)
+		return err
+	})
+
+	if useErr != nil {
+		var zero R
+		return zero, useErr
+	}
+
+	return result, err
+}

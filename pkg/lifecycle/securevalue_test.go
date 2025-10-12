@@ -540,6 +540,236 @@ func TestSecureValue_AttackDestroyDuringUse(t *testing.T) {
 	})
 }
 
+// TestWithSecureValue_BasicUsage verifies the loan pattern
+func TestWithSecureValue_BasicUsage(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+
+	zeroizer := func(k *[]byte) {
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	var sawValue []byte
+	err := lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
+		sawValue = make([]byte, len(*value))
+		copy(sawValue, *value)
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("WithSecureValue failed: %v", err)
+	}
+
+	if !bytesEqual(sawValue, []byte{1, 2, 3, 4, 5}) {
+		t.Errorf("Wrong value: got %v, want %v", sawValue, []byte{1, 2, 3, 4, 5})
+	}
+
+	// Key should be automatically zeroized after block completes
+}
+
+// TestWithSecureValue_AutomaticCleanup verifies Destroy() is always called
+func TestWithSecureValue_AutomaticCleanup(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+	zeroizerCalled := false
+
+	zeroizer := func(k *[]byte) {
+		zeroizerCalled = true
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	err := lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("WithSecureValue failed: %v", err)
+	}
+
+	if !zeroizerCalled {
+		t.Error("Zeroizer was not called - cleanup failed!")
+	}
+}
+
+// TestWithSecureValue_ErrorPropagation verifies errors are returned
+func TestWithSecureValue_ErrorPropagation(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+
+	zeroizer := func(k *[]byte) {
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	expectedErr := fmt.Errorf("test error")
+	err := lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
+		return expectedErr
+	})
+
+	if err != expectedErr {
+		t.Errorf("Error not propagated: got %v, want %v", err, expectedErr)
+	}
+}
+
+// TestWithSecureValue_PanicRecovery verifies cleanup happens even on panic
+func TestWithSecureValue_PanicRecovery(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+	zeroizerCalled := false
+
+	zeroizer := func(k *[]byte) {
+		zeroizerCalled = true
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("Expected panic but didn't get one")
+			}
+		}()
+
+		_ = lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
+			panic("test panic")
+		})
+	}()
+
+	// Despite the panic, zeroizer should have been called
+	if !zeroizerCalled {
+		t.Error("Zeroizer was not called after panic - cleanup failed!")
+	}
+}
+
+// TestWithSecureValueResult_BasicUsage verifies result extraction
+func TestWithSecureValueResult_BasicUsage(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+
+	zeroizer := func(k *[]byte) {
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	sum, err := lifecycle.WithSecureValueResult(key, zeroizer,
+		func(value *[]byte) (int, error) {
+			total := 0
+			for _, b := range *value {
+				total += int(b)
+			}
+			return total, nil
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("WithSecureValueResult failed: %v", err)
+	}
+
+	expected := 1 + 2 + 3 + 4 + 5
+	if sum != expected {
+		t.Errorf("Wrong sum: got %d, want %d", sum, expected)
+	}
+}
+
+// TestWithSecureValueResult_Ed25519Signing demonstrates real-world usage
+func TestWithSecureValueResult_Ed25519Signing(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	zeroizer := func(key *ed25519.PrivateKey) {
+		for i := range *key {
+			(*key)[i] = 0
+		}
+	}
+
+	message := []byte("test message")
+
+	// Sign using the loan pattern
+	signature, err := lifecycle.WithSecureValueResult(priv, zeroizer,
+		func(key *ed25519.PrivateKey) ([]byte, error) {
+			sig := ed25519.Sign(*key, message)
+			return sig, nil
+		},
+	)
+
+	if err != nil {
+		t.Fatalf("Signing failed: %v", err)
+	}
+
+	// Verify signature
+	if !ed25519.Verify(pub, message, signature) {
+		t.Error("Signature verification failed")
+	}
+
+	// Key was automatically zeroized
+}
+
+// TestWithSecureValueResult_ErrorHandling verifies error propagation with result
+func TestWithSecureValueResult_ErrorHandling(t *testing.T) {
+	key := []byte{1, 2, 3, 4, 5}
+
+	zeroizer := func(k *[]byte) {
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	expectedErr := fmt.Errorf("computation failed")
+
+	result, err := lifecycle.WithSecureValueResult(key, zeroizer,
+		func(value *[]byte) (int, error) {
+			return 0, expectedErr
+		},
+	)
+
+	if err != expectedErr {
+		t.Errorf("Error not propagated: got %v, want %v", err, expectedErr)
+	}
+
+	if result != 0 {
+		t.Errorf("Expected zero value on error, got %d", result)
+	}
+}
+
+// TestWithSecureValue_NoLeakOnPanic verifies panic doesn't prevent cleanup
+func TestWithSecureValue_NoLeakOnPanic(t *testing.T) {
+	key := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	zeroizerCalled := false
+
+	zeroizer := func(k *[]byte) {
+		zeroizerCalled = true
+		for i := range *k {
+			(*k)[i] = 0
+		}
+	}
+
+	// This should panic but still clean up
+	func() {
+		defer func() {
+			recover() // Catch the panic
+		}()
+
+		_ = lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
+			// Do some work
+			_ = (*value)[0]
+
+			// Then panic
+			panic("unexpected error")
+		})
+	}()
+
+	// Cleanup should have happened despite panic
+	if !zeroizerCalled {
+		t.Error("Zeroizer not called - secret data leaked on panic!")
+	}
+
+	t.Log("✓ Cleanup guaranteed even on panic - loan pattern prevents leaks")
+}
+
 // Helper function to compare byte slices
 func bytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {
