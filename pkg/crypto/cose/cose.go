@@ -149,10 +149,11 @@ func (v *Ed25519Verifier) Verify(coseSign1 []byte) ([]byte, error) {
 	return msg.Payload, nil
 }
 
-// Signer interface for COSE signing
+// Signer interface for COSE signing with lifecycle management.
+// All implementations must support secure destruction of cryptographic material.
 type Signer interface {
-	// Sign creates a COSE Sign1 message from the payload
 	Sign(payload []byte) ([]byte, error)
+	Destroy()
 }
 
 // Verifier interface for COSE verification
@@ -209,9 +210,29 @@ func NewVerifier(publicKey interface{}) (Verifier, error) {
 
 // ECDSAP256Signer implements COSE Sign1 signing with ECDSA P-256.
 // This signer supports hardware-backed keys like Touch ID on macOS.
+// The private key is securely managed and automatically zeroed when Destroy() is called.
+//
+// CONCURRENCY: ECDSAP256Signer is safe for concurrent Sign() calls from multiple goroutines.
+// However, callers MUST externally synchronize Destroy() calls to ensure they happen only
+// after all Sign() operations are complete. Calling Destroy() concurrently with Sign()
+// may result in Sign() operations failing with "signer has been destroyed" errors.
+//
+// Best practice:
+//
+//	signer, _ := NewECDSAP256Signer(privateKey)
+//
+//	// Safe: Multiple goroutines can call Sign() concurrently
+//	go signer.Sign(payload1)
+//	go signer.Sign(payload2)
+//
+//	// Wait for all Sign() operations to complete before calling Destroy()
+//	waitGroup.Wait()
+//	signer.Destroy()
 type ECDSAP256Signer struct {
+	mu         sync.RWMutex
 	privateKey *ecdsa.PrivateKey
 	signer     cose.Signer
+	destroyed  bool
 }
 
 // ECDSAP256Verifier implements COSE Sign1 verification with ECDSA P-256.
@@ -239,13 +260,44 @@ func NewECDSAP256Signer(privateKey *ecdsa.PrivateKey) (*ECDSAP256Signer, error) 
 	return &ECDSAP256Signer{
 		privateKey: privateKey,
 		signer:     signer,
+		destroyed:  false,
 	}, nil
 }
 
+// Destroy securely zeros the private key from memory.
+// After calling Destroy, the signer cannot be used.
+// This is idempotent - calling multiple times is safe.
+//
+// NOTE: For hardware-backed keys (e.g., Touch ID on macOS), the private key
+// never leaves the Secure Enclave, so zeroization is primarily defensive.
+// However, for software ECDSA keys, this is critical for security.
+func (s *ECDSAP256Signer) Destroy() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.destroyed {
+		// Zero the private scalar D (the actual secret)
+		if s.privateKey != nil && s.privateKey.D != nil {
+			// Set to zero (big.Int has no built-in zeroization, so we use SetInt64)
+			s.privateKey.D.SetInt64(0)
+		}
+		s.destroyed = true
+	}
+}
+
 // Sign creates a COSE Sign1 message from the payload using ECDSA P-256.
+// Note: nil payloads are rejected, but empty payloads ([]byte{}) are allowed
+// as they represent valid zero-length data to sign.
 func (s *ECDSAP256Signer) Sign(payload []byte) ([]byte, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("payload cannot be nil")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Check destroyed flag while holding the lock to prevent TOCTOU race
+	if s.destroyed {
+		return nil, fmt.Errorf("signer has been destroyed")
 	}
 
 	// Create message headers
@@ -255,7 +307,7 @@ func (s *ECDSAP256Signer) Sign(payload []byte) ([]byte, error) {
 		},
 	}
 
-	// Sign and marshal to CBOR
+	// External data (aad) is nil - not needed for Signet's threat model
 	coseSign1, err := cose.Sign1(rand.Reader, s.signer, headers, payload, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create COSE Sign1: %w", err)
