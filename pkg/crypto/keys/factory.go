@@ -28,6 +28,8 @@ func NewSigner(opts ...SignerOption) (crypto.Signer, error) {
 		return NewEd25519Signer(priv), nil
 	case "pkcs11":
 		return nil, fmt.Errorf("pkcs11 support not compiled in; please build with '-tags pkcs11'")
+	case "touchid":
+		return nil, fmt.Errorf("touchid support not compiled in; please build with '-tags touchid' on macOS")
 	default:
 		return nil, fmt.Errorf("unknown signer module: %s", cfg.module)
 	}

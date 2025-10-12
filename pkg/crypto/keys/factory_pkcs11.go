@@ -142,6 +142,8 @@ func NewSigner(opts ...SignerOption) (crypto.Signer, error) {
 
 		// Create the PKCS#11 signer using go-platform-signers
 		return pkcs11.NewPKCS11Signer(pkcs11Config)
+	case "touchid":
+		return nil, fmt.Errorf("touchid support not compiled in; please build with '-tags touchid' on macOS")
 	default:
 		return nil, fmt.Errorf("unknown signer module: %s", cfg.module)
 	}

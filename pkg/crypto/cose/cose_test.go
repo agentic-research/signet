@@ -1,7 +1,9 @@
 package cose
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
 	"testing"
@@ -468,4 +470,60 @@ func TestConcurrentSignAndDestroy(t *testing.T) {
 
 	// Final destroy should be safe
 	signer.Destroy()
+}
+
+// TestECDSAP256SignerVerifier tests ECDSA P-256 signing and verification
+func TestECDSAP256SignerVerifier(t *testing.T) {
+	// Generate P-256 key pair
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate P-256 key pair: %v", err)
+	}
+
+	// Create signer
+	signer, err := NewECDSAP256Signer(privKey)
+	if err != nil {
+		t.Fatalf("failed to create ECDSA signer: %v", err)
+	}
+
+	// Create verifier
+	verifier, err := NewECDSAP256Verifier(&privKey.PublicKey)
+	if err != nil {
+		t.Fatalf("failed to create ECDSA verifier: %v", err)
+	}
+
+	// Test data
+	testPayload := []byte("test message for COSE Sign1 with ECDSA P-256")
+
+	// Sign the payload
+	coseSign1, err := signer.Sign(testPayload)
+	if err != nil {
+		t.Fatalf("failed to sign: %v", err)
+	}
+
+	if len(coseSign1) == 0 {
+		t.Fatal("COSE Sign1 message is empty")
+	}
+
+	t.Logf("COSE Sign1 length: %d bytes", len(coseSign1))
+
+	// Verify the signature and recover payload
+	recoveredPayload, err := verifier.Verify(coseSign1)
+	if err != nil {
+		t.Fatalf("failed to verify: %v", err)
+	}
+
+	// Check payload matches
+	if string(recoveredPayload) != string(testPayload) {
+		t.Errorf("payload mismatch: got %q, want %q", recoveredPayload, testPayload)
+	}
+}
+
+// TestECDSAP256VerifierInvalidKey tests verifier with invalid key
+func TestECDSAP256VerifierInvalidKey(t *testing.T) {
+	// Test with nil key
+	_, err := NewECDSAP256Verifier(nil)
+	if err == nil {
+		t.Error("expected error for nil public key, got nil")
+	}
 }
