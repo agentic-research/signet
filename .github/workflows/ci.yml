@@ -83,6 +83,15 @@ jobs:
         run: |
           make integration-test
 
+      - name: Build HTTP demo binaries
+        run: |
+          cd demo/http-auth/server && go build -o server .
+          cd ../client && go build -o client .
+
+      - name: Run HTTP integration tests (SIG1 wire format)
+        run: |
+          ./scripts/testing/test_sig1_http_integration.sh
+
   test-pkcs11:
     name: Test Suite (PKCS#11 with CGO)
     runs-on: ubuntu-latest
