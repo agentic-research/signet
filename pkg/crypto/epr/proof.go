@@ -79,21 +79,27 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 	if err != nil {
 		return nil, signetErrors.NewKeyError("generate", "ephemeral", err)
 	}
-	// Note: Caller is responsible for calling secPriv.Destroy()
+
+	// Use a flag to track ownership transfer. If we successfully return the key to
+	// the caller, we set this to true to prevent cleanup. Otherwise, defer ensures
+	// the key is destroyed on any error path.
+	var ownershipTransferred bool
+	defer func() {
+		if !ownershipTransferred {
+			secPriv.Destroy()
+		}
+	}()
 
 	// 2. Create domain-separated message with validity period
 	expiresAt := time.Now().Add(request.ValidityPeriod).Unix()
 	message, err := createBindingMessage(ephemeralPub, expiresAt, request.Purpose)
 	if err != nil {
-		secPriv.Destroy()
 		return nil, err
 	}
 
 	// 3. Sign the message with master key to create BindingSignature
 	bindingSignature, err := g.masterSigner.Sign(rand.Reader, message, crypto.Hash(0))
 	if err != nil {
-		// Clean up ephemeral key on error
-		secPriv.Destroy()
 		return nil, signetErrors.NewSignatureError("binding", "master key signing failed", err)
 	}
 
@@ -102,9 +108,11 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 		BindingSignature:   bindingSignature,
 	}
 
+	// Mark ownership as transferred before returning
+	ownershipTransferred = true
 	return &ProofResponse{
 		Proof:               proof,
-		EphemeralPrivateKey: secPriv,
+		EphemeralPrivateKey: secPriv, // Caller now owns this
 	}, nil
 }
 

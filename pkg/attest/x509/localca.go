@@ -51,20 +51,27 @@ func (ca *LocalCA) IssueCodeSigningCertificateSecure(validityDuration time.Durat
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	// Note: Caller is responsible for calling secPriv.Destroy()
+
+	// Use a flag to track ownership transfer. If we successfully return the key to
+	// the caller, we set this to true to prevent cleanup. Otherwise, defer ensures
+	// the key is destroyed on any error path.
+	var ownershipTransferred bool
+	defer func() {
+		if !ownershipTransferred {
+			secPriv.Destroy()
+		}
+	}()
 
 	// 2. Create CA (issuer) certificate template
 	// This represents the master key acting as CA
 	issuerTemplate := ca.CreateCACertificateTemplate()
 	if issuerTemplate == nil {
-		secPriv.Destroy() // Clean up on error
 		return nil, nil, nil, errors.New("failed to create issuer template")
 	}
 
 	// 3. Create certificate template for the ephemeral key
 	template := ca.CreateCertificateTemplate(validityDuration)
 	if template == nil {
-		secPriv.Destroy() // Clean up on error
 		return nil, nil, nil, errors.New("failed to create certificate template")
 	}
 
@@ -84,18 +91,18 @@ func (ca *LocalCA) IssueCodeSigningCertificateSecure(validityDuration time.Durat
 		ca.masterKey,   // CA private key for signing
 	)
 	if err != nil {
-		secPriv.Destroy() // Clean up on error
 		return nil, nil, nil, err
 	}
 
 	// 7. Parse the certificate to return
 	cert, err := x509.ParseCertificate(certDER)
 	if err != nil {
-		secPriv.Destroy() // Clean up on error
 		return nil, nil, nil, err
 	}
 
-	return cert, certDER, secPriv, nil
+	// Mark ownership as transferred before returning
+	ownershipTransferred = true
+	return cert, certDER, secPriv, nil // Caller now owns secPriv
 }
 
 // IssueCertificateForSigner creates an X.509 certificate for code signing
