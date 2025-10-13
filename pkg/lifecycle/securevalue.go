@@ -80,9 +80,14 @@ func New[T any](value T, zeroizer Zeroizer[T]) *SecureValue[T] {
 //   - Completed their Add() before Lock was acquired, OR
 //   - Will see destroyed=true and fail before calling Add()
 //
+// PANIC SAFETY: If the callback panics, the value is immediately zeroized before
+// re-panicking. This prevents sensitive data from lingering in memory after a crash.
+// For callers using defer Destroy(), the panic recovery provides defense-in-depth:
+// even if Destroy() is somehow skipped, the panic path ensures zeroization.
+//
 // SECURITY: The callback receives a pointer to prevent accidental copies.
 // Callers should NOT store the pointer or create copies of the value.
-func (s *SecureValue[T]) Use(f func(value *T) error) error {
+func (s *SecureValue[T]) Use(f func(value *T) error) (err error) {
 	s.mu.RLock()
 	if s.destroyed {
 		s.mu.RUnlock()
@@ -91,7 +96,22 @@ func (s *SecureValue[T]) Use(f func(value *T) error) error {
 	s.inUse.Add(1)
 	s.mu.RUnlock()
 
-	defer s.inUse.Done()
+	defer func() {
+		s.inUse.Done()
+
+		// If panic occurred, force immediate zeroization for security.
+		// This provides defense-in-depth: even if defer Destroy() is skipped,
+		// we ensure sensitive data is cleared from memory.
+		if r := recover(); r != nil {
+			s.mu.Lock()
+			if !s.destroyed {
+				s.zeroizer(&s.value)
+				s.destroyed = true
+			}
+			s.mu.Unlock()
+			panic(r) // Re-panic after cleanup
+		}
+	}()
 
 	return f(&s.value)
 }
