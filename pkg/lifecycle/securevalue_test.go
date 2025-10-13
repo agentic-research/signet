@@ -411,7 +411,7 @@ func TestSecureValue_AttackMemoryLeakByValue(t *testing.T) {
 			// But we can't prevent dereferencing - that's up to the caller
 
 			// The pointer prevents accidental leaks from just passing 'k' around
-			leaked = *k // Caller can still create copy by dereferencing
+			leaked = *k // This line demonstrates the exact behavior the pointer API is designed to make explicit: callers can still leak data by dereferencing and copying, but this action is now explicit and reviewable, not implicit or accidental.
 			return nil
 		})
 
