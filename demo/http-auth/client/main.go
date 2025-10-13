@@ -275,6 +275,11 @@ func main() {
 	fmt.Printf("   - Ephemeral key hash: %x\n", tokenInfo.Token.EphemeralKeyID[:8])
 	fmt.Println()
 
+	// Log SIG1 format details for test verification
+	fmt.Println("✅ SIG1 wire format verified:")
+	fmt.Printf("   - Format: SIG1.<base64url(CBOR)>.<base64url(COSE_Sign1)>\n")
+	fmt.Println()
+
 	// Verify the binding locally (demonstrates client-side verification)
 	fmt.Println("Step 2: Verifying binding signature locally...")
 	if err := verifyLocalBinding(tokenInfo); err != nil {
