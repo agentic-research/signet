@@ -68,6 +68,18 @@ func New[T any](value T, zeroizer Zeroizer[T]) *SecureValue[T] {
 // Use() is safe for concurrent calls from multiple goroutines.
 // Destroy() will block until all active Use() calls complete.
 //
+// LOCK ORDERING GUARANTEE:
+// The lock ordering (RWMutex → WaitGroup) is safe because:
+//  1. Use() acquires RLock, checks destroyed flag, calls inUse.Add(1), then releases RLock
+//  2. Destroy() acquires exclusive Lock (blocks until all RLocks released)
+//  3. Destroy() sets destroyed=true, releases Lock, then calls inUse.Wait()
+//  4. By the time Wait() is called, all RLocks are released and no new Add() can occur
+//
+// This prevents the race where Wait() returns before Add() is called, because
+// Destroy's exclusive Lock ensures all Use() calls have either:
+//   - Completed their Add() before Lock was acquired, OR
+//   - Will see destroyed=true and fail before calling Add()
+//
 // SECURITY: The callback receives a pointer to prevent accidental copies.
 // Callers should NOT store the pointer or create copies of the value.
 func (s *SecureValue[T]) Use(f func(value *T) error) error {
