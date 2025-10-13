@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -392,7 +393,13 @@ func main() {
 	masterKeyHash := sha256.Sum256(serverMasterPub)
 	fmt.Printf("Server Master Key (first 8 bytes): %x\n", masterKeyHash[:8])
 	fmt.Println("")
-	fmt.Println("Starting server on :8080...")
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
+	fmt.Printf("Starting server on %s...\n", addr)
+
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
