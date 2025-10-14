@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
 	// Used for timeout detection in attack tests (deadlock detection)
 	"time"
 

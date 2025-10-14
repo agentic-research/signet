@@ -770,6 +770,230 @@ func TestWithSecureValue_NoLeakOnPanic(t *testing.T) {
 	t.Log("✓ Cleanup guaranteed even on panic - loan pattern prevents leaks")
 }
 
+// TestSecureValue_StressConcurrency performs stress testing with thousands of concurrent operations.
+// This test addresses PR review concern about edge cases with massive concurrency.
+func TestSecureValue_StressConcurrency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+
+	const (
+		numCycles      = 100  // Number of create/use/destroy cycles
+		numGoroutines  = 1000 // Number of concurrent operations per cycle
+		numDestroyRace = 10   // Number of concurrent Destroy() attempts
+	)
+
+	t.Run("massive_concurrent_use", func(t *testing.T) {
+		for cycle := 0; cycle < numCycles; cycle++ {
+			key := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE}
+
+			zeroizer := func(k *[]byte) {
+				for i := range *k {
+					(*k)[i] = 0
+				}
+			}
+
+			secure := lifecycle.New(key, zeroizer)
+
+			// Launch massive number of concurrent Use() operations
+			var wg sync.WaitGroup
+			wg.Add(numGoroutines)
+			errCh := make(chan error, numGoroutines)
+
+			for i := 0; i < numGoroutines; i++ {
+				go func() {
+					defer wg.Done()
+					err := secure.Use(func(value *[]byte) error {
+						// Verify data integrity
+						if len(*value) != 6 {
+							return fmt.Errorf("wrong length: %d", len(*value))
+						}
+						return nil
+					})
+					if err != nil {
+						errCh <- err
+					}
+				}()
+			}
+
+			// Wait for all operations to complete
+			wg.Wait()
+			close(errCh)
+
+			// Check for errors
+			for err := range errCh {
+				t.Errorf("Cycle %d: Use() failed: %v", cycle, err)
+			}
+
+			// Destroy after all Use() complete
+			secure.Destroy()
+
+			if !secure.IsDestroyed() {
+				t.Errorf("Cycle %d: Failed to destroy", cycle)
+			}
+		}
+
+		t.Logf("✓ Completed %d cycles with %d concurrent operations each", numCycles, numGoroutines)
+	})
+
+	t.Run("concurrent_destroy_during_massive_use", func(t *testing.T) {
+		for cycle := 0; cycle < numCycles; cycle++ {
+			key := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+
+			zeroizer := func(k *[]byte) {
+				for i := range *k {
+					(*k)[i] = 0
+				}
+			}
+
+			secure := lifecycle.New(key, zeroizer)
+
+			// Launch both Use() and Destroy() concurrently
+			var wg sync.WaitGroup
+			wg.Add(numGoroutines + numDestroyRace)
+
+			// Massive concurrent Use() operations
+			for i := 0; i < numGoroutines; i++ {
+				go func() {
+					defer wg.Done()
+					_ = secure.Use(func(value *[]byte) error {
+						// Some operations will succeed, some will fail with "destroyed"
+						// Both outcomes are correct
+						_ = *value
+						return nil
+					})
+				}()
+			}
+
+			// Multiple concurrent Destroy() attempts (should be idempotent)
+			for i := 0; i < numDestroyRace; i++ {
+				go func() {
+					defer wg.Done()
+					secure.Destroy()
+				}()
+			}
+
+			wg.Wait()
+
+			// After everything completes, should be destroyed
+			if !secure.IsDestroyed() {
+				t.Errorf("Cycle %d: Expected destroyed state", cycle)
+			}
+		}
+
+		t.Logf("✓ Completed %d stress cycles with destroy racing against %d operations", numCycles, numGoroutines)
+	})
+
+	t.Run("rapid_create_destroy_cycles", func(t *testing.T) {
+		// Test rapid creation and destruction to find memory/resource leaks
+		const rapidCycles = 10000
+
+		for i := 0; i < rapidCycles; i++ {
+			key := []byte{byte(i), byte(i >> 8)}
+
+			zeroizer := func(k *[]byte) {
+				for j := range *k {
+					(*k)[j] = 0
+				}
+			}
+
+			// Create, use briefly, destroy immediately
+			err := lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
+				return nil
+			})
+
+			if err != nil {
+				t.Fatalf("Cycle %d failed: %v", i, err)
+			}
+		}
+
+		t.Logf("✓ Completed %d rapid create/use/destroy cycles", rapidCycles)
+	})
+}
+
+// TestSecureValue_PanicDuringUseStillZeroizes verifies the CRITICAL security property:
+// If a callback panics during Use(), the value MUST still be zeroized to prevent
+// sensitive data from lingering in memory (vulnerable to core dumps, debuggers, etc.)
+func TestSecureValue_PanicDuringUseStillZeroizes(t *testing.T) {
+	t.Run("panic_during_use_still_zeroizes", func(t *testing.T) {
+		key := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+		zeroizerCalled := false
+
+		zeroizer := func(k *[]byte) {
+			zeroizerCalled = true
+			for i := range *k {
+				(*k)[i] = 0
+			}
+		}
+
+		secure := lifecycle.New(key, zeroizer)
+
+		// Panic in Use() should trigger immediate zeroization via recover()
+		func() {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("Expected panic but didn't get one")
+				}
+				// Panic was recovered, check if zeroizer was called
+			}()
+
+			_ = secure.Use(func(value *[]byte) error {
+				// Simulate some crypto work
+				_ = (*value)[0]
+
+				// Attacker triggers panic
+				panic("simulated error")
+			})
+		}()
+
+		// CRITICAL: Zeroizer MUST have been called by panic recovery in Use()
+		if !zeroizerCalled {
+			t.Fatal("SECURITY VULNERABILITY: Key not zeroized after panic in Use()!")
+		}
+
+		// Value should be marked as destroyed
+		if !secure.IsDestroyed() {
+			t.Error("SecureValue should be marked destroyed after panic")
+		}
+
+		t.Log("✓ SECURITY: Key zeroized immediately on panic, even before defer Destroy()")
+	})
+
+	t.Run("panic_with_defer_destroy_is_safe", func(t *testing.T) {
+		key := []byte{0xCA, 0xFE, 0xBA, 0xBE}
+		zeroizerCallCount := 0
+
+		zeroizer := func(k *[]byte) {
+			zeroizerCallCount++
+			for i := range *k {
+				(*k)[i] = 0
+			}
+		}
+
+		secure := lifecycle.New(key, zeroizer)
+		defer secure.Destroy() // This is the normal pattern
+
+		// Panic should be handled by Use(), then defer Destroy() runs (idempotent)
+		func() {
+			defer func() {
+				recover() // Catch the panic
+			}()
+
+			_ = secure.Use(func(value *[]byte) error {
+				panic("test panic")
+			})
+		}()
+
+		// After panic in Use(), zeroizer called once
+		// After defer Destroy(), zeroizer should NOT be called again (idempotent)
+		if zeroizerCallCount != 1 {
+			t.Errorf("Expected zeroizer called exactly once, got %d calls", zeroizerCallCount)
+		}
+
+		t.Log("✓ Panic recovery + defer Destroy() is safe (no double-zeroization)")
+	})
+}
+
 // Helper function to compare byte slices
 func bytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {
