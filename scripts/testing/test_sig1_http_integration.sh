@@ -51,7 +51,7 @@ for i in {1..30}; do
         echo "✅ Server is ready"
         break
     fi
-    if [ $i -eq 30 ]; then
+    if [ "$i" -eq 30 ]; then
         echo "❌ Server failed to start"
         echo "Server log:"
         cat "$SERVER_LOG"

@@ -1,0 +1,9 @@
+# ShellCheck configuration for Signet
+
+# SC2064: Use single quotes in trap
+# We intentionally use double quotes to capture variable values at trap-set time
+disable=SC2064
+
+# SC2034: Variable appears unused
+# Some variables like SERVER_PID are set for documentation/future use
+disable=SC2034
