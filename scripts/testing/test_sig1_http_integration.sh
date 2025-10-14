@@ -167,7 +167,7 @@ DETECTED_STAGES=0
 for stage in "header_missing" "proof_parsing" "token_lookup" "signature_verification"; do
     if grep -q "$stage" "$SERVER_LOG" 2>/dev/null; then
         echo "   • Found stage: $stage"
-        ((DETECTED_STAGES++))
+        DETECTED_STAGES=$((DETECTED_STAGES + 1))
     fi
 done
 
@@ -248,60 +248,60 @@ TESTS_TOTAL=8
 
 if $SIG1_FORMAT_OK; then
     echo "✅ SIG1 format validation"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "❌ SIG1 format validation"
 fi
 
 if $SIG1_STRUCTURE_OK; then
     echo "✅ SIG1 structure (3 parts)"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "❌ SIG1 structure"
 fi
 
 if $CLIENT_PARSE_OK; then
     echo "✅ Client SIG1 parsing"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "❌ Client SIG1 parsing"
 fi
 
 if $COSE_VERIFY_OK; then
     echo "✅ COSE signature verification"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "⚠️  COSE signature verification (optional)"
     # Don't count as failure if not detected
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 fi
 
 if $CLIENT_AUTH_OK; then
     echo "✅ Client E2E authentication"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "❌ Client E2E authentication"
 fi
 
 if $AUTH_REQUEST_OK; then
     echo "✅ Server rejection of invalid proofs"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "❌ Server rejection of invalid proofs"
 fi
 
 if $OBSERVABILITY_OK; then
     echo "✅ Observability hooks"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "⚠️  Observability hooks (not enabled in demo)"
     # Don't count as failure if not enabled
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 fi
 
 if $OTEL_READY; then
     echo "✅ OpenTelemetry readiness"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     echo "❌ OpenTelemetry readiness"
 fi
