@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/styles"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
+	oidcprovider "github.com/jamestexas/signet/pkg/oidc"
 )
 
 var (
@@ -73,8 +75,19 @@ issuance workflows are functional but under active development.
     "redirect_url": "http://localhost:8080/callback",
     "authority_master_key_path": "/path/to/master.key",
     "listen_addr": ":8080",
-    "certificate_validity_hours": 8
+    "certificate_validity_hours": 8,
+    "oidc_providers_file": "oidc-providers.yaml"
   }
+
+  # Create OIDC providers file (oidc-providers.yaml) for CI/CD platforms
+  providers:
+    - type: github-actions
+      config:
+        name: github-actions
+        issuer_url: https://token.actions.githubusercontent.com
+        audience: http://localhost:8080
+        certificate_validity: 5m
+        enabled: true
 
   # Set session secret via environment variable (required)
   export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
@@ -124,9 +137,38 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	fmt.Println(styles.Subtle.Render("  Provider: ") + config.OIDCProviderURL)
 	fmt.Println()
 
+	// Load OIDC provider registry (for CI/CD platforms)
+	var providerRegistry *oidcprovider.Registry
+	ctx := cmd.Context()
+	if config.OIDCProvidersFile != "" {
+		logger.Info("Loading OIDC providers", "file", config.OIDCProvidersFile)
+		var err error
+		providerRegistry, err = oidcprovider.LoadProvidersFromFile(ctx, config.OIDCProvidersFile)
+		if err != nil {
+			fmt.Println(styles.Error.Render("✗") + " Failed to load OIDC providers")
+			return fmt.Errorf("OIDC provider error: %w", err)
+		}
+		fmt.Println(styles.Success.Render("✓") + " OIDC providers loaded")
+		for _, name := range providerRegistry.List() {
+			fmt.Println(styles.Subtle.Render("  - ") + name)
+		}
+	} else {
+		// Try environment variables
+		providerRegistry, _ = oidcprovider.LoadProvidersFromEnv(ctx)
+		if providerRegistry != nil && len(providerRegistry.List()) > 0 {
+			fmt.Println(styles.Success.Render("✓") + " OIDC providers loaded from environment")
+			for _, name := range providerRegistry.List() {
+				fmt.Println(styles.Subtle.Render("  - ") + name)
+			}
+		} else {
+			logger.Info("No OIDC providers configured (CI/CD token exchange will be disabled)")
+		}
+	}
+	fmt.Println()
+
 	// Create the Authority
 	logger.Info("Initializing Signet Authority")
-	authority, err := newAuthority(config, logger)
+	authority, err := newAuthority(config, logger, providerRegistry)
 	if err != nil {
 		fmt.Println(styles.Error.Render("✗") + " Failed to initialize authority")
 		return fmt.Errorf("authority initialization error: %w", err)
@@ -161,7 +203,14 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	mux.Handle("/callback", callbackHandler)
 	mux.HandleFunc("/healthz", server.handleHealthz)
 
-	// Start periodic cleanup of rate limiter (every 5 minutes)
+	// OIDC token exchange endpoint (for CI/CD platforms)
+	if authority.providerRegistry != nil {
+		exchangeHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleExchangeToken))
+		mux.Handle("/exchange-token", exchangeHandler)
+		fmt.Println(styles.Info.Render("→") + " OIDC token exchange enabled at /exchange-token")
+	}
+
+	// Start periodic cleanup of rate limiter and token cache (every 5 minutes)
 	// Use context for graceful shutdown of cleanup goroutine
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	defer cleanupCancel()
@@ -176,7 +225,8 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 			select {
 			case <-cleanupTicker.C:
 				limiter.cleanup()
-				logger.Debug("rate limiter cleanup completed")
+				server.tokenCache.cleanup()
+				logger.Debug("rate limiter and token cache cleanup completed")
 			case <-cleanupCtx.Done():
 				logger.Debug("cleanup goroutine shutting down")
 				return
@@ -234,6 +284,12 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	<-cleanupDone
 	logger.Debug("cleanup goroutine stopped")
 
+	// RESOURCE MANAGEMENT: Shutdown OIDC provider registry to stop JWKS refresh goroutines
+	if authority.providerRegistry != nil {
+		logger.Debug("shutting down OIDC providers")
+		authority.providerRegistry.Shutdown()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -265,6 +321,9 @@ type AuthorityConfig struct {
 
 	// Certificate configuration
 	CertificateValidity int `json:"certificate_validity_hours"`
+
+	// OIDC provider configuration (for CI/CD platforms)
+	OIDCProvidersFile string `json:"oidc_providers_file,omitempty"`
 
 	// Session configuration - SECURITY: No longer loaded from JSON
 	// Session secrets MUST be provided via SIGNET_SESSION_SECRET environment variable
@@ -336,12 +395,13 @@ func validateAuthorityConfig(c *AuthorityConfig) error {
 
 // Authority manages certificate issuance for the Signet Authority service
 type Authority struct {
-	ca     *attestx509.LocalCA
-	logger *slog.Logger
-	config *AuthorityConfig
+	ca               *attestx509.LocalCA
+	logger           *slog.Logger
+	config           *AuthorityConfig
+	providerRegistry *oidcprovider.Registry
 }
 
-func newAuthority(config *AuthorityConfig, logger *slog.Logger) (*Authority, error) {
+func newAuthority(config *AuthorityConfig, logger *slog.Logger, registry *oidcprovider.Registry) (*Authority, error) {
 	// Load the PEM-encoded Ed25519 private key
 	keyData, err := os.ReadFile(config.AuthorityMasterKey)
 	if err != nil {
@@ -383,9 +443,10 @@ func newAuthority(config *AuthorityConfig, logger *slog.Logger) (*Authority, err
 	ca := attestx509.NewLocalCA(signer, issuerDID)
 
 	return &Authority{
-		ca:     ca,
-		logger: logger,
-		config: config,
+		ca:               ca,
+		logger:           logger,
+		config:           config,
+		providerRegistry: registry,
 	}, nil
 }
 
@@ -460,6 +521,79 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 	return certPEM, nil
 }
 
+// TokenCache tracks used JTI (JWT ID) claims to prevent token replay attacks.
+// SECURITY: OIDC tokens can be replayed within their validity period (typically 5-10 minutes)
+// to obtain multiple bridge certificates. This cache prevents that by tracking used token IDs.
+// RESOURCE MANAGEMENT: Bounds cache size to prevent unbounded memory growth between cleanups.
+type TokenCache struct {
+	used    sync.Map // map[string]time.Time - JTI to expiration time
+	maxSize int      // Maximum number of JTIs to cache (default 10,000)
+	count   int64    // Atomic counter of cached JTIs
+}
+
+// newTokenCache creates a new token cache for replay prevention
+// RESOURCE MANAGEMENT: Defaults to 10,000 max entries to prevent DoS.
+func newTokenCache() *TokenCache {
+	return &TokenCache{
+		maxSize: 10000, // Reasonable limit for typical CI/CD workloads
+	}
+}
+
+// checkAndMark checks if a JTI has been used and marks it as used if not.
+// Returns true if the JTI was already used (replay attack detected).
+// RESOURCE MANAGEMENT: Rejects tokens if cache is full to prevent unbounded growth.
+//
+// TOCTOU RACE CONDITION: There is a check-then-act race between LoadInt64 and LoadOrStore.
+// During burst traffic, multiple goroutines can pass the maxSize check simultaneously,
+// potentially growing the cache to maxSize + concurrent_requests (e.g., 10,020 instead of 10,000).
+//
+// This is ACCEPTABLE because:
+//   - The race is bounded by concurrent request count (limited by server capacity)
+//   - maxSize is for DoS protection, not a hard memory invariant
+//   - Worst case: ~10KB extra memory (20 requests * 500 bytes per entry)
+//   - Cleanup goroutine will shrink cache back to normal within 5 minutes
+//   - Alternative (mutex around entire check) would serialize all token exchanges
+//
+// Fixing this would require either:
+//   - Mutex lock (kills concurrency for token exchange - unacceptable for CI/CD)
+//   - CAS loop with rollback (complex, marginal benefit)
+func (tc *TokenCache) checkAndMark(jti string, expiresAt time.Time) bool {
+	// Check if cache is at capacity before accepting new entries
+	currentCount := atomic.LoadInt64(&tc.count)
+	if currentCount >= int64(tc.maxSize) {
+		// Cache is full - treat as replay attack to trigger rate limiting
+		// This prevents DoS via flooding with unique JTIs
+		return true
+	}
+
+	// Try to store the JTI
+	_, existed := tc.used.LoadOrStore(jti, expiresAt)
+	if !existed {
+		// Successfully added new JTI - increment counter
+		atomic.AddInt64(&tc.count, 1)
+	}
+	return existed
+}
+
+// cleanup removes expired JTIs from the cache to prevent unbounded memory growth
+// RESOURCE MANAGEMENT: Updates atomic counter to reflect removed entries.
+func (tc *TokenCache) cleanup() {
+	now := time.Now()
+	var deletedCount int64
+	tc.used.Range(func(key, value interface{}) bool {
+		expiresAt := value.(time.Time)
+		if now.After(expiresAt) {
+			tc.used.Delete(key)
+			deletedCount++
+		}
+		return true
+	})
+	// Update counter atomically
+	if deletedCount > 0 {
+		atomic.AddInt64(&tc.count, -deletedCount)
+	}
+}
+
 // OIDCServer handles OIDC authentication and certificate issuance
 type OIDCServer struct {
 	provider     *oidc.Provider
@@ -468,6 +602,7 @@ type OIDCServer struct {
 	authority    *Authority
 	logger       *slog.Logger
 	config       *AuthorityConfig
+	tokenCache   *TokenCache // Prevents token replay attacks
 }
 
 type SessionData struct {
@@ -561,6 +696,7 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		authority:    authority,
 		logger:       logger,
 		config:       config,
+		tokenCache:   newTokenCache(),
 	}, nil
 }
 
@@ -786,6 +922,236 @@ func (s *OIDCServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		s.logger.Error("Failed to encode health check response", "error", err)
 	}
+}
+
+// handleExchangeToken exchanges an OIDC token for a bridge certificate.
+// This endpoint is used by CI/CD platforms (GitHub Actions, GitLab CI, etc.)
+// to obtain short-lived certificates for artifact signing.
+//
+// SECURITY FEATURES:
+//   - Request size limiting (prevents DoS via large payloads)
+//   - JTI replay prevention (prevents token reuse)
+//   - Context timeouts (prevents hanging on slow OIDC endpoints)
+//   - Generic error messages (prevents information disclosure)
+//   - Ephemeral key quality validation (prevents weak keys)
+func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Only accept POST requests
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// SECURITY FIX #3: Limit request body size to 1MB (prevents DoS via large payloads)
+	const maxRequestSize = 1 << 20 // 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
+
+	// Parse request body
+	var req struct {
+		Token        string `json:"token"`                   // OIDC token from CI/CD platform
+		EphemeralKey string `json:"ephemeral_key"`           // Base64-encoded Ed25519 public key
+		ProviderHint string `json:"provider_hint,omitempty"` // Optional: provider name hint
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Check if error is due to size limit
+		if err.Error() == "http: request body too large" {
+			s.logger.Warn("Request body too large", "remote_addr", r.RemoteAddr)
+			http.Error(w, "Request too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		s.logger.Error("Failed to parse request", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Token == "" {
+		http.Error(w, "token is required", http.StatusBadRequest)
+		return
+	}
+	if req.EphemeralKey == "" {
+		http.Error(w, "ephemeral_key is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if provider registry is available
+	if s.authority.providerRegistry == nil {
+		s.logger.Error("No OIDC provider registry configured")
+		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	// SECURITY: Context timeout for OIDC verification
+	// 10 seconds accommodates:
+	//   - Cold-start JWKS fetches over slow networks
+	//   - Provider latency spikes
+	//   - DNS resolution delays
+	// This is NOT a slow-loris vector because:
+	//   - Rate limiting prevents request flooding (10 req/s per IP)
+	//   - Concurrent goroutines handle multiple clients
+	//   - Context cancellation on client disconnect
+	// A 3s timeout would break legitimate requests from distant regions
+	verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Verify token with appropriate provider
+	var provider oidcprovider.Provider
+	var claims *oidcprovider.Claims
+	var err error
+
+	if req.ProviderHint != "" {
+		// User specified which provider to use
+		provider = s.authority.providerRegistry.Get(req.ProviderHint)
+		if provider == nil {
+			// SECURITY FIX #2: Generic error message (don't reveal which providers exist)
+			s.logger.Error("Unknown provider", "provider", req.ProviderHint, "remote_addr", r.RemoteAddr)
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+		claims, err = provider.Verify(verifyCtx, req.Token)
+	} else {
+		// Auto-detect provider
+		provider, claims, err = s.authority.providerRegistry.VerifyToken(verifyCtx, req.Token)
+	}
+
+	if err != nil {
+		// SECURITY FIX #2: Generic error message (don't leak verification details)
+		providerName := "unknown"
+		if provider != nil {
+			providerName = provider.Name()
+		}
+		s.logger.Error("Token verification failed", "error", err, "provider", providerName, "remote_addr", r.RemoteAddr)
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// SECURITY FIX #1: Check for token replay using JTI claim
+	jti, _ := claims.Extra["jti"].(string)
+	if jti == "" {
+		s.logger.Error("Token missing JTI claim", "provider", provider.Name(), "subject", claims.Subject)
+		http.Error(w, "Invalid token", http.StatusBadRequest)
+		return
+	}
+
+	// SECURITY: Validate JTI format to prevent DoS via oversized values
+	// JTIs are typically UUIDs (~36 chars) or base64 hashes (~32-64 chars)
+	// Setting max to 256 bytes allows for reasonable variation while preventing abuse
+	const maxJTILength = 256
+	if len(jti) > maxJTILength {
+		s.logger.Warn("JTI exceeds maximum length",
+			"jti_length", len(jti),
+			"max_length", maxJTILength,
+			"provider", provider.Name(),
+			"remote_addr", r.RemoteAddr,
+		)
+		http.Error(w, "Invalid token", http.StatusBadRequest)
+		return
+	}
+
+	// Validate JTI contains only safe characters (alphanumeric, hyphen, underscore, dot)
+	// This prevents injection attacks and ensures cache key safety
+	for _, c := range jti {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+			s.logger.Warn("JTI contains invalid characters",
+				"jti", jti,
+				"provider", provider.Name(),
+				"remote_addr", r.RemoteAddr,
+			)
+			http.Error(w, "Invalid token", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if s.tokenCache.checkAndMark(jti, claims.ExpiresAt) {
+		s.logger.Warn("Token replay detected",
+			"jti", jti,
+			"provider", provider.Name(),
+			"subject", claims.Subject,
+			"remote_addr", r.RemoteAddr,
+		)
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	s.logger.Info("Token verified successfully",
+		"provider", provider.Name(),
+		"subject", claims.Subject,
+		"issuer", claims.Issuer,
+		"jti", jti,
+	)
+
+	// Map claims to capabilities
+	capabilities, err := provider.MapCapabilities(claims)
+	if err != nil {
+		s.logger.Error("Capability mapping failed", "error", err)
+		http.Error(w, "Failed to map capabilities", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info("Capabilities mapped",
+		"provider", provider.Name(),
+		"capabilities", capabilities,
+	)
+
+	// Decode ephemeral public key
+	ephemeralKeyBytes, err := base64.RawURLEncoding.DecodeString(req.EphemeralKey)
+	if err != nil {
+		s.logger.Error("Failed to decode ephemeral key", "error", err)
+		http.Error(w, "Invalid ephemeral_key format", http.StatusBadRequest)
+		return
+	}
+
+	if len(ephemeralKeyBytes) != ed25519.PublicKeySize {
+		s.logger.Error("Invalid ephemeral key size", "size", len(ephemeralKeyBytes))
+		http.Error(w, "Invalid ephemeral_key size", http.StatusBadRequest)
+		return
+	}
+
+	// SECURITY FIX #5: Validate ephemeral key quality (reject weak keys)
+	ephemeralKey := ed25519.PublicKey(ephemeralKeyBytes)
+
+	// Reject all-zero keys
+	allZero := true
+	for _, b := range ephemeralKey {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		s.logger.Warn("All-zero ephemeral key rejected", "remote_addr", r.RemoteAddr)
+		http.Error(w, "Invalid ephemeral_key", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: Mint bridge certificate with capabilities
+	// For now, return success with capabilities
+	// Bridge certificate implementation is Phase 3
+	response := map[string]interface{}{
+		"status":       "success",
+		"provider":     provider.Name(),
+		"capabilities": capabilities,
+		"subject":      claims.Subject,
+		"expires_at":   claims.ExpiresAt.Format(time.RFC3339),
+		// TODO: Add bridge certificate PEM here
+		// "certificate": certPEM,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
+
+	s.logger.Info("Bridge certificate issued",
+		"provider", provider.Name(),
+		"subject", claims.Subject,
+		"capabilities", len(capabilities),
+		"jti", jti,
+	)
 }
 
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {

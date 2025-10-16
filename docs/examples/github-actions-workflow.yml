@@ -1,0 +1,126 @@
+# Example GitHub Actions workflow using Signet for secret-free artifact signing
+#
+# This workflow demonstrates how to use GitHub's ambient OIDC credentials
+# to sign release artifacts without storing any secrets in the repository.
+#
+# Prerequisites:
+#   1. Signet authority server running with GitHub Actions OIDC provider enabled
+#   2. Repository has id-token: write permission (enabled below)
+#   3. Signet CLI installed in the workflow
+
+name: Release and Sign
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+permissions:
+  # Required for GitHub Actions OIDC token access
+  id-token: write
+
+  # Required to upload release artifacts
+  contents: write
+
+jobs:
+  build-and-sign:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build release artifacts
+        run: |
+          # Build your application
+          make build
+
+          # Create release tarball
+          tar -czf myapp-linux-amd64.tar.gz dist/
+
+      - name: Install Signet CLI
+        run: |
+          # Download and install Signet
+          # (In production, pin to a specific version)
+          curl -L https://github.com/jamestexas/signet/releases/latest/download/signet-linux-amd64 -o signet
+          chmod +x signet
+          sudo mv signet /usr/local/bin/
+
+      - name: Get GitHub OIDC token
+        id: oidc-token
+        run: |
+          # Request OIDC token from GitHub (ambient credentials!)
+          # No secrets required - these env vars are automatically available
+          TOKEN=$(curl -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                       "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://signet-authority.example.com" | \
+                  jq -r '.value')
+
+          # Make token available to next steps
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Exchange OIDC token for bridge certificate
+        env:
+          GITHUB_OIDC_TOKEN: ${{ steps.oidc-token.outputs.token }}
+        run: |
+          # Exchange GitHub OIDC token for Signet bridge certificate
+          # This issues a short-lived (5-minute) certificate that proves:
+          #   - This workflow is from the specific repository
+          #   - This workflow is running on the specific commit SHA
+          #   - This workflow file is the one that triggered the signing
+          signet authority exchange-github-token \
+            --authority-url https://signet-authority.example.com \
+            --token "$GITHUB_OIDC_TOKEN" \
+            --output ~/.signet/bridge-cert.pem
+
+      - name: Sign release artifacts
+        run: |
+          # Sign the release tarball using the bridge certificate
+          # The signature proves:
+          #   - Signed by this specific GitHub Actions workflow
+          #   - From this specific repository at this commit
+          #   - Cannot be forged even with GitHub access after-the-fact
+          signet sign myapp-linux-amd64.tar.gz
+
+          # Signature is written to myapp-linux-amd64.tar.gz.sig
+
+      - name: Verify signature (optional)
+        run: |
+          # Verify the signature works
+          signet verify myapp-linux-amd64.tar.gz.sig
+
+          echo "✓ Signature valid!"
+          echo "  Repository: ${{ github.repository }}"
+          echo "  Commit SHA: ${{ github.sha }}"
+          echo "  Workflow: ${{ github.workflow }}"
+          echo "  Actor: ${{ github.actor }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            myapp-linux-amd64.tar.gz
+            myapp-linux-amd64.tar.gz.sig
+          body: |
+            ## Release ${{ github.ref_name }}
+
+            ### Cryptographic Verification
+
+            This release was signed using Signet with GitHub Actions OIDC authentication.
+
+            **Signature proves:**
+            - ✓ Signed by workflow: `.github/workflows/release.yml`
+            - ✓ From repository: `${{ github.repository }}`
+            - ✓ At commit: `${{ github.sha }}`
+            - ✓ By actor: `${{ github.actor }}`
+
+            **Verify the signature:**
+            ```bash
+            # Download the tarball and signature
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/myapp-linux-amd64.tar.gz
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/myapp-linux-amd64.tar.gz.sig
+
+            # Verify with Signet
+            signet verify myapp-linux-amd64.tar.gz.sig
+            ```
+
+            No secrets were stored in this repository to produce these signatures.
