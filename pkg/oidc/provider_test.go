@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -226,7 +227,7 @@ func TestRegistry_VerifyToken_AllFail(t *testing.T) {
 	}
 
 	expectedError := "no provider could verify token"
-	if !contains(err.Error(), expectedError) {
+	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 	}
 }
@@ -330,9 +331,4 @@ func TestBaseProvider_Config(t *testing.T) {
 	if got.CertificateValidity != config.CertificateValidity {
 		t.Errorf("Expected validity %v, got %v", config.CertificateValidity, got.CertificateValidity)
 	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s[1:], substr) || s[:len(substr)] == substr)
 }

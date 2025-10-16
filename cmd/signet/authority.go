@@ -945,8 +945,6 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	_ = ed25519.PublicKey(ephemeralKeyBytes)
-
 	// TODO: Mint bridge certificate with capabilities
 	// For now, return success with capabilities
 	// Bridge certificate implementation is Phase 3

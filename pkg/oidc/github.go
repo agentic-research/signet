@@ -281,19 +281,19 @@ func GetGitHubClaims(claims *Claims) (*GitHubActionsClaims, error) {
 
 	var err error
 	if ghClaims.Repository, err = getString("repository"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate GitHub claim %q: %w", "repository", err)
 	}
 	if ghClaims.Ref, err = getString("ref"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate GitHub claim %q: %w", "ref", err)
 	}
 	if ghClaims.SHA, err = getString("sha"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate GitHub claim %q: %w", "sha", err)
 	}
 	if ghClaims.Workflow, err = getString("workflow"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate GitHub claim %q: %w", "workflow", err)
 	}
 	if ghClaims.Actor, err = getString("actor"); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to validate GitHub claim %q: %w", "actor", err)
 	}
 
 	// Optional claims (may not be present in all tokens)

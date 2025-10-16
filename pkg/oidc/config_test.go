@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,7 +118,7 @@ func TestLoadProvidersFromFile_InvalidFormat(t *testing.T) {
 	}
 
 	expectedError := "unsupported config file format"
-	if !containsSubstring(err.Error(), expectedError) {
+	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 	}
 }
@@ -231,7 +232,7 @@ func TestLoadProvidersFromEnv_MissingAudience(t *testing.T) {
 	}
 
 	expectedError := "SIGNET_GITHUB_ACTIONS_AUDIENCE is required"
-	if !containsSubstring(err.Error(), expectedError) {
+	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 	}
 }
@@ -264,7 +265,7 @@ func TestLoadProvidersFromEnv_NotEnabled(t *testing.T) {
 	}
 
 	expectedError := "no providers enabled"
-	if !containsSubstring(err.Error(), expectedError) {
+	if !strings.Contains(err.Error(), expectedError) {
 		t.Errorf("Expected error to contain %q, got %q", expectedError, err.Error())
 	}
 }
@@ -476,17 +477,4 @@ func TestIsSpace(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function to check if a string contains a substring
-func containsSubstring(s, substr string) bool {
-	if len(substr) > len(s) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
