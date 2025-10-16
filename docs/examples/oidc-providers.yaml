@@ -1,0 +1,81 @@
+# Signet OIDC Providers Configuration
+# This file defines which identity providers can issue bridge certificates.
+#
+# Usage:
+#   signet authority --config authority.json --oidc-providers oidc-providers.yaml
+
+providers:
+  # GitHub Actions OIDC provider
+  # Enables secret-free signing in GitHub Actions workflows
+  - type: github-actions
+    config:
+      name: github-actions
+      issuer_url: https://token.actions.githubusercontent.com
+
+      # Audience should match your authority's public URL
+      audience: https://signet-authority.example.com
+
+      # Bridge certificate validity (default: 5 minutes per 004-bridge-certs.md)
+      certificate_validity: 5m
+
+      enabled: true
+
+      # Optional: Restrict to specific repositories
+      # Useful for self-hosted authorities serving specific organizations
+      # allowed_repositories:
+      #   - jamestexas/signet
+      #   - acme/production-app
+      #   - acme/internal-tool
+
+      # Optional: Restrict to specific workflows
+      # Useful for enforcing release workflow patterns
+      # allowed_workflows:
+      #   - .github/workflows/release.yml
+      #   - .github/workflows/deploy.yml
+      #   - .github/workflows/sign-artifacts.yml
+
+      # Optional: Require protected refs (prevents PRs from forks)
+      # Recommended for production authorities
+      # require_ref_protection: false
+
+# Future providers can be added here as they're implemented:
+
+# GitLab CI OIDC provider
+# - type: gitlab-ci
+#   config:
+#     name: gitlab-ci
+#     issuer_url: https://gitlab.com
+#     audience: https://signet-authority.example.com
+#     certificate_validity: 5m
+#     enabled: true
+#     # GitLab-specific configuration would go here
+
+# AWS IAM OIDC provider (for EKS, Lambda, etc.)
+# - type: aws-iam
+#   config:
+#     name: aws-iam
+#     issuer_url: https://oidc.eks.us-west-2.amazonaws.com
+#     audience: sts.amazonaws.com
+#     certificate_validity: 5m
+#     enabled: true
+#     # AWS-specific configuration would go here
+
+# Google Cloud Workload Identity
+# - type: gcp-workload-identity
+#   config:
+#     name: gcp-workload-identity
+#     issuer_url: https://accounts.google.com
+#     audience: https://signet-authority.example.com
+#     certificate_validity: 5m
+#     enabled: true
+#     # GCP-specific configuration would go here
+
+# Azure Managed Identity
+# - type: azure-managed-identity
+#   config:
+#     name: azure-managed-identity
+#     issuer_url: https://login.microsoftonline.com/{tenant}/v2.0
+#     audience: https://signet-authority.example.com
+#     certificate_validity: 5m
+#     enabled: true
+#     # Azure-specific configuration would go here
