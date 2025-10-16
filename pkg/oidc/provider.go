@@ -155,6 +155,18 @@ func (r *Registry) VerifyToken(ctx context.Context, rawToken string) (Provider, 
 	return nil, nil, fmt.Errorf("no provider could verify token")
 }
 
+// Shutdown gracefully stops all registered providers.
+// RESOURCE MANAGEMENT: Stops JWKS refresh goroutines to prevent leaks.
+// Should be called during server shutdown to clean up resources.
+func (r *Registry) Shutdown() {
+	for _, provider := range r.providers {
+		// Check if provider has a Stop() method (providers that embed BaseProvider)
+		if stopper, ok := provider.(interface{ Stop() }); ok {
+			stopper.Stop()
+		}
+	}
+}
+
 // BaseProvider provides common OIDC verification functionality.
 // Provider implementations can embed this to avoid duplicating verification logic.
 //
@@ -167,12 +179,14 @@ type BaseProvider struct {
 	verifier *oidc.IDTokenVerifier
 
 	// SECURITY FIX #6: JWKS refresh support
-	mu          sync.RWMutex  // Protects provider/verifier during refresh
-	stopRefresh chan struct{} // Signals refresh goroutine to stop
+	mu            sync.RWMutex       // Protects provider/verifier during refresh
+	stopRefresh   chan struct{}      // Signals refresh goroutine to stop
+	refreshCancel context.CancelFunc // Cancels JWKS refresh context
 }
 
 // NewBaseProvider creates a new base provider with common OIDC verification setup.
 // SECURITY FIX #6: Starts JWKS refresh goroutine to handle provider key rotation.
+// RESOURCE MANAGEMENT: Uses cancellable context to ensure HTTP requests stop on shutdown.
 func NewBaseProvider(ctx context.Context, config ProviderConfig) (*BaseProvider, error) {
 	provider, err := oidc.NewProvider(ctx, config.IssuerURL)
 	if err != nil {
@@ -183,15 +197,19 @@ func NewBaseProvider(ctx context.Context, config ProviderConfig) (*BaseProvider,
 		ClientID: config.Audience,
 	})
 
+	// Create cancellable context for JWKS refresh goroutine
+	refreshCtx, refreshCancel := context.WithCancel(context.Background())
+
 	bp := &BaseProvider{
-		config:      config,
-		provider:    provider,
-		verifier:    verifier,
-		stopRefresh: make(chan struct{}),
+		config:        config,
+		provider:      provider,
+		verifier:      verifier,
+		stopRefresh:   make(chan struct{}),
+		refreshCancel: refreshCancel,
 	}
 
-	// Start JWKS refresh goroutine (every 1 hour)
-	go bp.startJWKSRefresh(context.Background())
+	// Start JWKS refresh goroutine with cancellable context
+	go bp.startJWKSRefresh(refreshCtx)
 
 	return bp, nil
 }
@@ -232,7 +250,11 @@ func (b *BaseProvider) startJWKSRefresh(ctx context.Context) {
 
 // Stop stops the JWKS refresh goroutine.
 // Should be called when shutting down the provider to avoid goroutine leaks.
+// RESOURCE MANAGEMENT: Cancels context to stop in-flight HTTP requests immediately.
 func (b *BaseProvider) Stop() {
+	if b.refreshCancel != nil {
+		b.refreshCancel() // Cancel any in-flight HTTP requests
+	}
 	close(b.stopRefresh)
 }
 

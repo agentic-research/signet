@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -283,6 +284,12 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	<-cleanupDone
 	logger.Debug("cleanup goroutine stopped")
 
+	// RESOURCE MANAGEMENT: Shutdown OIDC provider registry to stop JWKS refresh goroutines
+	if authority.providerRegistry != nil {
+		logger.Debug("shutting down OIDC providers")
+		authority.providerRegistry.Shutdown()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -517,33 +524,59 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 // TokenCache tracks used JTI (JWT ID) claims to prevent token replay attacks.
 // SECURITY: OIDC tokens can be replayed within their validity period (typically 5-10 minutes)
 // to obtain multiple bridge certificates. This cache prevents that by tracking used token IDs.
+// RESOURCE MANAGEMENT: Bounds cache size to prevent unbounded memory growth between cleanups.
 type TokenCache struct {
-	used sync.Map // map[string]time.Time - JTI to expiration time
-	mu   sync.RWMutex
+	used    sync.Map // map[string]time.Time - JTI to expiration time
+	maxSize int      // Maximum number of JTIs to cache (default 10,000)
+	count   int64    // Atomic counter of cached JTIs
 }
 
 // newTokenCache creates a new token cache for replay prevention
+// RESOURCE MANAGEMENT: Defaults to 10,000 max entries to prevent DoS.
 func newTokenCache() *TokenCache {
-	return &TokenCache{}
+	return &TokenCache{
+		maxSize: 10000, // Reasonable limit for typical CI/CD workloads
+	}
 }
 
 // checkAndMark checks if a JTI has been used and marks it as used if not.
 // Returns true if the JTI was already used (replay attack detected).
+// RESOURCE MANAGEMENT: Rejects tokens if cache is full to prevent unbounded growth.
 func (tc *TokenCache) checkAndMark(jti string, expiresAt time.Time) bool {
+	// Check if cache is at capacity before accepting new entries
+	currentCount := atomic.LoadInt64(&tc.count)
+	if currentCount >= int64(tc.maxSize) {
+		// Cache is full - treat as replay attack to trigger rate limiting
+		// This prevents DoS via flooding with unique JTIs
+		return true
+	}
+
+	// Try to store the JTI
 	_, existed := tc.used.LoadOrStore(jti, expiresAt)
+	if !existed {
+		// Successfully added new JTI - increment counter
+		atomic.AddInt64(&tc.count, 1)
+	}
 	return existed
 }
 
 // cleanup removes expired JTIs from the cache to prevent unbounded memory growth
+// RESOURCE MANAGEMENT: Updates atomic counter to reflect removed entries.
 func (tc *TokenCache) cleanup() {
 	now := time.Now()
+	var deletedCount int64
 	tc.used.Range(func(key, value interface{}) bool {
 		expiresAt := value.(time.Time)
 		if now.After(expiresAt) {
 			tc.used.Delete(key)
+			deletedCount++
 		}
 		return true
 	})
+	// Update counter atomically
+	if deletedCount > 0 {
+		atomic.AddInt64(&tc.count, -deletedCount)
+	}
 }
 
 // OIDCServer handles OIDC authentication and certificate issuance
