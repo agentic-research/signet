@@ -24,26 +24,51 @@ func main() {
 		socketPath = defaultSocketPath
 	}
 
-	// Clean up the socket file on startup, in case of a previous crash.
-	if err := os.RemoveAll(socketPath); err != nil {
-		log.Fatalf("failed to remove old socket: %v", err)
-	}
+	// Set umask to ensure socket is created with secure permissions (0600)
+	// This prevents a race condition between Listen() and Chmod()
+	oldMask := syscall.Umask(0077)
+	defer syscall.Umask(oldMask)
 
+	// Try to create the listener, handling EADDRINUSE by removing stale socket
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
-		log.Fatalf("failed to listen on socket: %v", err)
+		// If socket already exists, try removing it once
+		if os.IsExist(err) {
+			if removeErr := os.RemoveAll(socketPath); removeErr != nil {
+				log.Fatalf("failed to remove stale socket: %v", removeErr)
+			}
+			// Retry after removal
+			listener, err = net.Listen("unix", socketPath)
+		}
+		if err != nil {
+			log.Fatalf("failed to listen on socket: %v", err)
+		}
 	}
 
-	// Set socket permissions to be user-only.
-	if err := os.Chmod(socketPath, 0600); err != nil {
-		log.Fatalf("failed to set socket permissions: %v", err)
-	}
+	// Ensure socket and listener are cleaned up on exit
+	defer func() {
+		listener.Close()
+		os.RemoveAll(socketPath)
+	}()
 
-	grpcServer := grpc.NewServer()
+	// Create gRPC server with message size limits to prevent DoS
+	const maxMsgSize = 4 * 1024 * 1024 // 4MB
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+	)
 
 	// Create and register the agent server implementation.
 	// TODO: Load keys and other resources needed by the server here.
-	server, err := agent_server.NewServer()
+	var server *agent_server.Server
+
+	// Use test mode if SIGNET_TEST_MODE is set (for testing only)
+	if os.Getenv("SIGNET_TEST_MODE") == "1" {
+		server, err = agent_server.NewServerForTesting()
+	} else {
+		server, err = agent_server.NewServer()
+	}
+
 	if err != nil {
 		log.Fatalf("failed to create agent server: %v", err)
 	}

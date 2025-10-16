@@ -24,10 +24,19 @@ type Server struct {
 }
 
 // NewServer creates a new instance of the agent server.
+// For production use - loads real keys from keystore.
 func NewServer() (*Server, error) {
 	// TODO: Initialize key storage and OIDC token cache here.
+	// TODO: Load real keys from ~/.signet/keys/ or hardware tokens
 
-	// Initialize with some dummy identities for testing
+	return &Server{
+		identities: make([]*pb.Identity, 0),
+	}, nil
+}
+
+// NewServerForTesting creates a server with dummy test identities.
+// This should only be used in tests.
+func NewServerForTesting() (*Server, error) {
 	dummyIdentities := []*pb.Identity{
 		{
 			Id:      "sha256:abc123def456",

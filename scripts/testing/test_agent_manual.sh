@@ -18,9 +18,9 @@ go build -o signet-agent ./cmd/signet-agent
 echo "✓ Build complete"
 echo
 
-# Start the agent in the background
+# Start the agent in the background with test mode enabled
 echo "[2/5] Starting signet-agent on $SOCKET_PATH..."
-SIGNET_SOCKET="$SOCKET_PATH" ./signet-agent &
+SIGNET_SOCKET="$SOCKET_PATH" SIGNET_TEST_MODE=1 ./signet-agent &
 AGENT_PID=$!
 
 # Clean up function

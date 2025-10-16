@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"time"
 
@@ -13,12 +12,21 @@ import (
 	pb "github.com/jamestexas/signet/pkg/agent/api/v1"
 )
 
-// NewClient connects to the Signet agent via its Unix socket and returns a gRPC client.
-// It checks the SIGNET_AUTH_SOCK environment variable for the socket path.
-func NewClient(ctx context.Context) (pb.SignetAgentClient, error) {
+// NewClient connects to the Signet agent via its Unix socket and returns a gRPC client
+// and a cleanup function. The caller MUST call the cleanup function when done to avoid
+// leaking the connection.
+//
+// Usage:
+//
+//	client, cleanup, err := agent.NewClient(ctx)
+//	if err != nil {
+//	    return err
+//	}
+//	defer cleanup()
+func NewClient(ctx context.Context) (pb.SignetAgentClient, func(), error) {
 	socketPath := os.Getenv("SIGNET_AUTH_SOCK")
 	if socketPath == "" {
-		return nil, fmt.Errorf("agent not running: SIGNET_AUTH_SOCK environment variable not set")
+		return nil, nil, fmt.Errorf("agent not running: SIGNET_AUTH_SOCK environment variable not set")
 	}
 
 	// Use a context with a short timeout for the initial connection.
@@ -33,14 +41,12 @@ func NewClient(ctx context.Context) (pb.SignetAgentClient, error) {
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to signet agent: %w", err)
+		return nil, nil, fmt.Errorf("failed to connect to signet agent: %w", err)
 	}
 
-	return pb.NewSignetAgentClient(conn), nil
-}
+	cleanup := func() {
+		conn.Close()
+	}
 
-// unixDialer is a custom dialer for gRPC to connect to Unix sockets.
-func unixDialer(ctx context.Context, addr string) (net.Conn, error) {
-	d := net.Dialer{}
-	return d.DialContext(ctx, "unix", addr)
+	return pb.NewSignetAgentClient(conn), cleanup, nil
 }

@@ -29,7 +29,7 @@ func TestListIdentities(t *testing.T) {
 	defer listener.Close()
 
 	grpcServer := grpc.NewServer()
-	server, err := agent.NewServer()
+	server, err := agent.NewServerForTesting()
 	if err != nil {
 		t.Fatalf("failed to create agent server: %v", err)
 	}
