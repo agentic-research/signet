@@ -45,8 +45,35 @@ func LoadProvidersFromFile(ctx context.Context, path string) (*Registry, error) 
 
 	switch ext {
 	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, &config); err != nil {
+		// YAML requires special handling because yaml.v3 cannot unmarshal
+		// nested maps directly into json.RawMessage.
+		// Solution: unmarshal to interface{}, convert config section to JSON, then unmarshal to target struct.
+
+		// Temporary structure for YAML parsing
+		type yamlProviderEntry struct {
+			Type   string                 `yaml:"type"`
+			Config map[string]interface{} `yaml:"config"`
+		}
+		type yamlConfig struct {
+			Providers []yamlProviderEntry `yaml:"providers"`
+		}
+
+		var yamlData yamlConfig
+		if err := yaml.Unmarshal(data, &yamlData); err != nil {
 			return nil, fmt.Errorf("failed to parse YAML config: %w", err)
+		}
+
+		// Convert to ProvidersConfig
+		config.Providers = make([]ProviderConfigEntry, len(yamlData.Providers))
+		for i, yamlEntry := range yamlData.Providers {
+			config.Providers[i].Type = yamlEntry.Type
+
+			// Marshal config map to JSON for consistent parsing
+			configJSON, err := json.Marshal(yamlEntry.Config)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert YAML config to JSON at index %d: %w", i, err)
+			}
+			config.Providers[i].Config = configJSON
 		}
 	case ".json":
 		if err := json.Unmarshal(data, &config); err != nil {

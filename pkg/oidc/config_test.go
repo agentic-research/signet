@@ -8,9 +8,54 @@ import (
 )
 
 func TestLoadProvidersFromFile_YAML(t *testing.T) {
-	t.Skip("YAML unmarshaling into json.RawMessage is not supported by yaml.v3")
-	// TODO: Implement custom YAML unmarshaling or convert YAML to JSON before parsing
-	// JSON loading works correctly (see TestLoadProvidersFromFile_JSON)
+	ctx := context.Background()
+
+	// Create temp directory
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "providers.yaml")
+
+	// Note: certificate_validity must be in nanoseconds (integer)
+	// 5 minutes = 300000000000 nanoseconds
+	configContent := `
+providers:
+  - type: github-actions
+    config:
+      name: github-actions
+      issuer_url: https://token.actions.githubusercontent.com
+      audience: https://test.example.com
+      certificate_validity: 300000000000
+      enabled: true
+`
+
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	// Load providers
+	registry, err := LoadProvidersFromFile(ctx, configFile)
+	if err != nil {
+		t.Fatalf("LoadProvidersFromFile failed: %v", err)
+	}
+
+	// Verify provider was loaded
+	provider := registry.Get("github-actions")
+	if provider == nil {
+		t.Fatal("Expected github-actions provider, got nil")
+	}
+
+	if provider.Name() != "github-actions" {
+		t.Errorf("Provider name = %q, want %q", provider.Name(), "github-actions")
+	}
+
+	// Verify provider list
+	names := registry.List()
+	if len(names) != 1 {
+		t.Fatalf("Expected 1 provider, got %d", len(names))
+	}
+
+	if names[0] != "github-actions" {
+		t.Errorf("Provider name = %q, want %q", names[0], "github-actions")
+	}
 }
 
 func TestLoadProvidersFromFile_JSON(t *testing.T) {
