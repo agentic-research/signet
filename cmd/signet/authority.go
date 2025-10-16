@@ -209,7 +209,7 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 		fmt.Println(styles.Info.Render("→") + " OIDC token exchange enabled at /exchange-token")
 	}
 
-	// Start periodic cleanup of rate limiter (every 5 minutes)
+	// Start periodic cleanup of rate limiter and token cache (every 5 minutes)
 	// Use context for graceful shutdown of cleanup goroutine
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	defer cleanupCancel()
@@ -224,7 +224,8 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 			select {
 			case <-cleanupTicker.C:
 				limiter.cleanup()
-				logger.Debug("rate limiter cleanup completed")
+				server.tokenCache.cleanup()
+				logger.Debug("rate limiter and token cache cleanup completed")
 			case <-cleanupCtx.Done():
 				logger.Debug("cleanup goroutine shutting down")
 				return
@@ -513,6 +514,38 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 	return certPEM, nil
 }
 
+// TokenCache tracks used JTI (JWT ID) claims to prevent token replay attacks.
+// SECURITY: OIDC tokens can be replayed within their validity period (typically 5-10 minutes)
+// to obtain multiple bridge certificates. This cache prevents that by tracking used token IDs.
+type TokenCache struct {
+	used sync.Map // map[string]time.Time - JTI to expiration time
+	mu   sync.RWMutex
+}
+
+// newTokenCache creates a new token cache for replay prevention
+func newTokenCache() *TokenCache {
+	return &TokenCache{}
+}
+
+// checkAndMark checks if a JTI has been used and marks it as used if not.
+// Returns true if the JTI was already used (replay attack detected).
+func (tc *TokenCache) checkAndMark(jti string, expiresAt time.Time) bool {
+	_, existed := tc.used.LoadOrStore(jti, expiresAt)
+	return existed
+}
+
+// cleanup removes expired JTIs from the cache to prevent unbounded memory growth
+func (tc *TokenCache) cleanup() {
+	now := time.Now()
+	tc.used.Range(func(key, value interface{}) bool {
+		expiresAt := value.(time.Time)
+		if now.After(expiresAt) {
+			tc.used.Delete(key)
+		}
+		return true
+	})
+}
+
 // OIDCServer handles OIDC authentication and certificate issuance
 type OIDCServer struct {
 	provider     *oidc.Provider
@@ -521,6 +554,7 @@ type OIDCServer struct {
 	authority    *Authority
 	logger       *slog.Logger
 	config       *AuthorityConfig
+	tokenCache   *TokenCache // Prevents token replay attacks
 }
 
 type SessionData struct {
@@ -614,6 +648,7 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		authority:    authority,
 		logger:       logger,
 		config:       config,
+		tokenCache:   newTokenCache(),
 	}, nil
 }
 
@@ -844,6 +879,13 @@ func (s *OIDCServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // handleExchangeToken exchanges an OIDC token for a bridge certificate.
 // This endpoint is used by CI/CD platforms (GitHub Actions, GitLab CI, etc.)
 // to obtain short-lived certificates for artifact signing.
+//
+// SECURITY FEATURES:
+//   - Request size limiting (prevents DoS via large payloads)
+//   - JTI replay prevention (prevents token reuse)
+//   - Context timeouts (prevents hanging on slow OIDC endpoints)
+//   - Generic error messages (prevents information disclosure)
+//   - Ephemeral key quality validation (prevents weak keys)
 func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -853,6 +895,10 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// SECURITY FIX #3: Limit request body size to 1MB (prevents DoS via large payloads)
+	const maxRequestSize = 1 << 20 // 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
+
 	// Parse request body
 	var req struct {
 		Token        string `json:"token"`                   // OIDC token from CI/CD platform
@@ -861,6 +907,12 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Check if error is due to size limit
+		if err.Error() == "http: request body too large" {
+			s.logger.Warn("Request body too large", "remote_addr", r.RemoteAddr)
+			http.Error(w, "Request too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		s.logger.Error("Failed to parse request", "error", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -879,9 +931,13 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	// Check if provider registry is available
 	if s.authority.providerRegistry == nil {
 		s.logger.Error("No OIDC provider registry configured")
-		http.Error(w, "OIDC providers not configured", http.StatusServiceUnavailable)
+		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
 		return
 	}
+
+	// SECURITY FIX #7: Add context timeout for OIDC verification (prevents hanging)
+	verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
 	// Verify token with appropriate provider
 	var provider oidcprovider.Provider
@@ -892,22 +948,43 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		// User specified which provider to use
 		provider = s.authority.providerRegistry.Get(req.ProviderHint)
 		if provider == nil {
-			s.logger.Error("Unknown provider", "provider", req.ProviderHint)
-			http.Error(w, "Unknown provider", http.StatusBadRequest)
+			// SECURITY FIX #2: Generic error message (don't reveal which providers exist)
+			s.logger.Error("Unknown provider", "provider", req.ProviderHint, "remote_addr", r.RemoteAddr)
+			http.Error(w, "Invalid request", http.StatusBadRequest)
 			return
 		}
-		claims, err = provider.Verify(ctx, req.Token)
+		claims, err = provider.Verify(verifyCtx, req.Token)
 	} else {
 		// Auto-detect provider
-		provider, claims, err = s.authority.providerRegistry.VerifyToken(ctx, req.Token)
+		provider, claims, err = s.authority.providerRegistry.VerifyToken(verifyCtx, req.Token)
 	}
 
 	if err != nil {
+		// SECURITY FIX #2: Generic error message (don't leak verification details)
 		providerName := "unknown"
 		if provider != nil {
 			providerName = provider.Name()
 		}
-		s.logger.Error("Token verification failed", "error", err, "provider", providerName)
+		s.logger.Error("Token verification failed", "error", err, "provider", providerName, "remote_addr", r.RemoteAddr)
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// SECURITY FIX #1: Check for token replay using JTI claim
+	jti, _ := claims.Extra["jti"].(string)
+	if jti == "" {
+		s.logger.Error("Token missing JTI claim", "provider", provider.Name(), "subject", claims.Subject)
+		http.Error(w, "Invalid token", http.StatusBadRequest)
+		return
+	}
+
+	if s.tokenCache.checkAndMark(jti, claims.ExpiresAt) {
+		s.logger.Warn("Token replay detected",
+			"jti", jti,
+			"provider", provider.Name(),
+			"subject", claims.Subject,
+			"remote_addr", r.RemoteAddr,
+		)
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -916,6 +993,7 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		"provider", provider.Name(),
 		"subject", claims.Subject,
 		"issuer", claims.Issuer,
+		"jti", jti,
 	)
 
 	// Map claims to capabilities
@@ -945,6 +1023,23 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// SECURITY FIX #5: Validate ephemeral key quality (reject weak keys)
+	ephemeralKey := ed25519.PublicKey(ephemeralKeyBytes)
+
+	// Reject all-zero keys
+	allZero := true
+	for _, b := range ephemeralKey {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		s.logger.Warn("All-zero ephemeral key rejected", "remote_addr", r.RemoteAddr)
+		http.Error(w, "Invalid ephemeral_key", http.StatusBadRequest)
+		return
+	}
+
 	// TODO: Mint bridge certificate with capabilities
 	// For now, return success with capabilities
 	// Bridge certificate implementation is Phase 3
@@ -968,6 +1063,7 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		"provider", provider.Name(),
 		"subject", claims.Subject,
 		"capabilities", len(capabilities),
+		"jti", jti,
 	)
 }
 

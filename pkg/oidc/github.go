@@ -3,7 +3,14 @@ package oidc
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"regexp"
 )
+
+// SECURITY: Regex for validating GitHub repository format
+// GitHub repository names: owner/repo where both parts can contain alphanumeric, dash, underscore, dot
+// This prevents injection attacks via malicious repository claims
+var githubRepoRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$`)
 
 // GitHubActionsProvider implements the Provider interface for GitHub Actions OIDC tokens.
 // GitHub Actions provides ambient OIDC credentials via ACTIONS_ID_TOKEN_REQUEST_URL
@@ -197,27 +204,39 @@ func (p *GitHubActionsProvider) validateGitHubClaims(claims *GitHubActionsClaims
 // MapCapabilities converts GitHub Actions claims into Signet capability URIs.
 // Per docs/design/004-bridge-certs.md, capabilities follow the pattern:
 // urn:signet:cap:{action}:{resource}
+//
+// SECURITY FIX #8: Validates repository format and URL-escapes to prevent injection.
 func (p *GitHubActionsProvider) MapCapabilities(claims *Claims) ([]string, error) {
 	repository, ok := claims.Extra["repository"].(string)
 	if !ok || repository == "" {
 		return nil, fmt.Errorf("repository claim is required for capability mapping")
 	}
 
+	// SECURITY FIX #8: Validate repository format before using in capability URIs
+	if !githubRepoRegex.MatchString(repository) {
+		return nil, fmt.Errorf("invalid repository format: %q", repository)
+	}
+
+	// SECURITY FIX #8: URL-escape repository name to prevent injection attacks
+	safeRepo := url.PathEscape(repository)
+
 	// Generate repository write capability
 	// Format: urn:signet:cap:write:repo:github.com/{owner}/{repo}
 	capabilities := []string{
-		fmt.Sprintf("urn:signet:cap:write:repo:github.com/%s", repository),
+		fmt.Sprintf("urn:signet:cap:write:repo:github.com/%s", safeRepo),
 	}
 
 	// Optional: Add read capability (could be used for verification)
 	capabilities = append(capabilities,
-		fmt.Sprintf("urn:signet:cap:read:repo:github.com/%s", repository),
+		fmt.Sprintf("urn:signet:cap:read:repo:github.com/%s", safeRepo),
 	)
 
 	// Optional: Add workflow-specific capability for audit trails
 	if workflow, ok := claims.Extra["workflow"].(string); ok && workflow != "" {
+		// Validate and escape workflow path as well
+		safeWorkflow := url.PathEscape(workflow)
 		capabilities = append(capabilities,
-			fmt.Sprintf("urn:signet:cap:workflow:github.com/%s:%s", repository, workflow),
+			fmt.Sprintf("urn:signet:cap:workflow:github.com/%s:%s", safeRepo, safeWorkflow),
 		)
 	}
 

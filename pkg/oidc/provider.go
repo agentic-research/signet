@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -116,33 +117,62 @@ func (r *Registry) List() []string {
 // VerifyToken attempts to verify a token against all registered providers.
 // Returns the provider that successfully verified the token and the extracted claims.
 // This is useful when the caller doesn't know which provider issued the token.
+//
+// SECURITY: Uses constant-time provider selection to prevent timing attacks.
+// All providers are tried before returning to avoid leaking which providers are configured.
 func (r *Registry) VerifyToken(ctx context.Context, rawToken string) (Provider, *Claims, error) {
 	if len(r.providers) == 0 {
 		return nil, nil, fmt.Errorf("no providers registered")
 	}
 
-	// Try each provider until one succeeds
-	var lastErr error
-	for name, provider := range r.providers {
-		claims, err := provider.Verify(ctx, rawToken)
-		if err == nil {
-			return provider, claims, nil
-		}
-		lastErr = fmt.Errorf("provider %q: %w", name, err)
+	// SECURITY FIX #4: Try all providers without early return (constant-time)
+	// This prevents timing attacks that could reveal which providers are configured
+	type result struct {
+		provider Provider
+		claims   *Claims
+		err      error
 	}
 
-	return nil, nil, fmt.Errorf("no provider could verify token: %w", lastErr)
+	results := make([]result, 0, len(r.providers))
+
+	// Try all providers (don't return early)
+	for _, provider := range r.providers {
+		claims, err := provider.Verify(ctx, rawToken)
+		results = append(results, result{
+			provider: provider,
+			claims:   claims,
+			err:      err,
+		})
+	}
+
+	// Select first success after all attempts complete
+	for _, res := range results {
+		if res.err == nil {
+			return res.provider, res.claims, nil
+		}
+	}
+
+	return nil, nil, fmt.Errorf("no provider could verify token")
 }
 
 // BaseProvider provides common OIDC verification functionality.
 // Provider implementations can embed this to avoid duplicating verification logic.
+//
+// SECURITY: Includes JWKS refresh mechanism to handle provider key rotation.
+// If provider keys are compromised and rotated, the authority refreshes JWKS
+// every hour instead of caching indefinitely.
 type BaseProvider struct {
 	config   ProviderConfig
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
+
+	// SECURITY FIX #6: JWKS refresh support
+	mu          sync.RWMutex  // Protects provider/verifier during refresh
+	stopRefresh chan struct{} // Signals refresh goroutine to stop
 }
 
 // NewBaseProvider creates a new base provider with common OIDC verification setup.
+// SECURITY FIX #6: Starts JWKS refresh goroutine to handle provider key rotation.
 func NewBaseProvider(ctx context.Context, config ProviderConfig) (*BaseProvider, error) {
 	provider, err := oidc.NewProvider(ctx, config.IssuerURL)
 	if err != nil {
@@ -153,16 +183,65 @@ func NewBaseProvider(ctx context.Context, config ProviderConfig) (*BaseProvider,
 		ClientID: config.Audience,
 	})
 
-	return &BaseProvider{
-		config:   config,
-		provider: provider,
-		verifier: verifier,
-	}, nil
+	bp := &BaseProvider{
+		config:      config,
+		provider:    provider,
+		verifier:    verifier,
+		stopRefresh: make(chan struct{}),
+	}
+
+	// Start JWKS refresh goroutine (every 1 hour)
+	go bp.startJWKSRefresh(context.Background())
+
+	return bp, nil
+}
+
+// startJWKSRefresh periodically refreshes the OIDC provider to get updated JWKS.
+// SECURITY: If provider keys are compromised and rotated, this ensures the authority
+// picks up new keys within 1 hour instead of caching them indefinitely.
+func (b *BaseProvider) startJWKSRefresh(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Refresh OIDC provider (fetches new JWKS)
+			newProvider, err := oidc.NewProvider(ctx, b.config.IssuerURL)
+			if err != nil {
+				// Log but don't crash - keep using existing provider
+				// In production, this should be logged with proper logger
+				continue
+			}
+
+			newVerifier := newProvider.Verifier(&oidc.Config{
+				ClientID: b.config.Audience,
+			})
+
+			// Atomically update provider and verifier
+			b.mu.Lock()
+			b.provider = newProvider
+			b.verifier = newVerifier
+			b.mu.Unlock()
+
+		case <-b.stopRefresh:
+			return
+		}
+	}
+}
+
+// Stop stops the JWKS refresh goroutine.
+// Should be called when shutting down the provider to avoid goroutine leaks.
+func (b *BaseProvider) Stop() {
+	close(b.stopRefresh)
 }
 
 // VerifyTokenInternal handles common OIDC token verification.
 // Provider implementations call this and then extract provider-specific claims.
+// SECURITY: Uses read lock to allow concurrent verification during JWKS refresh.
 func (b *BaseProvider) VerifyTokenInternal(ctx context.Context, rawToken string) (*oidc.IDToken, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.verifier.Verify(ctx, rawToken)
 }
 

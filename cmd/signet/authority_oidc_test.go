@@ -40,6 +40,7 @@ func (m *mockOIDCProvider) Verify(ctx context.Context, rawToken string) (*oidcpr
 		IssuedAt:  time.Now(),
 		Extra: map[string]interface{}{
 			"repository": "test/repo",
+			"jti":        "test-jti-12345", // Required for replay prevention
 		},
 	}, nil
 }
@@ -98,6 +99,7 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 				Extra: map[string]interface{}{
 					"repository": "test/repo",
 					"ref":        "refs/heads/main",
+					"jti":        "test-jti-success", // Required for replay prevention
 				},
 			}, nil
 		},
@@ -113,9 +115,10 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 
 	// Create test server
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	// Create HTTP server
@@ -176,9 +179,10 @@ func TestHandleExchangeToken_MethodNotAllowed(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -205,9 +209,10 @@ func TestHandleExchangeToken_MissingToken(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -243,9 +248,10 @@ func TestHandleExchangeToken_MissingEphemeralKey(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -277,9 +283,10 @@ func TestHandleExchangeToken_InvalidEphemeralKeyFormat(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -312,9 +319,10 @@ func TestHandleExchangeToken_InvalidEphemeralKeySize(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -360,9 +368,10 @@ func TestHandleExchangeToken_NoProviderRegistry(t *testing.T) {
 	}
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -398,9 +407,10 @@ func TestHandleExchangeToken_UnknownProviderHint(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -443,9 +453,10 @@ func TestHandleExchangeToken_TokenVerificationFailure(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -499,6 +510,7 @@ func TestHandleExchangeToken_AutoDetectProvider(t *testing.T) {
 				IssuedAt:  time.Now(),
 				Extra: map[string]interface{}{
 					"repository": "test/repo",
+					"jti":        "test-jti-provider2", // Required for replay prevention
 				},
 			}, nil
 		},
@@ -507,9 +519,10 @@ func TestHandleExchangeToken_AutoDetectProvider(t *testing.T) {
 	authority, _ := createTestAuthority(t, provider1, provider2)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	mux := http.NewServeMux()
@@ -556,9 +569,10 @@ func TestHandleExchangeToken_RateLimiting(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority: authority,
-		logger:    authority.logger,
-		config:    authority.config,
+		authority:  authority,
+		logger:     authority.logger,
+		config:     authority.config,
+		tokenCache: newTokenCache(),
 	}
 
 	// Create a very restrictive rate limiter (1 request per second, burst of 1)
