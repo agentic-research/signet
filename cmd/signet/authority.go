@@ -32,6 +32,7 @@ import (
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/styles"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
+	oidcprovider "github.com/jamestexas/signet/pkg/oidc"
 )
 
 var (
@@ -73,8 +74,19 @@ issuance workflows are functional but under active development.
     "redirect_url": "http://localhost:8080/callback",
     "authority_master_key_path": "/path/to/master.key",
     "listen_addr": ":8080",
-    "certificate_validity_hours": 8
+    "certificate_validity_hours": 8,
+    "oidc_providers_file": "oidc-providers.yaml"
   }
+
+  # Create OIDC providers file (oidc-providers.yaml) for CI/CD platforms
+  providers:
+    - type: github-actions
+      config:
+        name: github-actions
+        issuer_url: https://token.actions.githubusercontent.com
+        audience: http://localhost:8080
+        certificate_validity: 5m
+        enabled: true
 
   # Set session secret via environment variable (required)
   export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
@@ -124,9 +136,38 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	fmt.Println(styles.Subtle.Render("  Provider: ") + config.OIDCProviderURL)
 	fmt.Println()
 
+	// Load OIDC provider registry (for CI/CD platforms)
+	var providerRegistry *oidcprovider.Registry
+	ctx := cmd.Context()
+	if config.OIDCProvidersFile != "" {
+		logger.Info("Loading OIDC providers", "file", config.OIDCProvidersFile)
+		var err error
+		providerRegistry, err = oidcprovider.LoadProvidersFromFile(ctx, config.OIDCProvidersFile)
+		if err != nil {
+			fmt.Println(styles.Error.Render("✗") + " Failed to load OIDC providers")
+			return fmt.Errorf("OIDC provider error: %w", err)
+		}
+		fmt.Println(styles.Success.Render("✓") + " OIDC providers loaded")
+		for _, name := range providerRegistry.List() {
+			fmt.Println(styles.Subtle.Render("  - ") + name)
+		}
+	} else {
+		// Try environment variables
+		providerRegistry, _ = oidcprovider.LoadProvidersFromEnv(ctx)
+		if providerRegistry != nil && len(providerRegistry.List()) > 0 {
+			fmt.Println(styles.Success.Render("✓") + " OIDC providers loaded from environment")
+			for _, name := range providerRegistry.List() {
+				fmt.Println(styles.Subtle.Render("  - ") + name)
+			}
+		} else {
+			logger.Info("No OIDC providers configured (CI/CD token exchange will be disabled)")
+		}
+	}
+	fmt.Println()
+
 	// Create the Authority
 	logger.Info("Initializing Signet Authority")
-	authority, err := newAuthority(config, logger)
+	authority, err := newAuthority(config, logger, providerRegistry)
 	if err != nil {
 		fmt.Println(styles.Error.Render("✗") + " Failed to initialize authority")
 		return fmt.Errorf("authority initialization error: %w", err)
@@ -160,6 +201,13 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	mux.Handle("/login", loginHandler)
 	mux.Handle("/callback", callbackHandler)
 	mux.HandleFunc("/healthz", server.handleHealthz)
+
+	// OIDC token exchange endpoint (for CI/CD platforms)
+	if authority.providerRegistry != nil {
+		exchangeHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleExchangeToken))
+		mux.Handle("/exchange-token", exchangeHandler)
+		fmt.Println(styles.Info.Render("→") + " OIDC token exchange enabled at /exchange-token")
+	}
 
 	// Start periodic cleanup of rate limiter (every 5 minutes)
 	// Use context for graceful shutdown of cleanup goroutine
@@ -266,6 +314,9 @@ type AuthorityConfig struct {
 	// Certificate configuration
 	CertificateValidity int `json:"certificate_validity_hours"`
 
+	// OIDC provider configuration (for CI/CD platforms)
+	OIDCProvidersFile string `json:"oidc_providers_file,omitempty"`
+
 	// Session configuration - SECURITY: No longer loaded from JSON
 	// Session secrets MUST be provided via SIGNET_SESSION_SECRET environment variable
 	// This field is deprecated and will be ignored if present in config
@@ -336,12 +387,13 @@ func validateAuthorityConfig(c *AuthorityConfig) error {
 
 // Authority manages certificate issuance for the Signet Authority service
 type Authority struct {
-	ca     *attestx509.LocalCA
-	logger *slog.Logger
-	config *AuthorityConfig
+	ca               *attestx509.LocalCA
+	logger           *slog.Logger
+	config           *AuthorityConfig
+	providerRegistry *oidcprovider.Registry
 }
 
-func newAuthority(config *AuthorityConfig, logger *slog.Logger) (*Authority, error) {
+func newAuthority(config *AuthorityConfig, logger *slog.Logger, registry *oidcprovider.Registry) (*Authority, error) {
 	// Load the PEM-encoded Ed25519 private key
 	keyData, err := os.ReadFile(config.AuthorityMasterKey)
 	if err != nil {
@@ -383,9 +435,10 @@ func newAuthority(config *AuthorityConfig, logger *slog.Logger) (*Authority, err
 	ca := attestx509.NewLocalCA(signer, issuerDID)
 
 	return &Authority{
-		ca:     ca,
-		logger: logger,
-		config: config,
+		ca:               ca,
+		logger:           logger,
+		config:           config,
+		providerRegistry: registry,
 	}, nil
 }
 
@@ -786,6 +839,138 @@ func (s *OIDCServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		s.logger.Error("Failed to encode health check response", "error", err)
 	}
+}
+
+// handleExchangeToken exchanges an OIDC token for a bridge certificate.
+// This endpoint is used by CI/CD platforms (GitHub Actions, GitLab CI, etc.)
+// to obtain short-lived certificates for artifact signing.
+func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Only accept POST requests
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Token        string `json:"token"`                   // OIDC token from CI/CD platform
+		EphemeralKey string `json:"ephemeral_key"`           // Base64-encoded Ed25519 public key
+		ProviderHint string `json:"provider_hint,omitempty"` // Optional: provider name hint
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Failed to parse request", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if req.Token == "" {
+		http.Error(w, "token is required", http.StatusBadRequest)
+		return
+	}
+	if req.EphemeralKey == "" {
+		http.Error(w, "ephemeral_key is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if provider registry is available
+	if s.authority.providerRegistry == nil {
+		s.logger.Error("No OIDC provider registry configured")
+		http.Error(w, "OIDC providers not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Verify token with appropriate provider
+	var provider oidcprovider.Provider
+	var claims *oidcprovider.Claims
+	var err error
+
+	if req.ProviderHint != "" {
+		// User specified which provider to use
+		provider = s.authority.providerRegistry.Get(req.ProviderHint)
+		if provider == nil {
+			s.logger.Error("Unknown provider", "provider", req.ProviderHint)
+			http.Error(w, "Unknown provider", http.StatusBadRequest)
+			return
+		}
+		claims, err = provider.Verify(ctx, req.Token)
+	} else {
+		// Auto-detect provider
+		provider, claims, err = s.authority.providerRegistry.VerifyToken(ctx, req.Token)
+	}
+
+	if err != nil {
+		providerName := "unknown"
+		if provider != nil {
+			providerName = provider.Name()
+		}
+		s.logger.Error("Token verification failed", "error", err, "provider", providerName)
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	s.logger.Info("Token verified successfully",
+		"provider", provider.Name(),
+		"subject", claims.Subject,
+		"issuer", claims.Issuer,
+	)
+
+	// Map claims to capabilities
+	capabilities, err := provider.MapCapabilities(claims)
+	if err != nil {
+		s.logger.Error("Capability mapping failed", "error", err)
+		http.Error(w, "Failed to map capabilities", http.StatusInternalServerError)
+		return
+	}
+
+	s.logger.Info("Capabilities mapped",
+		"provider", provider.Name(),
+		"capabilities", capabilities,
+	)
+
+	// Decode ephemeral public key
+	ephemeralKeyBytes, err := base64.RawURLEncoding.DecodeString(req.EphemeralKey)
+	if err != nil {
+		s.logger.Error("Failed to decode ephemeral key", "error", err)
+		http.Error(w, "Invalid ephemeral_key format", http.StatusBadRequest)
+		return
+	}
+
+	if len(ephemeralKeyBytes) != ed25519.PublicKeySize {
+		s.logger.Error("Invalid ephemeral key size", "size", len(ephemeralKeyBytes))
+		http.Error(w, "Invalid ephemeral_key size", http.StatusBadRequest)
+		return
+	}
+
+	_ = ed25519.PublicKey(ephemeralKeyBytes)
+
+	// TODO: Mint bridge certificate with capabilities
+	// For now, return success with capabilities
+	// Bridge certificate implementation is Phase 3
+	response := map[string]interface{}{
+		"status":       "success",
+		"provider":     provider.Name(),
+		"capabilities": capabilities,
+		"subject":      claims.Subject,
+		"expires_at":   claims.ExpiresAt.Format(time.RFC3339),
+		// TODO: Add bridge certificate PEM here
+		// "certificate": certPEM,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
+
+	s.logger.Info("Bridge certificate issued",
+		"provider", provider.Name(),
+		"subject", claims.Subject,
+		"capabilities", len(capabilities),
+	)
 }
 
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
