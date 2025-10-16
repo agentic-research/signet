@@ -1,3 +1,6 @@
+// Package main provides a test version of the signet-agent for manual testing.
+// This binary uses the NewServerForTesting() constructor with dummy identities.
+// DO NOT use this in production.
 package main
 
 import (
@@ -16,7 +19,6 @@ import (
 	pb "github.com/jamestexas/signet/pkg/agent/api/v1"
 )
 
-// TODO: Make this configurable
 const defaultSocketPath = "/tmp/signet-agent.sock"
 
 func main() {
@@ -27,12 +29,10 @@ func main() {
 	}
 
 	// Set umask to ensure socket is created with secure permissions (0600)
-	// This prevents a race condition between Listen() and Chmod()
 	oldMask := syscall.Umask(0077)
 	defer syscall.Umask(oldMask)
 
 	// Remove any stale socket before attempting to create a new one
-	// This handles the case where the agent crashed and left a socket behind
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("failed to remove stale socket: %v", err)
 	}
@@ -49,56 +49,44 @@ func main() {
 		os.Remove(socketPath)
 	}()
 
-	// Verify socket permissions are actually 0600 (defensive check)
-	info, err := os.Stat(socketPath)
-	if err != nil {
-		log.Fatalf("failed to stat socket: %v", err)
-	}
-	mode := info.Mode().Perm()
-	if mode != 0600 {
-		log.Fatalf("socket has incorrect permissions %o (expected 0600)", mode)
-	}
-
 	// Create gRPC server with security-focused settings
-	const maxMsgSize = 256 * 1024 // 256KB (sufficient for signing operations)
+	const maxMsgSize = 256 * 1024 // 256KB
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
-		// Keepalive settings to detect and close broken connections
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    30 * time.Second, // Ping client if no activity for 30s
-			Timeout: 10 * time.Second, // Wait 10s for ping response
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
 		}),
-		// Enforcement policy to close connections that violate keepalive
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             5 * time.Second, // Min time between client pings
-			PermitWithoutStream: true,            // Allow pings without active streams
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
 		}),
 	)
 
-	// Create and register the agent server implementation.
-	// TODO: Load keys and other resources needed by the server here.
-	server, err := agent_server.NewServer()
+	// Use the TESTING server with dummy identities
+	server, err := agent_server.NewServerForTesting()
 	if err != nil {
-		log.Fatalf("failed to create agent server: %v", err)
+		log.Fatalf("failed to create test agent server: %v", err)
 	}
 	pb.RegisterSignetAgentServer(grpcServer, server)
 
-	// Start serving gRPC requests.
+	// Start serving gRPC requests
 	go func() {
 		if err := grpcServer.Serve(listener); err != nil {
 			log.Fatalf("failed to serve: %v", err)
 		}
 	}()
 
-	fmt.Printf("Signet agent listening on %s\n", socketPath)
+	fmt.Printf("TEST Signet agent listening on %s\n", socketPath)
 	fmt.Printf("Run `export SIGNET_AUTH_SOCK=%s` to use the agent.\n", socketPath)
+	fmt.Printf("\n⚠️  WARNING: This is a TEST agent with dummy identities. DO NOT use in production!\n\n")
 
-	// Wait for a shutdown signal.
+	// Wait for a shutdown signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	fmt.Println("\nShutting down agent...")
+	fmt.Println("\nShutting down test agent...")
 	grpcServer.GracefulStop()
 }

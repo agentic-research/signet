@@ -12,15 +12,15 @@ echo
 # Clean up old socket
 rm -f "$SOCKET_PATH"
 
-# Build the agent
-echo "[1/5] Building signet-agent..."
-go build -o signet-agent ./cmd/signet-agent
-echo "✓ Build complete"
+# Build the TEST agent
+echo "[1/5] Building signet-agent-test..."
+go build -o signet-agent-test ./cmd/signet-agent-test
+echo "✓ Build complete (TEST VERSION)"
 echo
 
-# Start the agent in the background with test mode enabled
-echo "[2/5] Starting signet-agent on $SOCKET_PATH..."
-SIGNET_SOCKET="$SOCKET_PATH" SIGNET_TEST_MODE=1 ./signet-agent &
+# Start the TEST agent in the background
+echo "[2/5] Starting signet-agent-test on $SOCKET_PATH..."
+SIGNET_SOCKET="$SOCKET_PATH" ./signet-agent-test &
 AGENT_PID=$!
 
 # Clean up function
