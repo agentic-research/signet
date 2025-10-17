@@ -94,3 +94,4 @@ SECURITY_AUDIT.md
 client
 server
 signet-git
+_agent_logs/
