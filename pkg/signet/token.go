@@ -2,6 +2,7 @@ package signet
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"time"
@@ -58,8 +59,15 @@ func NewToken(issuerID string, confirmationID []byte, ephemeralKeyID []byte, non
 		return nil, fmt.Errorf("new token: nonce must be %d bytes when provided, got %d", nonceSize, len(nonce))
 	}
 
-	capabilityID := make([]byte, capabilityIDSize)
-	copy(capabilityID, ephemeralKeyID[:capabilityIDSize])
+	// Derive capabilityID using HKDF-like key derivation
+	// This ensures the capabilityID is cryptographically bound to both
+	// the ephemeralKeyID and a domain separation context
+	h := sha256.New()
+	h.Write([]byte("signet-capability-v1")) // Domain separation
+	h.Write(ephemeralKeyID)
+	h.Write(confirmationID)
+	capabilityHash := h.Sum(nil)
+	capabilityID := capabilityHash[:capabilityIDSize]
 
 	subjectPPID := cloneBytes(ephemeralKeyID)
 

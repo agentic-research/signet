@@ -37,7 +37,7 @@ type SIG1 struct {
 // EncodeSIG1 encodes a token into SIG1 wire format using COSE Sign1
 //
 // Format: SIG1.<base64url(CBOR)>.<base64url(COSE_Sign1)>
-func EncodeSIG1(token *Token, signer cose.Signer) (string, error) {
+func EncodeSIG1(token *Token, signer cose.ISigner) (string, error) {
 	if token == nil {
 		return "", fmt.Errorf("token cannot be nil")
 	}
@@ -127,7 +127,7 @@ func DecodeSIG1(sig1 string) (*SIG1, error) {
 }
 
 // VerifySIG1 decodes and verifies a SIG1 wire format string
-func VerifySIG1(sig1 string, verifier cose.Verifier) (*Token, error) {
+func VerifySIG1(sig1 string, verifier cose.IVerifier) (*Token, error) {
 	if verifier == nil {
 		return nil, fmt.Errorf("verifier cannot be nil")
 	}
