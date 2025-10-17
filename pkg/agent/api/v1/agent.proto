@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package signet.agent.v1;
+
+option go_package = "github.com/jamestexas/signet/pkg/agent/api/v1";
+
+import "google/protobuf/empty.proto";
+
+// SignetAgent is the service that runs in the background to provide
+// signing and identity management.
+service SignetAgent {
+  // Sign uses an available identity to sign the given data, returning
+  // a full Signet signature. This is the primary function of the agent.
+  rpc Sign(SignRequest) returns (SignResponse);
+
+  // ListIdentities returns all the identities (keys) the agent can currently use.
+  rpc ListIdentities(google.protobuf.Empty) returns (ListIdentitiesResponse);
+}
+
+message SignRequest {
+  // The raw data to be signed (e.g. a git commit object).
+  bytes data = 1;
+
+  // Optional: A specific key ID to use for signing. If empty, the agent
+  // will use its default identity.
+  string key_id = 2;
+}
+
+message SignResponse {
+  // The full COSE Sign1 signature envelope.
+  bytes signature = 1;
+}
+
+message Identity {
+  // The unique identifier for the key (e.g., SHA256 fingerprint of the public key).
+  string id = 1;
+
+  // A human-readable comment for the identity (e.g., key file path or hardware token name).
+  string comment = 2;
+}
+
+message ListIdentitiesResponse {
+  repeated Identity identities = 1;
+}
