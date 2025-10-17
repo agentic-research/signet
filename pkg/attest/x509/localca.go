@@ -5,7 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -318,7 +318,7 @@ func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePubl
 }
 
 // generateSubjectKeyID generates a Subject Key Identifier for a public key
-// Uses SHA-1 hash as per RFC 5280 (method 1)
+// Uses SHA-256 hash as per RFC 5280 (method 1)
 func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	var pubBytes []byte
 
@@ -338,6 +338,6 @@ func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 		return nil
 	}
 
-	h := sha1.Sum(pubBytes)
+	h := sha256.Sum256(pubBytes)
 	return h[:]
 }

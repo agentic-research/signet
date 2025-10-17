@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jamestexas/signet/pkg/cli/config"
 	"github.com/jamestexas/signet/pkg/cli/styles"
@@ -35,10 +36,9 @@ func init() {
 // initConfig sanitizes and validates global flags.
 func initConfig() {
 	if homeDir != "" {
-		// Only validate relative paths with IsLocal to prevent traversal attacks
-		// Absolute paths are user-controlled and should be allowed
-		if !filepath.IsAbs(homeDir) && !filepath.IsLocal(homeDir) {
-			fmt.Fprint(os.Stderr, styles.Error.Render("✗")+" home directory path contains suspicious elements\n")
+		// Prevent path traversal attacks.
+		if strings.Contains(homeDir, "..") {
+			fmt.Fprint(os.Stderr, styles.Error.Render("✗")+" home directory path cannot contain '..'\n")
 			os.Exit(1)
 		}
 

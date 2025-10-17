@@ -343,8 +343,8 @@ func TestLocalCA_ECDSA_Support(t *testing.T) {
 		}
 
 		// Verify Subject Key Identifier was set correctly
-		if cert.SubjectKeyId == nil || len(cert.SubjectKeyId) != 20 {
-			t.Errorf("SubjectKeyId should be 20 bytes (SHA-1), got %d", len(cert.SubjectKeyId))
+		if cert.SubjectKeyId == nil || len(cert.SubjectKeyId) != 32 {
+			t.Errorf("SubjectKeyId should be 32 bytes (SHA-256), got %d", len(cert.SubjectKeyId))
 		}
 
 		// Verify Authority Key Identifier points to master key
