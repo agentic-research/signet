@@ -180,8 +180,9 @@ func (v *Verifier) VerifyBinding(ctx context.Context, proof *EphemeralProof, mas
 		return signetErrors.NewKeyError("verify", "master public key", signetErrors.ErrInvalidKeyType)
 	}
 
-	if !ed25519.Verify(masterPub, message, proof.BindingSignature) {
-		return signetErrors.NewSignatureError("binding", "verification failed", signetErrors.ErrInvalidBindingSignature)
+	// Use canonical verification to prevent signature malleability
+	if !VerifyCanonical(masterPub, message, proof.BindingSignature) {
+		return signetErrors.NewSignatureError("binding", "verification failed or non-canonical signature", signetErrors.ErrInvalidBindingSignature)
 	}
 
 	return nil
@@ -202,8 +203,9 @@ func (v *Verifier) VerifyRequestSignature(ctx context.Context, proof *EphemeralP
 		return signetErrors.NewKeyError("verify", "ephemeral public key", signetErrors.ErrInvalidKeyType)
 	}
 
-	if !ed25519.Verify(ephemeralPub, message, signature) {
-		return signetErrors.NewSignatureError("request", "verification failed", signetErrors.ErrInvalidRequestSignature)
+	// Use canonical verification to prevent signature malleability
+	if !VerifyCanonical(ephemeralPub, message, signature) {
+		return signetErrors.NewSignatureError("request", "verification failed or non-canonical signature", signetErrors.ErrInvalidRequestSignature)
 	}
 
 	return nil
