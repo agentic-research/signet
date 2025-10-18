@@ -1,6 +1,14 @@
 // Package epr provides Ephemeral Proof Routines for Signet authentication.
 // This file implements Ed25519 signature canonicalization to prevent
 // signature malleability attacks.
+//
+// NOTE: This module is primarily for testing and verification purposes.
+// Production code should use pkg/crypto/keys/signer.go which provides
+// proper lifecycle management with secure memory zeroization.
+//
+// The functions in this file are designed to demonstrate and verify
+// Ed25519's signature canonicalization properties, particularly for
+// understanding signature malleability prevention.
 package epr
 
 import (
@@ -117,9 +125,17 @@ func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 // function will always either succeed or fail - it will never produce different
 // results on retry.
 //
-// For most applications, use Sign() and accept non-strictly-canonical signatures,
-// or use a low-level Ed25519 library that supports S negation for guaranteed
-// canonical signatures.
+// MIGRATION NOTE: This function was renamed from SignCanonical() to clarify its
+// probabilistic nature. For most use cases, use Sign() instead and rely on
+// VerifyCanonical() to enforce canonicality at verification time.
+//
+// For production applications requiring guaranteed canonical signatures, consider:
+// 1. Using Sign() and accepting non-strictly-canonical signatures
+// 2. Using a low-level Ed25519 library that supports S negation
+// 3. Implementing a retry mechanism with message nonce modification
+//
+// NOTE: This function is primarily retained for testing and educational purposes
+// to demonstrate Ed25519's signature canonicalization properties.
 func TrySignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid private key size")
