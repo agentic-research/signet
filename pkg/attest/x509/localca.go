@@ -318,7 +318,12 @@ func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePubl
 }
 
 // generateSubjectKeyID generates a Subject Key Identifier for a public key
-// Uses SHA-1 hash as per RFC 5280 (method 1)
+// using RFC 5280 method (1): SHA-1 hash of the public key.
+// While SHA-1 has known weaknesses for collision resistance, it remains
+// acceptable for SKI generation as:
+// 1. SKI is not security-critical (it's just an identifier)
+// 2. RFC 5280 specifically requires SHA-1 for method (1)
+// 3. The attacker doesn't control both inputs (no collision attack)
 func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	var pubBytes []byte
 
@@ -338,6 +343,8 @@ func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 		return nil
 	}
 
+	// Use SHA-1 as specified in RFC 5280 Section 4.2.1.2 method (1)
 	h := sha1.Sum(pubBytes)
+	// SHA-1 produces exactly 20 bytes, no truncation needed
 	return h[:]
 }

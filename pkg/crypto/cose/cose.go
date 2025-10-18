@@ -12,41 +12,31 @@ import (
 	"github.com/veraison/go-cose"
 )
 
-// Ed25519Signer implements COSE Sign1 signing with Ed25519.
+// GenericSigner implements COSE Sign1 signing.
 // The private key is securely managed and automatically zeroed when Destroy() is called.
 //
-// CONCURRENCY: Ed25519Signer is safe for concurrent Sign() calls from multiple goroutines.
+// CONCURRENCY: GenericSigner is safe for concurrent Sign() calls from multiple goroutines.
 // However, callers MUST externally synchronize Destroy() calls to ensure they happen only
 // after all Sign() operations are complete. Calling Destroy() concurrently with Sign()
 // may result in Sign() operations failing with "signer has been destroyed" errors.
-//
-// Best practice:
-//
-//	signer, _ := NewEd25519Signer(privateKey)
-//
-//	// Safe: Multiple goroutines can call Sign() concurrently
-//	go signer.Sign(payload1)
-//	go signer.Sign(payload2)
-//
-//	// Wait for all Sign() operations to complete before calling Destroy()
-//	waitGroup.Wait()
-//	signer.Destroy()
-type Ed25519Signer struct {
+type GenericSigner[K any] struct {
 	mu         sync.RWMutex
-	privateKey ed25519.PrivateKey
+	privateKey K
 	signer     cose.Signer
 	destroyed  bool
+	algorithm  cose.Algorithm
+	zeroizer   func(*K) // Type-specific function to securely zero the key
 }
 
-// Ed25519Verifier implements COSE Sign1 verification with Ed25519.
+// GenericVerifier implements COSE Sign1 verification.
 // Verifiers are safe for concurrent use.
-type Ed25519Verifier struct {
-	publicKey ed25519.PublicKey
+type GenericVerifier[K any] struct {
+	publicKey K
 	verifier  cose.Verifier
 }
 
 // NewEd25519Signer creates a new COSE signer for Ed25519
-func NewEd25519Signer(privateKey ed25519.PrivateKey) (*Ed25519Signer, error) {
+func NewEd25519Signer(privateKey ed25519.PrivateKey) (*GenericSigner[ed25519.PrivateKey], error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid Ed25519 private key size: got %d, want %d",
 			len(privateKey), ed25519.PrivateKeySize)
@@ -57,24 +47,34 @@ func NewEd25519Signer(privateKey ed25519.PrivateKey) (*Ed25519Signer, error) {
 		return nil, fmt.Errorf("failed to create COSE signer: %w", err)
 	}
 
-	return &Ed25519Signer{
+	return &GenericSigner[ed25519.PrivateKey]{
 		privateKey: privateKey,
 		signer:     signer,
 		destroyed:  false,
+		algorithm:  cose.AlgorithmEdDSA,
+		zeroizer: func(key *ed25519.PrivateKey) {
+			// Zero each byte of the Ed25519 private key
+			for i := range *key {
+				(*key)[i] = 0
+			}
+		},
 	}, nil
 }
 
 // Destroy securely zeros the private key from memory.
 // After calling Destroy, the signer cannot be used.
 // This is idempotent - calling multiple times is safe.
-func (s *Ed25519Signer) Destroy() {
+// SECURITY: The zeroizer is mandatory and will panic if not set.
+func (s *GenericSigner[K]) Destroy() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.destroyed {
-		// Zero each byte of the private key
-		for i := range s.privateKey {
-			s.privateKey[i] = 0
+		// Use the type-specific zeroizer to securely wipe the key
+		// Zeroizer is mandatory - panic if not set (programming error)
+		if s.zeroizer == nil {
+			panic("GenericSigner: zeroizer is nil - this is a security violation")
 		}
+		s.zeroizer(&s.privateKey)
 		s.destroyed = true
 	}
 }
@@ -82,7 +82,7 @@ func (s *Ed25519Signer) Destroy() {
 // Sign creates a COSE Sign1 message from the payload.
 // Note: nil payloads are rejected, but empty payloads ([]byte{}) are allowed
 // as they represent valid zero-length data to sign.
-func (s *Ed25519Signer) Sign(payload []byte) ([]byte, error) {
+func (s *GenericSigner[K]) Sign(payload []byte) ([]byte, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("payload cannot be nil")
 	}
@@ -98,7 +98,7 @@ func (s *Ed25519Signer) Sign(payload []byte) ([]byte, error) {
 	// Create message headers
 	headers := cose.Headers{
 		Protected: cose.ProtectedHeader{
-			cose.HeaderLabelAlgorithm: cose.AlgorithmEdDSA,
+			cose.HeaderLabelAlgorithm: s.algorithm,
 		},
 	}
 
@@ -112,7 +112,7 @@ func (s *Ed25519Signer) Sign(payload []byte) ([]byte, error) {
 }
 
 // NewEd25519Verifier creates a new COSE verifier for Ed25519
-func NewEd25519Verifier(publicKey ed25519.PublicKey) (*Ed25519Verifier, error) {
+func NewEd25519Verifier(publicKey ed25519.PublicKey) (*GenericVerifier[ed25519.PublicKey], error) {
 	if len(publicKey) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("invalid Ed25519 public key size: got %d, want %d",
 			len(publicKey), ed25519.PublicKeySize)
@@ -123,14 +123,14 @@ func NewEd25519Verifier(publicKey ed25519.PublicKey) (*Ed25519Verifier, error) {
 		return nil, fmt.Errorf("failed to create COSE verifier: %w", err)
 	}
 
-	return &Ed25519Verifier{
+	return &GenericVerifier[ed25519.PublicKey]{
 		publicKey: publicKey,
 		verifier:  verifier,
 	}, nil
 }
 
 // Verify verifies a COSE Sign1 message and returns the payload
-func (v *Ed25519Verifier) Verify(coseSign1 []byte) ([]byte, error) {
+func (v *GenericVerifier[K]) Verify(coseSign1 []byte) ([]byte, error) {
 	if coseSign1 == nil {
 		return nil, fmt.Errorf("COSE Sign1 message cannot be nil")
 	}
@@ -208,41 +208,8 @@ func NewVerifier(publicKey interface{}) (Verifier, error) {
 	}
 }
 
-// ECDSAP256Signer implements COSE Sign1 signing with ECDSA P-256.
-// This signer supports hardware-backed keys like Touch ID on macOS.
-// The private key is securely managed and automatically zeroed when Destroy() is called.
-//
-// CONCURRENCY: ECDSAP256Signer is safe for concurrent Sign() calls from multiple goroutines.
-// However, callers MUST externally synchronize Destroy() calls to ensure they happen only
-// after all Sign() operations are complete. Calling Destroy() concurrently with Sign()
-// may result in Sign() operations failing with "signer has been destroyed" errors.
-//
-// Best practice:
-//
-//	signer, _ := NewECDSAP256Signer(privateKey)
-//
-//	// Safe: Multiple goroutines can call Sign() concurrently
-//	go signer.Sign(payload1)
-//	go signer.Sign(payload2)
-//
-//	// Wait for all Sign() operations to complete before calling Destroy()
-//	waitGroup.Wait()
-//	signer.Destroy()
-type ECDSAP256Signer struct {
-	mu         sync.RWMutex
-	privateKey *ecdsa.PrivateKey
-	signer     cose.Signer
-	destroyed  bool
-}
-
-// ECDSAP256Verifier implements COSE Sign1 verification with ECDSA P-256.
-type ECDSAP256Verifier struct {
-	publicKey *ecdsa.PublicKey
-	verifier  cose.Verifier
-}
-
 // NewECDSAP256Signer creates a new COSE signer for ECDSA P-256
-func NewECDSAP256Signer(privateKey *ecdsa.PrivateKey) (*ECDSAP256Signer, error) {
+func NewECDSAP256Signer(privateKey *ecdsa.PrivateKey) (*GenericSigner[*ecdsa.PrivateKey], error) {
 	if privateKey == nil {
 		return nil, fmt.Errorf("private key cannot be nil")
 	}
@@ -257,67 +224,45 @@ func NewECDSAP256Signer(privateKey *ecdsa.PrivateKey) (*ECDSAP256Signer, error) 
 		return nil, fmt.Errorf("failed to create COSE signer: %w", err)
 	}
 
-	return &ECDSAP256Signer{
+	return &GenericSigner[*ecdsa.PrivateKey]{
 		privateKey: privateKey,
 		signer:     signer,
 		destroyed:  false,
+		algorithm:  cose.AlgorithmES256,
+		zeroizer: func(key **ecdsa.PrivateKey) {
+			// Comprehensive zeroization of ECDSA private key
+			if *key != nil {
+				// Zero the private scalar D (the actual secret)
+				if (*key).D != nil {
+					(*key).D.SetInt64(0)
+					// Also set the internal representation to nil
+					// This ensures no lingering copies in big.Int's internal buffer
+					(*key).D = nil
+				}
+
+				// While public key components aren't secret, we zero them for defense-in-depth
+				// This prevents any potential side-channel analysis of the key structure
+				if (*key).PublicKey.X != nil {
+					(*key).PublicKey.X.SetInt64(0)
+					(*key).PublicKey.X = nil
+				}
+				if (*key).PublicKey.Y != nil {
+					(*key).PublicKey.Y.SetInt64(0)
+					(*key).PublicKey.Y = nil
+				}
+
+				// Clear the curve reference (not secret, but good hygiene)
+				(*key).PublicKey.Curve = nil
+
+				// Finally, nil out the entire key
+				*key = nil
+			}
+		},
 	}, nil
 }
 
-// Destroy securely zeros the private key from memory.
-// After calling Destroy, the signer cannot be used.
-// This is idempotent - calling multiple times is safe.
-//
-// NOTE: For hardware-backed keys (e.g., Touch ID on macOS), the private key
-// never leaves the Secure Enclave, so zeroization is primarily defensive.
-// However, for software ECDSA keys, this is critical for security.
-func (s *ECDSAP256Signer) Destroy() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.destroyed {
-		// Zero the private scalar D (the actual secret)
-		if s.privateKey != nil && s.privateKey.D != nil {
-			// Set to zero (big.Int has no built-in zeroization, so we use SetInt64)
-			s.privateKey.D.SetInt64(0)
-		}
-		s.destroyed = true
-	}
-}
-
-// Sign creates a COSE Sign1 message from the payload using ECDSA P-256.
-// Note: nil payloads are rejected, but empty payloads ([]byte{}) are allowed
-// as they represent valid zero-length data to sign.
-func (s *ECDSAP256Signer) Sign(payload []byte) ([]byte, error) {
-	if payload == nil {
-		return nil, fmt.Errorf("payload cannot be nil")
-	}
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Check destroyed flag while holding the lock to prevent TOCTOU race
-	if s.destroyed {
-		return nil, fmt.Errorf("signer has been destroyed")
-	}
-
-	// Create message headers
-	headers := cose.Headers{
-		Protected: cose.ProtectedHeader{
-			cose.HeaderLabelAlgorithm: cose.AlgorithmES256,
-		},
-	}
-
-	// External data (aad) is nil - not needed for Signet's threat model
-	coseSign1, err := cose.Sign1(rand.Reader, s.signer, headers, payload, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create COSE Sign1: %w", err)
-	}
-
-	return coseSign1, nil
-}
-
 // NewECDSAP256Verifier creates a new COSE verifier for ECDSA P-256
-func NewECDSAP256Verifier(publicKey *ecdsa.PublicKey) (*ECDSAP256Verifier, error) {
+func NewECDSAP256Verifier(publicKey *ecdsa.PublicKey) (*GenericVerifier[*ecdsa.PublicKey], error) {
 	if publicKey == nil {
 		return nil, fmt.Errorf("public key cannot be nil")
 	}
@@ -332,28 +277,8 @@ func NewECDSAP256Verifier(publicKey *ecdsa.PublicKey) (*ECDSAP256Verifier, error
 		return nil, fmt.Errorf("failed to create COSE verifier: %w", err)
 	}
 
-	return &ECDSAP256Verifier{
+	return &GenericVerifier[*ecdsa.PublicKey]{
 		publicKey: publicKey,
 		verifier:  verifier,
 	}, nil
-}
-
-// Verify verifies a COSE Sign1 message and returns the payload
-func (v *ECDSAP256Verifier) Verify(coseSign1 []byte) ([]byte, error) {
-	if coseSign1 == nil {
-		return nil, fmt.Errorf("COSE Sign1 message cannot be nil")
-	}
-
-	// Unmarshal COSE Sign1 message
-	var msg cose.Sign1Message
-	if err := msg.UnmarshalCBOR(coseSign1); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal COSE Sign1: %w", err)
-	}
-
-	// Verify signature
-	if err := msg.Verify(nil, v.verifier); err != nil {
-		return nil, fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return msg.Payload, nil
 }

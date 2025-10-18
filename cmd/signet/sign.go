@@ -123,15 +123,10 @@ func runSign(cmd *cobra.Command, args []string) error {
 
 	// Load master key from OS keyring
 	masterKey, err := keystore.LoadMasterKeySecure()
-	// Fallback to file-based if keyring fails
 	if err != nil {
-		fmt.Fprintln(os.Stderr, styles.Warning.Render("⚠")+" Keyring access failed, falling back to file-based storage")
-		masterKey, err = keystore.LoadMasterKeyInsecure(cfg.Home)
-		if err != nil {
-			msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet sign --init") + " to initialize\n"
-			fmt.Fprint(os.Stderr, msg)
-			return fmt.Errorf("failed to load master key: %w", err)
-		}
+		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet sign --init") + " to initialize\n"
+		fmt.Fprint(os.Stderr, msg)
+		return fmt.Errorf("failed to load master key: %w", err)
 	}
 	defer masterKey.Destroy()
 

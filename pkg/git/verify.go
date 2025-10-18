@@ -22,6 +22,11 @@ func withMasterKeyForVerify(cfg *config.Config, fn func(*keys.Ed25519Signer) err
 	// Load master key (returns *keys.Ed25519Signer)
 	masterKey, err := keystore.LoadMasterKeySecure()
 	if err != nil {
+		// SECURITY: Validate home path before using it for file-based key loading
+		if err := cfg.ValidateHomePathRuntime(); err != nil {
+			return fmt.Errorf("invalid home directory: %w", err)
+		}
+
 		// Fallback to file-based
 		masterKey, err = keystore.LoadMasterKeyInsecure(cfg.Home)
 		if err != nil {

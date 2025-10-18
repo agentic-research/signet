@@ -118,6 +118,7 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 
 // createBindingMessage creates the domain-separated message to sign
 func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) ([]byte, error) {
+	// Convert to ed25519.PublicKey
 	pubBytes, ok := ephemeralPub.(ed25519.PublicKey)
 	if !ok {
 		return nil, signetErrors.NewKeyError("binding", "ephemeral", signetErrors.ErrInvalidKeyType)
@@ -162,9 +163,8 @@ func (v *Verifier) VerifyBinding(ctx context.Context, proof *EphemeralProof, mas
 		return signetErrors.ErrExpiredProof
 	}
 
-	// Convert ephemeral public key to bytes for verification
-	_, ok := proof.EphemeralPublicKey.(ed25519.PublicKey)
-	if !ok {
+	// Validate that the ephemeral public key is the correct type
+	if _, ok := proof.EphemeralPublicKey.(ed25519.PublicKey); !ok {
 		return signetErrors.NewKeyError("verify", "ephemeral public key", signetErrors.ErrInvalidKeyType)
 	}
 
@@ -197,6 +197,7 @@ func (v *Verifier) VerifyRequestSignature(ctx context.Context, proof *EphemeralP
 	default:
 	}
 
+	// Verify the request signature with the ephemeral public key
 	ephemeralPub, ok := proof.EphemeralPublicKey.(ed25519.PublicKey)
 	if !ok {
 		return signetErrors.NewKeyError("verify", "ephemeral public key", signetErrors.ErrInvalidKeyType)
