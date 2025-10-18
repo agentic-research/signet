@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -150,54 +149,8 @@ func TestSign(t *testing.T) {
 	}
 }
 
-func TestTrySignCanonical(t *testing.T) {
-	// Generate a test key pair
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
-
-	message := []byte("test message for canonical signature")
-
-	// Try to sign with canonical function
-	// This may fail ~50% of the time due to non-canonical signatures
-	signature, err := TrySignCanonical(privateKey, message)
-
-	if err != nil {
-		// Expected failure when signature is non-canonical
-		if !strings.Contains(err.Error(), "non-canonical") {
-			t.Fatalf("Unexpected error from TrySignCanonical: %v", err)
-		}
-		t.Log("TrySignCanonical correctly rejected non-canonical signature")
-		return
-	}
-
-	// If we got a signature, it must be canonical
-	if !IsCanonicalSignature(signature) {
-		t.Error("TrySignCanonical() returned non-canonical signature")
-	}
-
-	// And it must be valid
-	if !ed25519.Verify(publicKey, message, signature) {
-		t.Error("TrySignCanonical() produced invalid signature")
-	}
-
-	// And it must pass VerifyCanonical
-	if !VerifyCanonical(publicKey, message, signature) {
-		t.Error("TrySignCanonical() signature failed VerifyCanonical")
-	}
-
-	// Test with invalid key size
-	invalidKey := []byte("not a valid key")
-	_, err = TrySignCanonical(invalidKey, message)
-	if err == nil {
-		t.Error("TrySignCanonical() should reject invalid key size")
-	}
-}
-
 func TestSignatureDeterminism(t *testing.T) {
-	// Test that Ed25519 signatures are deterministic and our functions
-	// behave consistently with this property
+	// Test that Ed25519 signatures are deterministic
 
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -206,7 +159,7 @@ func TestSignatureDeterminism(t *testing.T) {
 
 	message := []byte("determinism test message")
 
-	// Test 1: Sign() is deterministic
+	// Sign() should always produce the same signature for the same (key, message) pair
 	sig1, err1 := Sign(privateKey, message)
 	if err1 != nil {
 		t.Fatalf("Sign() failed: %v", err1)
@@ -221,64 +174,27 @@ func TestSignatureDeterminism(t *testing.T) {
 		t.Error("Sign() is not deterministic - produced different signatures for same input")
 	}
 
-	// Test 2: TrySignCanonical() is deterministic
-	trySig1, tryErr1 := TrySignCanonical(privateKey, message)
-	trySig2, tryErr2 := TrySignCanonical(privateKey, message)
-
-	// Both calls should have the same result (both succeed or both fail)
-	if (tryErr1 == nil) != (tryErr2 == nil) {
-		t.Error("TrySignCanonical() is not deterministic - different error results")
-	}
-
-	if tryErr1 == nil && tryErr2 == nil {
-		if !bytes.Equal(trySig1, trySig2) {
-			t.Error("TrySignCanonical() is not deterministic - produced different signatures")
-		}
-	}
-
-	// Test 3: Sign() and TrySignCanonical() consistency
-	// If TrySignCanonical succeeds, it should produce the same signature as Sign()
-	standardSig, _ := Sign(privateKey, message)
-	canonicalSig, canonicalErr := TrySignCanonical(privateKey, message)
-
-	if canonicalErr == nil {
-		// TrySignCanonical succeeded, should match Sign()
-		if !bytes.Equal(standardSig, canonicalSig) {
-			t.Error("When TrySignCanonical succeeds, it should produce the same signature as Sign()")
-		}
-
-		// And the signature should be canonical
-		if !IsCanonicalSignature(standardSig) {
-			t.Error("When TrySignCanonical succeeds, Sign() should also produce a canonical signature")
-		}
-	} else {
-		// TrySignCanonical failed, Sign() should produce non-canonical signature
-		if IsCanonicalSignature(standardSig) {
-			t.Error("When TrySignCanonical fails, Sign() should produce a non-canonical signature")
-		}
-	}
-
-	// Test 4: Multiple attempts don't change the outcome
+	// Test multiple times to ensure consistency
 	for i := 0; i < 10; i++ {
-		retrySignature, retryErr := TrySignCanonical(privateKey, message)
-
-		if (retryErr == nil) != (canonicalErr == nil) {
-			t.Errorf("Iteration %d: TrySignCanonical() gave different error result", i)
+		sig, err := Sign(privateKey, message)
+		if err != nil {
+			t.Fatalf("Iteration %d: Sign() failed: %v", i, err)
 		}
-
-		if retryErr == nil && canonicalErr == nil {
-			if !bytes.Equal(retrySignature, canonicalSig) {
-				t.Errorf("Iteration %d: TrySignCanonical() gave different signature", i)
-			}
+		if !bytes.Equal(sig, sig1) {
+			t.Errorf("Iteration %d: Sign() produced different signature", i)
 		}
 	}
 }
 
-func TestSignVsTrySignCanonicalConsistency(t *testing.T) {
-	// Test consistency between Sign() and TrySignCanonical() across multiple key pairs
-	// This ensures our functions correctly reflect Ed25519's deterministic nature
+func TestSignCanonicalityDistribution(t *testing.T) {
+	// Test the distribution of canonical vs non-canonical signatures
+	// This verifies that roughly 50% of signatures are canonical
 
-	for i := 0; i < 20; i++ {
+	canonical := 0
+	nonCanonical := 0
+	iterations := 100
+
+	for i := 0; i < iterations; i++ {
 		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatalf("Failed to generate key pair: %v", err)
@@ -286,39 +202,32 @@ func TestSignVsTrySignCanonicalConsistency(t *testing.T) {
 
 		message := []byte(fmt.Sprintf("test message %d", i))
 
-		// Get signatures from both functions
-		standardSig, standardErr := Sign(privateKey, message)
-		canonicalSig, canonicalErr := TrySignCanonical(privateKey, message)
-
-		if standardErr != nil {
-			t.Errorf("Test %d: Sign() should never fail: %v", i, standardErr)
+		signature, err := Sign(privateKey, message)
+		if err != nil {
+			t.Errorf("Test %d: Sign() failed: %v", i, err)
 			continue
 		}
 
-		isCanonical := IsCanonicalSignature(standardSig)
-
-		if isCanonical {
-			// If Sign() produced a canonical signature, TrySignCanonical should succeed
-			if canonicalErr != nil {
-				t.Errorf("Test %d: TrySignCanonical should succeed when Sign() produces canonical signature", i)
-			} else if !bytes.Equal(standardSig, canonicalSig) {
-				t.Errorf("Test %d: Sign() and TrySignCanonical() should produce identical canonical signatures", i)
-			}
-		} else {
-			// If Sign() produced a non-canonical signature, TrySignCanonical should fail
-			if canonicalErr == nil {
-				t.Errorf("Test %d: TrySignCanonical should fail when Sign() produces non-canonical signature", i)
-			}
-		}
-
-		// Verify both signatures (if they exist) are valid
-		if !ed25519.Verify(publicKey, message, standardSig) {
+		// Verify signature is valid
+		if !ed25519.Verify(publicKey, message, signature) {
 			t.Errorf("Test %d: Sign() produced invalid signature", i)
 		}
 
-		if canonicalErr == nil && !ed25519.Verify(publicKey, message, canonicalSig) {
-			t.Errorf("Test %d: TrySignCanonical() produced invalid signature", i)
+		if IsCanonicalSignature(signature) {
+			canonical++
+		} else {
+			nonCanonical++
 		}
+	}
+
+	t.Logf("Canonical signatures: %d/%d (%.1f%%)", canonical, iterations, float64(canonical)*100/float64(iterations))
+	t.Logf("Non-canonical signatures: %d/%d (%.1f%%)", nonCanonical, iterations, float64(nonCanonical)*100/float64(iterations))
+
+	// We expect roughly 50% canonical, but allow for statistical variation
+	// Between 30% and 70% is reasonable for 100 iterations
+	canonicalPct := float64(canonical) * 100 / float64(iterations)
+	if canonicalPct < 30 || canonicalPct > 70 {
+		t.Errorf("Unexpected canonical signature distribution: %.1f%% (expected ~50%%)", canonicalPct)
 	}
 }
 

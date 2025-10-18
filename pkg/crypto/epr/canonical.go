@@ -100,54 +100,15 @@ func VerifyCanonical(publicKey ed25519.PublicKey, message, signature []byte) boo
 // Sign creates a standard Ed25519 signature.
 // Note: This produces signatures with S < L (valid) but not necessarily S < L/2
 // (strict canonical form). About 50% of signatures will NOT pass VerifyCanonical.
-// Use TrySignCanonical if you need to attempt creating a canonical signature.
+//
+// For applications requiring strict canonicality, enforce it at verification time
+// using VerifyCanonical() rather than attempting to generate canonical signatures.
 func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid private key size")
 	}
 
 	signature := ed25519.Sign(privateKey, message)
-	return signature, nil
-}
-
-// TrySignCanonical attempts to create a strictly canonical Ed25519 signature.
-//
-// IMPORTANT: This function has a ~50% probability of success due to Ed25519's
-// deterministic nature. Ed25519 always produces the same signature for a given
-// (key, message) pair, and that signature either is or isn't canonical.
-//
-// Returns:
-// - The signature if it happens to be canonical (~50% probability)
-// - An error if the deterministic signature is non-canonical (~50% probability)
-//
-// The "Try" prefix makes explicit that this operation may fail and cannot be
-// retried with different results. For the same (key, message) pair, this
-// function will always either succeed or fail - it will never produce different
-// results on retry.
-//
-// MIGRATION NOTE: This function was renamed from SignCanonical() to clarify its
-// probabilistic nature. For most use cases, use Sign() instead and rely on
-// VerifyCanonical() to enforce canonicality at verification time.
-//
-// For production applications requiring guaranteed canonical signatures, consider:
-// 1. Using Sign() and accepting non-strictly-canonical signatures
-// 2. Using a low-level Ed25519 library that supports S negation
-// 3. Implementing a retry mechanism with message nonce modification
-//
-// NOTE: This function is primarily retained for testing and educational purposes
-// to demonstrate Ed25519's signature canonicalization properties.
-func TrySignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
-	if len(privateKey) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("invalid private key size")
-	}
-
-	signature := ed25519.Sign(privateKey, message)
-
-	if !IsCanonicalSignature(signature) {
-		return nil, fmt.Errorf("deterministic signature is non-canonical (S >= L/2); " +
-			"Ed25519 will always produce this same non-canonical signature for this (key, message) pair")
-	}
-
 	return signature, nil
 }
 
