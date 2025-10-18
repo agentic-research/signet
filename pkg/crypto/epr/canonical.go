@@ -92,7 +92,7 @@ func VerifyCanonical(publicKey ed25519.PublicKey, message, signature []byte) boo
 // Sign creates a standard Ed25519 signature.
 // Note: This produces signatures with S < L (valid) but not necessarily S < L/2
 // (strict canonical form). About 50% of signatures will NOT pass VerifyCanonical.
-// Use SignCanonical if you need signatures that always pass VerifyCanonical.
+// Use TrySignCanonical if you need to attempt creating a canonical signature.
 func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid private key size")
@@ -102,18 +102,25 @@ func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	return signature, nil
 }
 
-// SignCanonical attempts to create a strictly canonical Ed25519 signature.
+// TrySignCanonical attempts to create a strictly canonical Ed25519 signature.
 //
-// IMPORTANT: Due to Ed25519's deterministic nature and Go's standard library
-// limitations, this function cannot guarantee a canonical signature. It will:
-// - Return the signature if it's canonical (~50% probability)
-// - Return an error if the signature is non-canonical
+// IMPORTANT: This function has a ~50% probability of success due to Ed25519's
+// deterministic nature. Ed25519 always produces the same signature for a given
+// (key, message) pair, and that signature either is or isn't canonical.
 //
-// For applications requiring guaranteed canonical signatures, you must either:
-// 1. Use a low-level Ed25519 library that supports S negation
-// 2. Accept that some signing operations will fail and handle accordingly
-// 3. Use Sign() and document that signatures may not be strictly canonical
-func SignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
+// Returns:
+// - The signature if it happens to be canonical (~50% probability)
+// - An error if the deterministic signature is non-canonical (~50% probability)
+//
+// The "Try" prefix makes explicit that this operation may fail and cannot be
+// retried with different results. For the same (key, message) pair, this
+// function will always either succeed or fail - it will never produce different
+// results on retry.
+//
+// For most applications, use Sign() and accept non-strictly-canonical signatures,
+// or use a low-level Ed25519 library that supports S negation for guaranteed
+// canonical signatures.
+func TrySignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid private key size")
 	}
@@ -121,8 +128,8 @@ func SignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error
 	signature := ed25519.Sign(privateKey, message)
 
 	if !IsCanonicalSignature(signature) {
-		return nil, fmt.Errorf("generated signature is non-canonical (S >= L/2); " +
-			"cannot make canonical without low-level field arithmetic")
+		return nil, fmt.Errorf("deterministic signature is non-canonical (S >= L/2); " +
+			"Ed25519 will always produce this same non-canonical signature for this (key, message) pair")
 	}
 
 	return signature, nil

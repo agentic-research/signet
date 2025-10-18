@@ -148,7 +148,7 @@ func TestSign(t *testing.T) {
 	}
 }
 
-func TestSignCanonical(t *testing.T) {
+func TestTrySignCanonical(t *testing.T) {
 	// Generate a test key pair
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -159,37 +159,37 @@ func TestSignCanonical(t *testing.T) {
 
 	// Try to sign with canonical function
 	// This may fail ~50% of the time due to non-canonical signatures
-	signature, err := SignCanonical(privateKey, message)
+	signature, err := TrySignCanonical(privateKey, message)
 
 	if err != nil {
 		// Expected failure when signature is non-canonical
 		if !strings.Contains(err.Error(), "non-canonical") {
-			t.Fatalf("Unexpected error from SignCanonical: %v", err)
+			t.Fatalf("Unexpected error from TrySignCanonical: %v", err)
 		}
-		t.Log("SignCanonical correctly rejected non-canonical signature")
+		t.Log("TrySignCanonical correctly rejected non-canonical signature")
 		return
 	}
 
 	// If we got a signature, it must be canonical
 	if !IsCanonicalSignature(signature) {
-		t.Error("SignCanonical() returned non-canonical signature")
+		t.Error("TrySignCanonical() returned non-canonical signature")
 	}
 
 	// And it must be valid
 	if !ed25519.Verify(publicKey, message, signature) {
-		t.Error("SignCanonical() produced invalid signature")
+		t.Error("TrySignCanonical() produced invalid signature")
 	}
 
 	// And it must pass VerifyCanonical
 	if !VerifyCanonical(publicKey, message, signature) {
-		t.Error("SignCanonical() signature failed VerifyCanonical")
+		t.Error("TrySignCanonical() signature failed VerifyCanonical")
 	}
 
 	// Test with invalid key size
 	invalidKey := []byte("not a valid key")
-	_, err = SignCanonical(invalidKey, message)
+	_, err = TrySignCanonical(invalidKey, message)
 	if err == nil {
-		t.Error("SignCanonical() should reject invalid key size")
+		t.Error("TrySignCanonical() should reject invalid key size")
 	}
 }
 
@@ -296,13 +296,13 @@ func BenchmarkIsCanonicalSignature(b *testing.B) {
 	}
 }
 
-func BenchmarkSignCanonical(b *testing.B) {
+func BenchmarkTrySignCanonical(b *testing.B) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	message := []byte("benchmark message")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		SignCanonical(privateKey, message)
+		TrySignCanonical(privateKey, message)
 	}
 }
 
