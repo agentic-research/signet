@@ -89,11 +89,30 @@ func VerifyCanonical(publicKey ed25519.PublicKey, message, signature []byte) boo
 	return ed25519.Verify(publicKey, message, signature)
 }
 
-// SignCanonical creates an Ed25519 signature.
-// Note: Go's ed25519.Sign() produces signatures with S < L (valid) but not
-// necessarily S < L/2 (strict canonical form). This function returns the
-// signature as-is since Go's implementation is cryptographically secure,
-// even if not in the strictest canonical form.
+// Sign creates a standard Ed25519 signature.
+// Note: This produces signatures with S < L (valid) but not necessarily S < L/2
+// (strict canonical form). About 50% of signatures will NOT pass VerifyCanonical.
+// Use SignCanonical if you need signatures that always pass VerifyCanonical.
+func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("invalid private key size")
+	}
+
+	signature := ed25519.Sign(privateKey, message)
+	return signature, nil
+}
+
+// SignCanonical attempts to create a strictly canonical Ed25519 signature.
+//
+// IMPORTANT: Due to Ed25519's deterministic nature and Go's standard library
+// limitations, this function cannot guarantee a canonical signature. It will:
+// - Return the signature if it's canonical (~50% probability)
+// - Return an error if the signature is non-canonical
+//
+// For applications requiring guaranteed canonical signatures, you must either:
+// 1. Use a low-level Ed25519 library that supports S negation
+// 2. Accept that some signing operations will fail and handle accordingly
+// 3. Use Sign() and document that signatures may not be strictly canonical
 func SignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid private key size")
@@ -101,10 +120,10 @@ func SignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error
 
 	signature := ed25519.Sign(privateKey, message)
 
-	// Note: We don't enforce S < L/2 here because:
-	// 1. Go's ed25519 implementation is secure as-is
-	// 2. Enforcing strict canonicalization would require complex field arithmetic
-	// 3. For verification, we check and accept both forms
+	if !IsCanonicalSignature(signature) {
+		return nil, fmt.Errorf("generated signature is non-canonical (S >= L/2); " +
+			"cannot make canonical without low-level field arithmetic")
+	}
 
 	return signature, nil
 }

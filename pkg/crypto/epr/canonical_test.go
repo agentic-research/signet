@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +117,37 @@ func TestMakeCanonical(t *testing.T) {
 	}
 }
 
+func TestSign(t *testing.T) {
+	// Generate a test key pair
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key pair: %v", err)
+	}
+
+	message := []byte("test message for standard signature")
+
+	// Sign with our standard function
+	signature, err := Sign(privateKey, message)
+	if err != nil {
+		t.Fatalf("Sign() failed: %v", err)
+	}
+
+	// Verify signature is valid
+	if !ed25519.Verify(publicKey, message, signature) {
+		t.Error("Sign() produced invalid signature")
+	}
+
+	// Note: Standard signatures may or may not be canonical
+	t.Logf("Signature is canonical: %v", IsCanonicalSignature(signature))
+
+	// Test with invalid key size
+	invalidKey := []byte("not a valid key")
+	_, err = Sign(invalidKey, message)
+	if err == nil {
+		t.Error("Sign() should reject invalid key size")
+	}
+}
+
 func TestSignCanonical(t *testing.T) {
 	// Generate a test key pair
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -125,19 +157,32 @@ func TestSignCanonical(t *testing.T) {
 
 	message := []byte("test message for canonical signature")
 
-	// Sign with our canonical function
+	// Try to sign with canonical function
+	// This may fail ~50% of the time due to non-canonical signatures
 	signature, err := SignCanonical(privateKey, message)
+
 	if err != nil {
-		t.Fatalf("SignCanonical() failed: %v", err)
+		// Expected failure when signature is non-canonical
+		if !strings.Contains(err.Error(), "non-canonical") {
+			t.Fatalf("Unexpected error from SignCanonical: %v", err)
+		}
+		t.Log("SignCanonical correctly rejected non-canonical signature")
+		return
 	}
 
-	// Note: Go's ed25519.Sign() may not produce strict canonical signatures (S < L/2)
-	// but they are still cryptographically valid (S < L)
-	// We don't enforce strict canonicalization in SignCanonical
+	// If we got a signature, it must be canonical
+	if !IsCanonicalSignature(signature) {
+		t.Error("SignCanonical() returned non-canonical signature")
+	}
 
-	// Verify signature is valid
+	// And it must be valid
 	if !ed25519.Verify(publicKey, message, signature) {
 		t.Error("SignCanonical() produced invalid signature")
+	}
+
+	// And it must pass VerifyCanonical
+	if !VerifyCanonical(publicKey, message, signature) {
+		t.Error("SignCanonical() signature failed VerifyCanonical")
 	}
 
 	// Test with invalid key size
