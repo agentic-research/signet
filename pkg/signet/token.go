@@ -59,15 +59,16 @@ func NewToken(issuerID string, confirmationID []byte, ephemeralKeyID []byte, non
 		return nil, fmt.Errorf("new token: nonce must be %d bytes when provided, got %d", nonceSize, len(nonce))
 	}
 
-	// Derive capabilityID using HKDF-like key derivation
+	// Derive capabilityID using SHA-256 based key derivation
 	// This ensures the capabilityID is cryptographically bound to both
-	// the ephemeralKeyID and a domain separation context
+	// the ephemeralKeyID and confirmationID with domain separation
 	h := sha256.New()
 	h.Write([]byte("signet-capability-v1")) // Domain separation
 	h.Write(ephemeralKeyID)
 	h.Write(confirmationID)
 	capabilityHash := h.Sum(nil)
-	capabilityID := capabilityHash[:capabilityIDSize]
+	// Use full slice expression to limit capacity and prevent accidental extension
+	capabilityID := capabilityHash[:capabilityIDSize:capabilityIDSize]
 
 	subjectPPID := cloneBytes(ephemeralKeyID)
 

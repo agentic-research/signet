@@ -343,8 +343,9 @@ func TestLocalCA_ECDSA_Support(t *testing.T) {
 		}
 
 		// Verify Subject Key Identifier was set correctly
-		if cert.SubjectKeyId == nil || len(cert.SubjectKeyId) != 32 {
-			t.Errorf("SubjectKeyId should be 32 bytes (SHA-256), got %d", len(cert.SubjectKeyId))
+		// RFC 5280 expects 20-byte SKI, we use SHA-256 truncated to 20 bytes for better security
+		if cert.SubjectKeyId == nil || len(cert.SubjectKeyId) != 20 {
+			t.Errorf("SubjectKeyId should be 20 bytes (SHA-256 truncated for RFC 5280), got %d", len(cert.SubjectKeyId))
 		}
 
 		// Verify Authority Key Identifier points to master key

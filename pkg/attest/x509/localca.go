@@ -318,7 +318,8 @@ func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePubl
 }
 
 // generateSubjectKeyID generates a Subject Key Identifier for a public key
-// Uses SHA-256 hash as per RFC 5280 (method 1)
+// Uses SHA-256 for better security than SHA-1, but truncates to 20 bytes
+// for RFC 5280 method 1 compatibility (which expects 20-byte SKI)
 func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	var pubBytes []byte
 
@@ -339,5 +340,7 @@ func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	}
 
 	h := sha256.Sum256(pubBytes)
-	return h[:]
+	// Truncate to 20 bytes for RFC 5280 compatibility
+	// Still provides 160 bits of security while using stronger hash
+	return h[:20]
 }
