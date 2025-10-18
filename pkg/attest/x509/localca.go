@@ -5,7 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -318,8 +318,12 @@ func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePubl
 }
 
 // generateSubjectKeyID generates a Subject Key Identifier for a public key
-// Uses SHA-256 for better security than SHA-1, but truncates to 20 bytes
-// for RFC 5280 method 1 compatibility (which expects 20-byte SKI)
+// using RFC 5280 method (1): SHA-1 hash of the public key.
+// While SHA-1 has known weaknesses for collision resistance, it remains
+// acceptable for SKI generation as:
+// 1. SKI is not security-critical (it's just an identifier)
+// 2. RFC 5280 specifically requires SHA-1 for method (1)
+// 3. The attacker doesn't control both inputs (no collision attack)
 func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 	var pubBytes []byte
 
@@ -339,8 +343,8 @@ func generateSubjectKeyID(publicKey crypto.PublicKey) []byte {
 		return nil
 	}
 
-	h := sha256.Sum256(pubBytes)
-	// Truncate to 20 bytes for RFC 5280 compatibility
-	// Still provides 160 bits of security while using stronger hash
-	return h[:20]
+	// Use SHA-1 as specified in RFC 5280 Section 4.2.1.2 method (1)
+	h := sha1.Sum(pubBytes)
+	// SHA-1 produces exactly 20 bytes, no truncation needed
+	return h[:]
 }

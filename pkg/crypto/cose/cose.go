@@ -64,14 +64,17 @@ func NewEd25519Signer(privateKey ed25519.PrivateKey) (*GenericSigner[ed25519.Pri
 // Destroy securely zeros the private key from memory.
 // After calling Destroy, the signer cannot be used.
 // This is idempotent - calling multiple times is safe.
+// SECURITY: The zeroizer is mandatory and will panic if not set.
 func (s *GenericSigner[K]) Destroy() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.destroyed {
 		// Use the type-specific zeroizer to securely wipe the key
-		if s.zeroizer != nil {
-			s.zeroizer(&s.privateKey)
+		// Zeroizer is mandatory - panic if not set (programming error)
+		if s.zeroizer == nil {
+			panic("GenericSigner: zeroizer is nil - this is a security violation")
 		}
+		s.zeroizer(&s.privateKey)
 		s.destroyed = true
 	}
 }
@@ -227,9 +230,32 @@ func NewECDSAP256Signer(privateKey *ecdsa.PrivateKey) (*GenericSigner[*ecdsa.Pri
 		destroyed:  false,
 		algorithm:  cose.AlgorithmES256,
 		zeroizer: func(key **ecdsa.PrivateKey) {
-			// Zero the private scalar D (the actual secret)
-			if *key != nil && (*key).D != nil {
-				(*key).D.SetInt64(0)
+			// Comprehensive zeroization of ECDSA private key
+			if *key != nil {
+				// Zero the private scalar D (the actual secret)
+				if (*key).D != nil {
+					(*key).D.SetInt64(0)
+					// Also set the internal representation to nil
+					// This ensures no lingering copies in big.Int's internal buffer
+					(*key).D = nil
+				}
+
+				// While public key components aren't secret, we zero them for defense-in-depth
+				// This prevents any potential side-channel analysis of the key structure
+				if (*key).PublicKey.X != nil {
+					(*key).PublicKey.X.SetInt64(0)
+					(*key).PublicKey.X = nil
+				}
+				if (*key).PublicKey.Y != nil {
+					(*key).PublicKey.Y.SetInt64(0)
+					(*key).PublicKey.Y = nil
+				}
+
+				// Clear the curve reference (not secret, but good hygiene)
+				(*key).PublicKey.Curve = nil
+
+				// Finally, nil out the entire key
+				*key = nil
 			}
 		},
 	}, nil

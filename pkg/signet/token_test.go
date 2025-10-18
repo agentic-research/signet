@@ -31,10 +31,14 @@ func TestCapabilityIDGeneration(t *testing.T) {
 		t.Errorf("CapabilityID size mismatch: got %d, want %d", len(token.CapabilityID), capabilityIDSize)
 	}
 
-	// Verify capabilityID is derived correctly (SHA-256 with domain separation)
+	// Verify capabilityID is derived correctly (SHA-256 with domain separation and length prefixing)
 	h := sha256.New()
 	h.Write([]byte("signet-capability-v1"))
+	// Length prefix for ephemeralKeyID (32 bytes as big-endian uint32)
+	h.Write([]byte{0, 0, 0, 32})
 	h.Write(ephemeralKeyID)
+	// Length prefix for confirmationID (32 bytes as big-endian uint32)
+	h.Write([]byte{0, 0, 0, 32})
 	h.Write(confirmationID)
 	expectedHash := h.Sum(nil)
 	expectedCapabilityID := expectedHash[:capabilityIDSize:capabilityIDSize]
@@ -157,4 +161,65 @@ func TestCapabilityIDCapacityLimit(t *testing.T) {
 	if capabilityIDCap != capabilityIDSize {
 		t.Errorf("CapabilityID capacity not limited: cap=%d, want=%d", capabilityIDCap, capabilityIDSize)
 	}
+}
+
+// TestCapabilityIDLengthPrefixing verifies that CapabilityID generation
+// properly distinguishes between inputs using length prefixing to prevent
+// theoretical hash collisions. While our inputs are fixed-size (32 bytes each),
+// proper cryptographic practice requires explicit domain separation.
+func TestCapabilityIDLengthPrefixing(t *testing.T) {
+	// Even though both ephemeralKeyID and confirmationID are fixed at 32 bytes,
+	// without length prefixing there's no cryptographic proof that the hash
+	// function "knows" where one input ends and another begins.
+
+	// This is a security best practice from cryptographic literature:
+	// Always use unambiguous encoding when hashing multiple values.
+
+	issuerID := "test-issuer"
+
+	// Test that the implementation uses proper domain separation
+	ephemeralKeyID := make([]byte, 32)
+	confirmationID := make([]byte, 32)
+	rand.Read(ephemeralKeyID)
+	rand.Read(confirmationID)
+
+	// Create token with current implementation
+	token, err := NewToken(issuerID, confirmationID, ephemeralKeyID, nil, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create token: %v", err)
+	}
+
+	// Verify implementation uses length prefixing (the secure approach)
+	hExpected := sha256.New()
+	hExpected.Write([]byte("signet-capability-v1"))
+	// Write length of ephemeralKeyID as big-endian uint32
+	hExpected.Write([]byte{0, 0, 0, 32}) // 32 bytes
+	hExpected.Write(ephemeralKeyID)
+	// Write length of confirmationID as big-endian uint32
+	hExpected.Write([]byte{0, 0, 0, 32}) // 32 bytes
+	hExpected.Write(confirmationID)
+	expectedHash := hExpected.Sum(nil)[:capabilityIDSize]
+
+	if !bytes.Equal(token.CapabilityID, expectedHash) {
+		t.Errorf("Implementation doesn't use proper length prefixing")
+		t.Errorf("Expected (with length prefix): %x", expectedHash)
+		t.Errorf("Got: %x", token.CapabilityID)
+	}
+
+	// Verify it's different from the vulnerable version (without length prefixing)
+	hVulnerable := sha256.New()
+	hVulnerable.Write([]byte("signet-capability-v1"))
+	hVulnerable.Write(ephemeralKeyID)
+	hVulnerable.Write(confirmationID)
+	vulnerableHash := hVulnerable.Sum(nil)[:capabilityIDSize]
+
+	// These should be different (proving we're using length prefixing)
+	if bytes.Equal(vulnerableHash, expectedHash) {
+		t.Error("Length prefixing didn't change the hash - this shouldn't happen with random data")
+	}
+
+	// Log for verification
+	t.Logf("Vulnerable (no length prefix) hash: %x", vulnerableHash)
+	t.Logf("Secure (with length prefix) hash: %x", expectedHash)
+	t.Logf("Token CapabilityID: %x", token.CapabilityID)
 }

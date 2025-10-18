@@ -92,6 +92,89 @@ func TestSignNilPayload(t *testing.T) {
 	}
 }
 
+// TestMandatoryZeroizer verifies that zeroizers are always present and functional
+func TestMandatoryZeroizer(t *testing.T) {
+	t.Run("Ed25519 zeroizer", func(t *testing.T) {
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("failed to generate key: %v", err)
+		}
+
+		// Create a copy to verify zeroization
+		privCopy := make(ed25519.PrivateKey, len(priv))
+		copy(privCopy, priv)
+
+		signer, err := NewEd25519Signer(priv)
+		if err != nil {
+			t.Fatalf("failed to create signer: %v", err)
+		}
+
+		// Verify zeroizer is set (internal check)
+		if signer.zeroizer == nil {
+			t.Error("Ed25519 signer should have a zeroizer function")
+		}
+
+		// Destroy the signer
+		signer.Destroy()
+
+		// Verify the key was zeroized
+		allZero := true
+		for _, b := range priv {
+			if b != 0 {
+				allZero = false
+				break
+			}
+		}
+		if !allZero {
+			t.Error("Ed25519 private key was not properly zeroized after Destroy()")
+		}
+	})
+
+	t.Run("ECDSA P-256 zeroizer", func(t *testing.T) {
+		privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatalf("failed to generate key: %v", err)
+		}
+
+		// Store original D value for comparison
+		originalD := privKey.D.Bytes()
+
+		signer, err := NewECDSAP256Signer(privKey)
+		if err != nil {
+			t.Fatalf("failed to create signer: %v", err)
+		}
+
+		// Verify zeroizer is set
+		if signer.zeroizer == nil {
+			t.Error("ECDSA signer should have a zeroizer function")
+		}
+
+		// Destroy the signer
+		signer.Destroy()
+
+		// Verify the private key D was zeroized (should be nil now)
+		if privKey.D != nil {
+			t.Error("ECDSA private key D should be nil after Destroy()")
+		}
+
+		// Verify the public key components were also zeroized
+		if privKey.PublicKey.X != nil {
+			t.Error("ECDSA public key X should be nil after Destroy()")
+		}
+		if privKey.PublicKey.Y != nil {
+			t.Error("ECDSA public key Y should be nil after Destroy()")
+		}
+		if privKey.PublicKey.Curve != nil {
+			t.Error("ECDSA curve should be nil after Destroy()")
+		}
+
+		// Verify we had a non-empty key before destruction
+		if len(originalD) == 0 {
+			t.Error("Original ECDSA private key D was empty")
+		}
+	})
+}
+
 func TestVerifyInvalidSignature(t *testing.T) {
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
