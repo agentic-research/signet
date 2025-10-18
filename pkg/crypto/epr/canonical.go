@@ -1,6 +1,14 @@
 // Package epr provides Ephemeral Proof Routines for Signet authentication.
 // This file implements Ed25519 signature canonicalization to prevent
 // signature malleability attacks.
+//
+// NOTE: This module is primarily for testing and verification purposes.
+// Production code should use pkg/crypto/keys/signer.go which provides
+// proper lifecycle management with secure memory zeroization.
+//
+// The functions in this file are designed to demonstrate and verify
+// Ed25519's signature canonicalization properties, particularly for
+// understanding signature malleability prevention.
 package epr
 
 import (
@@ -89,23 +97,18 @@ func VerifyCanonical(publicKey ed25519.PublicKey, message, signature []byte) boo
 	return ed25519.Verify(publicKey, message, signature)
 }
 
-// SignCanonical creates an Ed25519 signature.
-// Note: Go's ed25519.Sign() produces signatures with S < L (valid) but not
-// necessarily S < L/2 (strict canonical form). This function returns the
-// signature as-is since Go's implementation is cryptographically secure,
-// even if not in the strictest canonical form.
-func SignCanonical(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
+// Sign creates a standard Ed25519 signature.
+// Note: This produces signatures with S < L (valid) but not necessarily S < L/2
+// (strict canonical form). About 50% of signatures will NOT pass VerifyCanonical.
+//
+// For applications requiring strict canonicality, enforce it at verification time
+// using VerifyCanonical() rather than attempting to generate canonical signatures.
+func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid private key size")
 	}
 
 	signature := ed25519.Sign(privateKey, message)
-
-	// Note: We don't enforce S < L/2 here because:
-	// 1. Go's ed25519 implementation is secure as-is
-	// 2. Enforcing strict canonicalization would require complex field arithmetic
-	// 3. For verification, we check and accept both forms
-
 	return signature, nil
 }
 

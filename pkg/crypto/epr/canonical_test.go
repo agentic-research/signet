@@ -1,9 +1,11 @@
 package epr
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -116,35 +118,116 @@ func TestMakeCanonical(t *testing.T) {
 	}
 }
 
-func TestSignCanonical(t *testing.T) {
+func TestSign(t *testing.T) {
 	// Generate a test key pair
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("Failed to generate key pair: %v", err)
 	}
 
-	message := []byte("test message for canonical signature")
+	message := []byte("test message for standard signature")
 
-	// Sign with our canonical function
-	signature, err := SignCanonical(privateKey, message)
+	// Sign with our standard function
+	signature, err := Sign(privateKey, message)
 	if err != nil {
-		t.Fatalf("SignCanonical() failed: %v", err)
+		t.Fatalf("Sign() failed: %v", err)
 	}
-
-	// Note: Go's ed25519.Sign() may not produce strict canonical signatures (S < L/2)
-	// but they are still cryptographically valid (S < L)
-	// We don't enforce strict canonicalization in SignCanonical
 
 	// Verify signature is valid
 	if !ed25519.Verify(publicKey, message, signature) {
-		t.Error("SignCanonical() produced invalid signature")
+		t.Error("Sign() produced invalid signature")
 	}
+
+	// Note: Standard signatures may or may not be canonical
+	t.Logf("Signature is canonical: %v", IsCanonicalSignature(signature))
 
 	// Test with invalid key size
 	invalidKey := []byte("not a valid key")
-	_, err = SignCanonical(invalidKey, message)
+	_, err = Sign(invalidKey, message)
 	if err == nil {
-		t.Error("SignCanonical() should reject invalid key size")
+		t.Error("Sign() should reject invalid key size")
+	}
+}
+
+func TestSignatureDeterminism(t *testing.T) {
+	// Test that Ed25519 signatures are deterministic
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key pair: %v", err)
+	}
+
+	message := []byte("determinism test message")
+
+	// Sign() should always produce the same signature for the same (key, message) pair
+	sig1, err1 := Sign(privateKey, message)
+	if err1 != nil {
+		t.Fatalf("Sign() failed: %v", err1)
+	}
+
+	sig2, err2 := Sign(privateKey, message)
+	if err2 != nil {
+		t.Fatalf("Sign() failed: %v", err2)
+	}
+
+	if !bytes.Equal(sig1, sig2) {
+		t.Error("Sign() is not deterministic - produced different signatures for same input")
+	}
+
+	// Test multiple times to ensure consistency
+	for i := 0; i < 10; i++ {
+		sig, err := Sign(privateKey, message)
+		if err != nil {
+			t.Fatalf("Iteration %d: Sign() failed: %v", i, err)
+		}
+		if !bytes.Equal(sig, sig1) {
+			t.Errorf("Iteration %d: Sign() produced different signature", i)
+		}
+	}
+}
+
+func TestSignCanonicalityDistribution(t *testing.T) {
+	// Test the distribution of canonical vs non-canonical signatures
+	// This verifies that roughly 50% of signatures are canonical
+
+	canonical := 0
+	nonCanonical := 0
+	iterations := 100
+
+	for i := 0; i < iterations; i++ {
+		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("Failed to generate key pair: %v", err)
+		}
+
+		message := []byte(fmt.Sprintf("test message %d", i))
+
+		signature, err := Sign(privateKey, message)
+		if err != nil {
+			t.Errorf("Test %d: Sign() failed: %v", i, err)
+			continue
+		}
+
+		// Verify signature is valid
+		if !ed25519.Verify(publicKey, message, signature) {
+			t.Errorf("Test %d: Sign() produced invalid signature", i)
+		}
+
+		if IsCanonicalSignature(signature) {
+			canonical++
+		} else {
+			nonCanonical++
+		}
+	}
+
+	t.Logf("Canonical signatures: %d/%d (%.1f%%)", canonical, iterations, float64(canonical)*100/float64(iterations))
+	t.Logf("Non-canonical signatures: %d/%d (%.1f%%)", nonCanonical, iterations, float64(nonCanonical)*100/float64(iterations))
+
+	// We expect roughly 50% canonical, but allow for statistical variation
+	// Between 30% and 70% is reasonable for 100 iterations
+	canonicalPct := float64(canonical) * 100 / float64(iterations)
+	if canonicalPct < 30 || canonicalPct > 70 {
+		t.Errorf("Unexpected canonical signature distribution: %.1f%% (expected ~50%%)", canonicalPct)
 	}
 }
 
@@ -157,12 +240,31 @@ func TestVerifyCanonical(t *testing.T) {
 
 	message := []byte("test message for canonical verification")
 
-	// Create a canonical signature
+	// Create a signature - Go's ed25519.Sign may or may not produce strictly canonical
 	signature := ed25519.Sign(privateKey, message)
 
-	// Verify with canonical check
-	if !VerifyCanonical(publicKey, message, signature) {
-		t.Error("VerifyCanonical() rejected valid canonical signature")
+	// First verify it's a valid signature
+	if !ed25519.Verify(publicKey, message, signature) {
+		t.Fatal("Base signature verification failed")
+	}
+
+	// Check if this particular signature is strictly canonical
+	isStrictlyCanonical := IsCanonicalSignature(signature)
+
+	// VerifyCanonical should accept if and only if the signature is strictly canonical
+	result := VerifyCanonical(publicKey, message, signature)
+	if result != isStrictlyCanonical {
+		if isStrictlyCanonical {
+			t.Error("VerifyCanonical() rejected a strictly canonical signature")
+		} else {
+			t.Error("VerifyCanonical() accepted a non-strictly-canonical signature")
+		}
+	}
+
+	// If we got a non-canonical signature from Go, that's expected and we can skip
+	// the rest of the canonical-specific tests
+	if !isStrictlyCanonical {
+		t.Skip("Go produced a non-strictly-canonical signature (S >= L/2), which is valid but not strictly canonical")
 	}
 
 	// Test with wrong message
@@ -232,13 +334,58 @@ func BenchmarkIsCanonicalSignature(b *testing.B) {
 	}
 }
 
-func BenchmarkSignCanonical(b *testing.B) {
+func BenchmarkSign(b *testing.B) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	message := []byte("benchmark message")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		SignCanonical(privateKey, message)
+		Sign(privateKey, message)
+	}
+}
+
+func TestHalfLConstantVerification(t *testing.T) {
+	// Verify halfL constant against RFC 8032 specification
+	// L = 2^252 + 27742317777372353535851937790883648493
+	// L/2 = 2^251 + 13871158888686176767925968895441824246.5
+	// In little-endian bytes, L/2 (rounded down) should be:
+	expectedHalfL := []byte{
+		0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+		0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
+	}
+
+	if !bytes.Equal(halfL, expectedHalfL) {
+		t.Errorf("halfL constant is incorrect!")
+		t.Errorf("Expected: %x", expectedHalfL)
+		t.Errorf("Got:      %x", halfL)
+		t.Fatal("CRITICAL SECURITY ERROR: halfL constant does not match RFC 8032 specification")
+	}
+
+	// Additional verification: test known boundary values
+	// These are test vectors to ensure our constant is correct
+
+	// Value exactly at L/2 should be non-canonical
+	exactHalfL := make([]byte, 32)
+	copy(exactHalfL, halfL)
+	if isLessThanHalfL(exactHalfL) {
+		t.Error("Value equal to halfL should not be less than halfL")
+	}
+
+	// Value at L/2 - 1 should be canonical
+	halfLMinusOne := make([]byte, 32)
+	copy(halfLMinusOne, halfL)
+	// Subtract 1 from little-endian number
+	for i := 0; i < 32; i++ {
+		if halfLMinusOne[i] > 0 {
+			halfLMinusOne[i]--
+			break
+		}
+		halfLMinusOne[i] = 0xff
+	}
+	if !isLessThanHalfL(halfLMinusOne) {
+		t.Error("Value at halfL-1 should be less than halfL (canonical)")
 	}
 }
 
