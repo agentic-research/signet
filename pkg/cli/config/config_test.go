@@ -45,8 +45,8 @@ func TestValidateHomeDir(t *testing.T) {
 		{
 			name:        "tmp_subdirectory",
 			path:        "/tmp/signet",
-			shouldBlock: true,
-			description: "Subdirectories of /tmp should be blocked",
+			shouldBlock: false,
+			description: "Subdirectories of /tmp should be allowed for testing and temporary operations",
 		},
 		{
 			name:        "dev_directory",

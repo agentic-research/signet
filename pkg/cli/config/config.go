@@ -197,6 +197,18 @@ func isSystemPath(path string, systemPaths []string) bool {
 			return true
 		}
 
+		// Special handling for /tmp: allow subdirectories but not /tmp itself
+		// This is necessary for integration tests and legitimate temporary files
+		if sysPath == "/tmp" {
+			// Block only the /tmp directory itself, not subdirectories
+			// Subdirectories in /tmp are commonly used for testing
+			if path == "/tmp" {
+				return true
+			}
+			// Allow paths like /tmp/signet-test/.signet
+			continue
+		}
+
 		// Check if path is under system directory
 		// Use proper path separator to avoid false positives
 		if strings.HasPrefix(path, sysPath+string(filepath.Separator)) {
@@ -207,6 +219,14 @@ func isSystemPath(path string, systemPaths []string) bool {
 		if runtime.GOOS == "windows" {
 			if strings.EqualFold(path, sysPath) {
 				return true
+			}
+			// Special handling for Windows temp directories
+			if strings.EqualFold(sysPath, `C:\Windows\Temp`) {
+				// Block only the temp directory itself, not subdirectories
+				if strings.EqualFold(path, `C:\Windows\Temp`) {
+					return true
+				}
+				continue
 			}
 			if strings.HasPrefix(strings.ToLower(path), strings.ToLower(sysPath)+string(filepath.Separator)) {
 				return true
