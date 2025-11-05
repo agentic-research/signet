@@ -2,7 +2,6 @@
 
 **Status**: Draft
 **Date**: 2025-10-10
-**Authors**: The Signet Collective
 
 ---
 
