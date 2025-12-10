@@ -12,8 +12,7 @@ This document defines a method for edge proxies to verify proof-of-possession (P
 
 ## Status of This Memo
 
-This Internet-Draft is submitted in full conformance with the provisions of BCP 78 and BCP 79.
-
+This has not been formally submitted and exists solely in this repo.
 Internet-Drafts are working documents of the Internet Engineering Task Force (IETF). Note that other groups may also distribute working documents as Internet-Drafts. The list of current Internet-Drafts is at https://datatracker.ietf.org/drafts/current/.
 
 ## Copyright Notice
