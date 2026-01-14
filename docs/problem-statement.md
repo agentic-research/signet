@@ -34,9 +34,9 @@ Signet-Proof: v=1; sig=<signature only key holder can create>
 ### Additional Improvements
 
 - **Semantic capabilities**: `["read", "env:prod"]` instead of opaque permission strings
-- **Instant revocation**: Epoch-based snapshots, not waiting for token expiry
+- **Near-Real-Time Revocation**: Epoch-based CA rotation (~5 min window), not waiting for long-lived token expiry
 - **Smaller tokens**: CBOR encoding (~250 bytes vs ~1KB for JWTs)
-- **Privacy preserving**: Per-token pseudonyms prevent correlation
+- **Privacy preserving**: Per-token pseudonyms prevent correlation (Note: Current implementation uses pseudonyms; full Zero-Knowledge unlinkability is on the roadmap)
 
 ## Implementation Simplicity
 
@@ -46,7 +46,7 @@ Signet-Proof: v=1; sig=<signature only key holder can create>
 $ signet login
 
 # Automatic PoP on every request
-$ signet api get /users  # SDK handles signing
+$ signet api get /users  # SDK handles signing (Go SDK available; Python/JS in development)
 ```
 
 **For Services:**

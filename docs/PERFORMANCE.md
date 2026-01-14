@@ -100,7 +100,7 @@ go test -bench=. ./cmd/signet-commit -benchtime=10s -benchmem
 
 ### Functional Limitations
 - **Single CA only**: Cannot handle multi-root or certificate chains
-- **No native CMS verification**: Verification via OpenSSL (tested in scripts/testing/)
+- **Native Go Verification**: Implemented via go-cms (Pure Go). OpenSSL is used strictly as a test-suite oracle to validate cryptographic correctness.
 - **Memory-based**: Entire files loaded into memory (no streaming)
 - **COSE unused**: `pkg/crypto/cose` imported but not integrated
 
@@ -114,7 +114,7 @@ go test -bench=. ./cmd/signet-commit -benchtime=10s -benchmem
 Signet performs **significantly better** than claimed (~0.12ms vs 15ms claim). However, several architectural limitations exist for v0.0.1:
 - Single root CA only
 - No streaming for large files
-- Missing verification implementation
+- Verification integrated via go-cms
 - High allocation count
 
 These are acceptable for alpha release but need addressing for production use.

@@ -67,8 +67,9 @@ func (tr *TokenRegistry) cleanup() {
 }
 
 func (tr *TokenRegistry) Store(record *TokenRecord) string {
-	// Generate token ID from full ephemeral key hash (no truncation to prevent collisions)
-	tokenID := hex.EncodeToString(record.Token.EphemeralKeyID)
+	// FIX: Use JTI for the map key, because that is what the client sends in the proof header.
+	// The protectedHandler extracts tokenID from proof.JTI (line 245), so we must store by JTI.
+	tokenID := hex.EncodeToString(record.Token.JTI)
 	// sync.Map.Store is atomic and lock-free
 	tr.tokens.Store(tokenID, record)
 	return tokenID
