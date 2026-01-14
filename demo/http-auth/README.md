@@ -35,13 +35,57 @@ The client demonstrates:
 - **Local Verification**: Can verify binding signatures client-side
 - **Multiple Scenarios**: Shows normal flow, replay prevention, and token independence
 
+### Production Middleware Demo (`server-with-middleware/main.go`)
+
+**Recommended for production use.** Demonstrates the `pkg/http/middleware` package:
+- Production-ready verification pipeline
+- Pluggable token/nonce stores (memory, Redis)
+- Configurable clock skew tolerance
+- JSON error responses
+- Custom logging integration
+- Path-based authentication bypass
+
+Runs on port **:8081** (different from simple demo).
+
 ### Original Demo (`main.go`)
 
 The original simplified demo shows basic replay protection without full cryptographic verification. Kept for reference to show the evolution from simple to complete implementation.
 
 ## Running the Demo
 
-### Full Two-Step Verification (Recommended)
+### Production Middleware Demo (Best for integration examples)
+
+1. Start the middleware server:
+```bash
+go run demo/http-auth/server-with-middleware/main.go
+```
+
+2. Test with curl:
+```bash
+# Get a token
+TOKEN_RESPONSE=$(curl -s -X POST http://localhost:8081/issue-token \
+  -H "Content-Type: application/json" \
+  -d '{"purpose": "api-access"}')
+
+echo $TOKEN_RESPONSE | jq .
+
+# To make authenticated requests, you need to:
+# 1. Sign the request with the ephemeral_private key
+# 2. Send Signet-Proof header with token + signature
+# (See client implementation for signing logic)
+```
+
+3. Test authentication (requires client support for signing):
+```bash
+# Health check (no auth required)
+curl http://localhost:8081/health
+
+# Protected endpoint (requires Signet-Proof header)
+curl http://localhost:8081/protected \
+  -H "Signet-Proof: token=<token>, signature=<sig>, timestamp=<ts>, nonce=<nonce>"
+```
+
+### Full Two-Step Verification (Educational)
 
 1. Start the server:
 ```bash
@@ -160,6 +204,25 @@ Verification requires:
 ```
 
 This creates a non-repudiable chain proving the master key authorized the specific ephemeral key for the specific purpose and time window.
+
+## Demo Comparison
+
+| Feature | `server/` (Educational) | `server-with-middleware/` (Production) |
+|---------|------------------------|----------------------------------------|
+| **Port** | :8080 | :8081 |
+| **Token Storage** | Custom `sync.Map` | `middleware.MemoryTokenStore` |
+| **Verification** | Manual `epr.Verifier` calls | `middleware.SignetHandler` |
+| **Error Handling** | Basic HTTP errors | JSON error responses |
+| **Clock Skew** | None | Configurable (30s default) |
+| **Path Bypass** | None | Skip auth on `/health`, `/issue-token` |
+| **Logging** | Custom | Pluggable interface |
+| **Production Ready** | ❌ Demo only | ✅ Yes |
+| **Use Case** | Learning protocol internals | Integration examples |
+
+**When to use which:**
+- **`server/`**: Understanding how two-step verification works internally
+- **`server-with-middleware/`**: Integrating Signet into your service
+- **`main.go`**: Quick replay protection demo (legacy)
 
 ## Production Considerations
 
