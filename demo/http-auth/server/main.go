@@ -68,7 +68,7 @@ func (tr *TokenRegistry) cleanup() {
 
 func (tr *TokenRegistry) Store(record *TokenRecord) string {
 	// FIX: Use JTI for the map key, because that is what the client sends in the proof header.
-	// The protectedHandler extracts tokenID from proof.JTI (line 245), so we must store by JTI.
+	// The protectedHandler extracts tokenID from proof.JTI, so we must store by JTI.
 	tokenID := hex.EncodeToString(record.Token.JTI)
 	// sync.Map.Store is atomic and lock-free
 	tr.tokens.Store(tokenID, record)
