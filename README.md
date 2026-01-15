@@ -2,12 +2,15 @@
 
 Replace bearer tokens with cryptographic proof-of-possession. Signet provides tools for signing commits, files, and HTTP requests using ephemeral Ed25519 certificates.
 
-## ⚠️ Status: v0.0.1 Experimental
+## ⚠️ Status: v0.0.1 Experimental (Alpha)
 
+**Security Note:**
 - **Not audited** - use for development only
-- Experimental largely due to [`go-cms`](https://github.com/jamestexas/go-cms) (no external review, passes OpenSSL interop tests)
+- Core cryptography is unit-tested (10k+ LOC) and partially fuzzed (5 fuzz functions covering critical parsing paths)
+- Native Go implementation via [`go-cms`](https://github.com/jamestexas/go-cms) (no external review, passes OpenSSL interop tests)
 - **Platform:** Built for macOS, should work on Linux (minimal testing)
 - **Key storage:** Defaults to OS keyring; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or initialized with `--insecure`
+- TouchID integration (macOS) requires CGO; Linux/CI builds are Pure Go (Static)
 - See [SECURITY.md](SECURITY.md) for security limitations and best practices
 
 ## What Works Today
