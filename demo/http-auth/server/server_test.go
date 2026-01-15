@@ -14,8 +14,8 @@ import (
 // matches the retrieval key (JTI), preventing the 401 "Token not found" bug.
 //
 // Bug History:
-// - Storage used EphemeralKeyID as key (line 71)
-// - Retrieval used JTI from proof header (line 245)
+// - Storage used EphemeralKeyID as the registry key
+// - Retrieval used the JTI value from the proof header as the registry key
 // - Result: Token stored but never found → 401 Unauthorized
 //
 // Fix: Both store and retrieve use JTI as the key
