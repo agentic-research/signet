@@ -48,16 +48,20 @@ if $USE_DOCKER; then
     # Docker-based execution
     echo -e "${GREEN}Building and running with Docker Compose...${NC}"
 
-    # Navigate to the project root (two levels up from demo/http-auth)
-    cd ../.. || exit 1
+    # Get the absolute path to the script directory
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    # Project root is two levels up from demo/http-auth
+    PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
+    COMPOSE_FILE="$PROJECT_ROOT/demo/http-auth/docker-compose.yml"
 
-    # Run docker-compose from the http-auth directory context
-    docker-compose -f demo/http-auth/docker-compose.yml up --build --abort-on-container-exit
+    # Run docker-compose from project root
+    cd "$PROJECT_ROOT" || exit 1
+    docker-compose -f "$COMPOSE_FILE" up --build --abort-on-container-exit
 
     # Cleanup
     echo ""
     echo -e "${YELLOW}Cleaning up Docker containers...${NC}"
-    docker-compose -f demo/http-auth/docker-compose.yml down
+    docker-compose -f "$COMPOSE_FILE" down
 
 else
     # Local execution
