@@ -1,5 +1,5 @@
 # Multi-stage build for Signet HTTP Auth Demo
-FROM golang:1.22-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /build
 
