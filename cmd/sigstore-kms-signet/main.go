@@ -1,5 +1,17 @@
 package main
 
+// Package main implements a Sigstore KMS plugin that bridges Sigstore tools
+// (cosign, gitsign) to Signet's local key management system.
+//
+// Security model:
+// - Private keys are loaded from OS keyring (preferred) or ~/.signet/master.key
+// - Keys are zeroized on program exit via deferred Destroy()
+// - Plugin protocol communication via stdin/stdout per Sigstore KMS spec
+//
+// URI scheme: signet://<key-id> where key-id can be:
+//   - "default" or "master": loads the primary Signet master key
+//   - hex-encoded public key: loads specific key matching that ID
+
 import (
 	"context"
 	"crypto"
@@ -34,6 +46,7 @@ func NewSignetKMS(resourceID string) (*SignetKMS, error) {
 	if err != nil {
 		// 2. Fallback to Insecure (File-based)
 		// We need the home dir for this.
+		fmt.Fprintf(os.Stderr, "Warning: Secure keyring unavailable, falling back to file-based key storage\n")
 		cfg := config.New(config.DefaultHome())
 
 		signer, err = keystore.LoadMasterKeyInsecure(cfg.Home)
@@ -56,13 +69,29 @@ func NewSignetKMS(resourceID string) (*SignetKMS, error) {
 
 	// Allow "default" or "master" as aliases, or strict match
 	if expectedKeyID != "default" && expectedKeyID != "master" && expectedKeyID != loadedID {
-		return nil, fmt.Errorf("key ID mismatch: expected %s, got %s", expectedKeyID, loadedID)
+		// Truncate IDs to avoid leaking full key in logs
+		expShort := expectedKeyID
+		if len(expShort) > 16 {
+			expShort = expShort[:16] + "..."
+		}
+		loadedShort := loadedID
+		if len(loadedShort) > 16 {
+			loadedShort = loadedShort[:16] + "..."
+		}
+		return nil, fmt.Errorf("key ID mismatch: expected %s, got %s", expShort, loadedShort)
 	}
 
 	return &SignetKMS{
 		signer: signer,
 		pubKey: pub,
 	}, nil
+}
+
+// Destroy zeros the private key material.
+func (s *SignetKMS) Destroy() {
+	if s.signer != nil {
+		s.signer.Destroy()
+	}
 }
 
 func (s *SignetKMS) PublicKey(opts ...signature.PublicKeyOption) (crypto.PublicKey, error) {
@@ -95,7 +124,11 @@ func (s *SignetKMS) VerifySignature(sig, message io.Reader, opts ...signature.Ve
 		return err
 	}
 
-	edPub := s.pubKey.(ed25519.PublicKey)
+	edPub, ok := s.pubKey.(ed25519.PublicKey)
+	if !ok {
+		return fmt.Errorf("public key is not ed25519.PublicKey")
+	}
+
 	if !ed25519.Verify(edPub, msgBytes, sigBytes) {
 		return fmt.Errorf("invalid signature")
 	}
@@ -136,7 +169,7 @@ func main() {
 	}
 
 	// Ensure we destroy/zeroize the key on exit (best effort)
-	defer impl.signer.Destroy()
+	defer impl.Destroy()
 
 	_, err = handler.Dispatch(os.Stdout, os.Stdin, args, impl)
 	if err != nil {
