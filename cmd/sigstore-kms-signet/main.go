@@ -17,6 +17,7 @@ import (
 	"crypto"
 	"crypto/ed25519"
 	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -42,11 +43,23 @@ func NewSignetKMS(resourceID string) (*SignetKMS, error) {
 	}
 	expectedKeyID := strings.TrimPrefix(resourceID, "signet://")
 
+	// Validate key ID: must be a known alias or valid hex string
+	if expectedKeyID == "" {
+		return nil, fmt.Errorf("empty key ID: use signet://default, signet://master, or signet://<hex-key-id>")
+	}
+	switch expectedKeyID {
+	case "default", "master":
+		// known aliases, OK
+	default:
+		if _, err := hex.DecodeString(expectedKeyID); err != nil {
+			return nil, fmt.Errorf("invalid key ID format: must be 'default', 'master', or hex-encoded key ID")
+		}
+	}
+
 	// 1. Try to load from Secure Keyring first
 	signer, err := keystore.LoadMasterKeySecure()
 	if err != nil {
 		// 2. Fallback to Insecure (File-based)
-		// We need the home dir for this.
 		fmt.Fprintf(os.Stderr, "Warning: Secure keyring unavailable, falling back to file-based key storage\n")
 		cfg := config.New(config.DefaultHome())
 
@@ -57,30 +70,22 @@ func NewSignetKMS(resourceID string) (*SignetKMS, error) {
 	}
 
 	// 3. Verify the loaded key matches the requested ID
-	// The signer.Public() returns the crypto.PublicKey.
-	// We need to convert it to the hex ID format signet uses to compare.
 	pub := signer.Public()
 	edPub, ok := pub.(ed25519.PublicKey)
 	if !ok {
+		signer.Destroy()
 		return nil, fmt.Errorf("loaded key is not ed25519")
 	}
 
 	// signet uses hex-encoded public key as ID
 	loadedID := fmt.Sprintf("%x", edPub)
 
-	// Allow "default" or "master" as aliases, or strict match
-	match := 0
-	if expectedKeyID == "default" {
-		match = 1
-	}
-	if expectedKeyID == "master" {
-		match = 1
-	}
-	if subtle.ConstantTimeCompare([]byte(expectedKeyID), []byte(loadedID)) == 1 {
-		match = 1
-	}
+	// Allow "default" or "master" as aliases, or constant-time hex match
+	isAlias := expectedKeyID == "default" || expectedKeyID == "master"
+	isMatch := subtle.ConstantTimeCompare([]byte(expectedKeyID), []byte(loadedID)) == 1
 
-	if match == 0 {
+	if !isAlias && !isMatch {
+		signer.Destroy()
 		// Truncate IDs to avoid leaking full key in logs
 		expShort := expectedKeyID
 		if len(expShort) > 16 {
@@ -110,15 +115,20 @@ func (s *SignetKMS) PublicKey(opts ...signature.PublicKeyOption) (crypto.PublicK
 	return s.pubKey, nil
 }
 
+// maxSignMessageSize is the maximum message size accepted for signing (10 MB).
+// KMS plugin messages are digests or small manifests; this prevents accidental OOM.
+const maxSignMessageSize = 10 << 20
+
 func (s *SignetKMS) SignMessage(message io.Reader, opts ...signature.SignOption) ([]byte, error) {
-	data, err := io.ReadAll(message)
+	limited := io.LimitReader(message, maxSignMessageSize+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, err
 	}
+	if len(data) > maxSignMessageSize {
+		return nil, fmt.Errorf("message too large: exceeds %d bytes", maxSignMessageSize)
+	}
 
-	// Use the signet signer
-	// We use crypto.Signer's Sign method.
-	// The explicit 'rand' can be nil for Ed25519
 	return s.signer.Sign(nil, data, crypto.Hash(0))
 }
 
@@ -163,13 +173,15 @@ func (s *SignetKMS) CryptoSigner(ctx context.Context, errFunc func(error)) (cryp
 	return s.signer, crypto.Hash(0), nil
 }
 
-func main() {
+// run contains the main logic, separated from main() so that deferred
+// cleanup (key zeroization) executes before os.Exit.
+func run() error {
 	args, err := handler.GetPluginArgs(os.Args)
 	if err != nil {
 		if writeErr := handler.WriteErrorResponse(os.Stdout, err); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "failed to write error response: %v\n", writeErr)
 		}
-		os.Exit(1)
+		return err
 	}
 
 	impl, err := NewSignetKMS(args.InitOptions.KeyResourceID)
@@ -177,14 +189,16 @@ func main() {
 		if writeErr := handler.WriteErrorResponse(os.Stdout, err); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "failed to write error response: %v\n", writeErr)
 		}
-		os.Exit(1)
+		return err
 	}
-
-	// Ensure we destroy/zeroize the key on exit (best effort)
 	defer impl.Destroy()
 
 	_, err = handler.Dispatch(os.Stdout, os.Stdin, args, impl)
-	if err != nil {
+	return err
+}
+
+func main() {
+	if err := run(); err != nil {
 		os.Exit(1)
 	}
 }
