@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"os"
@@ -68,7 +69,18 @@ func NewSignetKMS(resourceID string) (*SignetKMS, error) {
 	loadedID := fmt.Sprintf("%x", edPub)
 
 	// Allow "default" or "master" as aliases, or strict match
-	if expectedKeyID != "default" && expectedKeyID != "master" && expectedKeyID != loadedID {
+	match := 0
+	if expectedKeyID == "default" {
+		match = 1
+	}
+	if expectedKeyID == "master" {
+		match = 1
+	}
+	if subtle.ConstantTimeCompare([]byte(expectedKeyID), []byte(loadedID)) == 1 {
+		match = 1
+	}
+
+	if match == 0 {
 		// Truncate IDs to avoid leaking full key in logs
 		expShort := expectedKeyID
 		if len(expShort) > 16 {
