@@ -51,7 +51,7 @@ cosign verify-blob
 
 ### With Gitsign (Commit Signing)
 
-*Note: As of late 2025, gitsign integration with custom KMS plugins is experimental. The following describes the intended workflow.*
+*Note: gitsign integration with custom KMS plugins is currently experimental. The following describes the intended workflow and may change.*
 
 Configure git to use `gitsign` with your Signet key:
 
