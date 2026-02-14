@@ -75,7 +75,7 @@ handler := middleware.SignetMiddleware(
 - Replay attack prevention
 - Pluggable token/nonce stores (memory, Redis)
 - Clock skew tolerance
-- **Token revocation** via SPIRE-model CA bundle rotation (new!)
+- **Token revocation** via SPIRE-model CA bundle rotation
 
 See [`pkg/http/middleware/README.md`](./pkg/http/middleware/README.md) for details.
 
@@ -92,9 +92,35 @@ export OIDC_CLIENT_ID="your-client-id"
 ./signet authority --port 8443
 ```
 
-See [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md) for detailed setup and configuration.
+See [`cmd/signet/authority.go`](./cmd/signet/authority.go) for configuration details.
 
-### 5. Token Revocation System (New!)
+### 5. Sigstore KMS Plugin
+
+Use Signet keys with the Sigstore ecosystem (cosign, gitsign):
+
+```bash
+# Build and install the plugin
+go build -o sigstore-kms-signet ./cmd/sigstore-kms-signet
+mv sigstore-kms-signet /usr/local/bin/
+
+# Sign artifacts with cosign using your Signet key
+cosign sign-blob --key signet://default --tlog-upload=false artifact.bin > artifact.sig
+```
+
+See [`docs/sigstore-integration.md`](./docs/sigstore-integration.md) for full setup.
+
+### 6. Reverse Proxy (signet-proxy)
+
+Authenticate multiple clients via Signet proofs, forwarding requests with a shared upstream token:
+
+```bash
+go build -o signet-proxy ./cmd/signet-proxy
+./signet-proxy --upstream-token $GITHUB_TOKEN --listen :8080
+```
+
+See [`cmd/signet-proxy/README.md`](./cmd/signet-proxy/README.md) for details.
+
+### 7. Token Revocation System
 
 SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
 
@@ -130,16 +156,19 @@ See [`docs/design/006-revocation.md`](./docs/design/006-revocation.md) for archi
 
 ## Core Libraries
 
-All tools built on production-ready primitives:
+Signet's primitives are designed to be used independently:
 
-| Package | Purpose | Security Review |
-|---------|---------|-----------------|
-| [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ **Not reviewed** |
-| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
+| Package | Purpose | Status |
+|---------|---------|--------|
+| [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ Unaudited |
 | [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
+| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
+| [`pkg/crypto/keys`](./pkg/crypto/keys) | Ed25519 signer with zeroization + pluggable backends (PKCS#11, TouchID) | Internal† |
 | [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal† |
 | [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal† |
+| [`pkg/http/middleware`](./pkg/http/middleware) | HTTP authentication middleware (server + client) | Internal† |
 | [`pkg/revocation`](./pkg/revocation) | SPIRE-model token revocation system | Internal† |
+| [`pkg/lifecycle`](./pkg/lifecycle) | Loan-pattern memory zeroization for sensitive data | Internal† |
 
 † *Internal* = Developed in-house, no independent security audit yet
 
@@ -153,31 +182,34 @@ cd signet
 make build
 ```
 
-Produces `./signet` binary with subcommands.
+Produces `./signet` and `./signet-git` binaries.
 
 ### Requirements
 
-- Go 1.21+
+- Go 1.25+
 - OpenSSL (for verification)
 
 ## Architecture
 
-Signet uses a layered architecture where all components share the same Ed25519 foundation:
+Signet is a set of cryptographic primitives with tools built on top:
 
 ```
-┌──────────────────────────────────────────┐
-│        signet (unified binary)           │
-├──────────────────────────────────────────┤
-│   commit   │   sign   │   authority      │  ← Subcommands
-├──────────────────────────────────────────┤
-│     CMS    │   COSE   │      EPR         │  ← Crypto Layer
-├──────────────────────────────────────────┤
-│         LocalCA        │     Tokens       │  ← Primitives
-└──────────────────────────────────────────┘
-                  Ed25519
+┌─────────────────────────────────────────────────────────────┐
+│                         Tools                                │
+│  signet-git  │  signet sign  │  signet authority             │
+│  signet-proxy│  sigstore-kms-signet                          │
+├─────────────────────────────────────────────────────────────┤
+│                    Middleware / Protocol                      │
+│  HTTP middleware  │  Revocation  │  OIDC bridge              │
+├─────────────────────────────────────────────────────────────┤
+│                    Core Primitives (pkg/)                     │
+│  CMS (go-cms)  │  COSE  │  EPR  │  Tokens  │  LocalCA       │
+├─────────────────────────────────────────────────────────────┤
+│                       Ed25519                                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-All subcommands share the same master key and certificate authority.
+All tools share the same master key, certificate authority, and keystore.
 
 ## Development
 
@@ -194,26 +226,24 @@ make fmt lint
 
 ## Documentation
 
-- **[Development Roadmap](DEVELOPMENT_ROADMAP.md)** - Current status, priorities, and path to v1.0
 - **[Architecture](ARCHITECTURE.md)** - Design decisions and technical rationale
+- **[Design Docs](docs/design/)** - ADRs and design documents
 - **[Contributing](CONTRIBUTING.md)** - How to contribute effectively
 - **[Performance](docs/PERFORMANCE.md)** - Benchmarks and analysis
+- **[Sigstore Integration](docs/sigstore-integration.md)** - Using Signet keys with cosign/gitsign
 - **[CMS Implementation](https://github.com/jamestexas/go-cms/blob/main/docs/IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details (go-cms repo)
 
 ## Roadmap
 
-Signet is in **alpha** (v0.0.1). We're on track for:
-- **Beta:** Q1 2026 (protocol spec-compliant, HTTP middleware production-ready)
-- **v1.0:** Q2 2026 (security audited, SDK ecosystem, production deployments)
+Signet is in **alpha** (v0.0.1).
 
-**Current focus:** Completing core protocol implementation to match specification.
-
-See **[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md)** for detailed status, priorities, and timeline.
+**Current focus:** Hardening core primitives, Sigstore ecosystem integration, algorithm agility.
 
 **Critical gaps before v1.0:**
-- Complete key storage migration (some features still use plaintext fallback)
 - Security audit (required before production use)
-- Issuer-side integration (tokens need to embed KeyID and Epoch from CA bundle)
+- Algorithm agility (Ed25519 currently hardcoded; post-quantum readiness)
+- Complete key storage migration (some features still use plaintext fallback)
+- Signature verification CLI (`signet verify`)
 
 ## Contributing
 
@@ -251,4 +281,4 @@ Inspired by [Sigstore](https://sigstore.dev) for supply chain security. Signet e
 ---
 
 **Questions?** Open an [issue](https://github.com/jamestexas/signet/issues)
-**Ready to contribute?** Check the [roadmap](DEVELOPMENT_ROADMAP.md)
+**Ready to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md)
