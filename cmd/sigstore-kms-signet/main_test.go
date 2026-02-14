@@ -20,7 +20,7 @@ import (
 func setupTestKeyInKeyring(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
 	keyring.MockInit()
-	
+
 	// Clean up any existing test keys
 	_ = keyring.Delete(keystore.ServiceName, keystore.MasterKeyItem)
 	
@@ -29,8 +29,8 @@ func setupTestKeyInKeyring(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey)
 	if err != nil {
 		t.Fatalf("Failed to generate test key: %v", err)
 	}
-	
-	// Store seed in keyring (keystore stores the seed, not the full private key)
+
+	// Store seed in keyring (the keystore stores the seed, not the full private key)
 	seed := priv.Seed()
 	seedHex := hex.EncodeToString(seed)
 	err = keyring.Set(keystore.ServiceName, keystore.MasterKeyItem, seedHex)
@@ -245,10 +245,6 @@ func TestNewSignetKMS_KeyIDMismatch(t *testing.T) {
 		t.Errorf("Expected error containing 'key ID mismatch', got %q", err.Error())
 	}
 }
-
-// TestNewSignetKMS_NotEd25519Key tests non-Ed25519 key handling
-// Note: This is difficult to test in practice since keystore only creates Ed25519 keys
-// but we include it for completeness in case future changes introduce other key types
 
 // TestSignetKMS_PublicKey tests the PublicKey method
 func TestSignetKMS_PublicKey(t *testing.T) {
@@ -561,11 +557,12 @@ func (r *errorReader) Read(p []byte) (n int, err error) {
 	return 0, r.err
 }
 
-// TestNewSignetKMS_ConstantTimeComparison verifies constant-time key ID comparison
-func TestNewSignetKMS_ConstantTimeComparison(t *testing.T) {
-	// This test verifies that the key ID comparison logic is using constant-time comparison
-	// We can't directly test timing, but we can verify the logic works correctly
-	
+// TestNewSignetKMS_KeyIDComparison verifies key ID comparison logic
+// Note: This test verifies functional correctness, not constant-time properties
+func TestNewSignetKMS_KeyIDComparison(t *testing.T) {
+	// This test verifies that the key ID comparison logic works correctly
+	// We can't directly test timing properties in a unit test
+
 	expectedPub, _ := setupTestKeyInKeyring(t)
 	expectedKeyID := fmt.Sprintf("%x", expectedPub)
 	
