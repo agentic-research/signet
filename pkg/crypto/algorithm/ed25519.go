@@ -27,6 +27,12 @@ func (e *ed25519Ops) GenerateKeyFromSeed(seed []byte) (crypto.PublicKey, crypto.
 	if len(seed) != ed25519.SeedSize {
 		hash := sha256.Sum256(seed)
 		seed = hash[:]
+		defer func() {
+			for i := range hash {
+				hash[i] = 0
+			}
+			runtime.KeepAlive(hash)
+		}()
 	}
 	priv := ed25519.NewKeyFromSeed(seed)
 	pub := priv.Public().(ed25519.PublicKey)
@@ -77,7 +83,7 @@ func (e *ed25519Ops) MatchesPrivateKey(key crypto.PrivateKey) bool {
 func (e *ed25519Ops) ZeroizePrivateKey(key crypto.PrivateKey) {
 	edKey, ok := key.(ed25519.PrivateKey)
 	if !ok {
-		return
+		panic(fmt.Sprintf("ed25519Ops.ZeroizePrivateKey: expected ed25519.PrivateKey, got %T", key))
 	}
 	for i := range edKey {
 		edKey[i] = 0

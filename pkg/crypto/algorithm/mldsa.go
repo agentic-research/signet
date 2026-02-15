@@ -79,7 +79,7 @@ func (m *mldsaOps) MatchesPrivateKey(key crypto.PrivateKey) bool {
 func (m *mldsaOps) ZeroizePrivateKey(key crypto.PrivateKey) {
 	mlKey, ok := key.(*mldsa44.PrivateKey)
 	if !ok {
-		return
+		panic(fmt.Sprintf("mldsaOps.ZeroizePrivateKey: expected *mldsa44.PrivateKey, got %T", key))
 	}
 
 	// SECURITY NOTE: ML-DSA-44 key zeroization is incomplete due to circl API limitations.
