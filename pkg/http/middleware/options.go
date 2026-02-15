@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -56,7 +56,8 @@ func WithKeyProvider(provider KeyProvider) Option {
 
 // WithMasterKey sets a static master public key for verification.
 // This is a convenience method for simple deployments.
-func WithMasterKey(key ed25519.PublicKey) Option {
+// Accepts any crypto.PublicKey (Ed25519, ML-DSA, etc.).
+func WithMasterKey(key crypto.PublicKey) Option {
 	return func(c *Config) {
 		c.KeyProvider = &staticKeyProvider{key: key}
 	}
@@ -152,10 +153,10 @@ func WithRequiredPurposes(purposes ...string) Option {
 
 // staticKeyProvider implements KeyProvider with a single static key
 type staticKeyProvider struct {
-	key ed25519.PublicKey
+	key crypto.PublicKey
 }
 
-func (p *staticKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (ed25519.PublicKey, error) {
+func (p *staticKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (crypto.PublicKey, error) {
 	if p.key == nil {
 		return nil, ErrKeyNotFound
 	}

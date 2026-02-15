@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/jamestexas/go-platform-signers/pkcs11"
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 )
 
 // validateModulePath checks for path traversal attacks and ensures the path is absolute.
@@ -74,11 +75,19 @@ func NewSigner(opts ...SignerOption) (crypto.Signer, error) {
 	// 2. Route to the correct signer constructor
 	switch cfg.module {
 	case "", "software":
-		_, priv, err := GenerateEd25519KeyPair()
+		alg := cfg.algorithm
+		if alg == "" {
+			alg = algorithm.Ed25519
+		}
+		ops, err := algorithm.Get(alg)
+		if err != nil {
+			return nil, fmt.Errorf("unsupported algorithm %q: %w", alg, err)
+		}
+		_, signer, err := ops.GenerateKey()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate ephemeral key for software signer: %w", err)
 		}
-		return NewEd25519Signer(priv), nil
+		return signer, nil
 	case "pkcs11":
 		// Parse PKCS#11 options from cfg.options string
 		// Expected format: "module-path=/path/to/lib.so,slot-id=0,label=key-label"

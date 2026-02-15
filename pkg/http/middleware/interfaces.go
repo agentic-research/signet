@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"net/http"
 	"time"
 
@@ -62,7 +62,7 @@ type NonceStore interface {
 type KeyProvider interface {
 	// GetMasterKey retrieves the master public key for an issuer.
 	// Returns ErrKeyNotFound if the key doesn't exist.
-	GetMasterKey(ctx context.Context, issuerID string) (ed25519.PublicKey, error)
+	GetMasterKey(ctx context.Context, issuerID string) (crypto.PublicKey, error)
 
 	// RefreshKeys updates the key cache (optional).
 	RefreshKeys(ctx context.Context) error
@@ -141,8 +141,8 @@ type ObserverHook interface {
 // This contains all information needed for two-step verification.
 type TokenRecord struct {
 	Token              *signet.Token
-	MasterPublicKey    ed25519.PublicKey
-	EphemeralPublicKey ed25519.PublicKey
+	MasterPublicKey    crypto.PublicKey
+	EphemeralPublicKey crypto.PublicKey
 	BindingSignature   []byte
 	IssuedAt           time.Time
 	Purpose            string

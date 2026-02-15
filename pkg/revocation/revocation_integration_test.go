@@ -2,6 +2,7 @@ package revocation_test
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -589,10 +590,10 @@ func TestRevocationIntegration(t *testing.T) {
 
 // Mock implementations for testing middleware
 type mockKeyProvider struct {
-	masterPub ed25519.PublicKey
+	masterPub crypto.PublicKey
 }
 
-func (m *mockKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (ed25519.PublicKey, error) {
+func (m *mockKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (crypto.PublicKey, error) {
 	if m.masterPub == nil {
 		pub, _, _ := ed25519.GenerateKey(rand.Reader)
 		return pub, nil

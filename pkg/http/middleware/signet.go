@@ -5,7 +5,7 @@ package middleware
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -359,7 +359,7 @@ type AuthContext struct {
 	Purpose            string
 	IssuerID           string
 	MasterKeyHash      []byte
-	EphemeralPublicKey ed25519.PublicKey
+	EphemeralPublicKey crypto.PublicKey
 	VerifiedAt         time.Time
 }
 

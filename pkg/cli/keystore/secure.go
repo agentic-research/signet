@@ -1,6 +1,7 @@
 package keystore
 
 import (
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
@@ -9,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 	"github.com/jamestexas/signet/pkg/lifecycle"
 	"github.com/zalando/go-keyring"
@@ -28,49 +31,96 @@ const (
 // until the next garbage collection. This is a known limitation. An upstream
 // pull request to address this is pending: https://github.com/zalando/go-keyring/pull/127
 
-// retrieveSeedFromKeyring handles the common pattern of getting and decoding seed from keyring
-func retrieveSeedFromKeyring() ([]byte, error) {
-	// Retrieve from OS keyring
+// parseKeyringValue parses the keyring storage format.
+// Format: "algorithm:hex-seed" (new) or plain hex (legacy Ed25519).
+// Returns (algorithm, seed, error).
+func parseKeyringValue(value string) (algorithm.Algorithm, []byte, error) {
+	var alg algorithm.Algorithm
+	var seedHex string
+
+	if idx := strings.Index(value, ":"); idx > 0 {
+		// New format: "algorithm:hex-seed"
+		alg = algorithm.Algorithm(value[:idx])
+		seedHex = value[idx+1:]
+	} else {
+		// Legacy format: plain hex = Ed25519
+		alg = algorithm.Ed25519
+		seedHex = value
+	}
+
+	if !alg.Valid() {
+		return "", nil, fmt.Errorf("unsupported algorithm in keyring: %s", alg)
+	}
+
+	ops, err := algorithm.Get(alg)
+	if err != nil {
+		return "", nil, err
+	}
+
+	expectedHexLen := ops.SeedSize() * 2
+	if len(seedHex) != expectedHexLen {
+		return "", nil, errors.New("invalid key data in keyring")
+	}
+
+	seed, err := hex.DecodeString(seedHex)
+	if err != nil {
+		return "", nil, errors.New("invalid key data in keyring")
+	}
+
+	if len(seed) != ops.SeedSize() {
+		keys.ZeroizeBytes(seed)
+		return "", nil, errors.New("invalid key data in keyring")
+	}
+
+	return alg, seed, nil
+}
+
+// retrieveSeedFromKeyring handles the common pattern of getting and decoding seed from keyring.
+// Returns (algorithm, seed, error).
+func retrieveSeedFromKeyring() (algorithm.Algorithm, []byte, error) {
 	seedHex, err := keyring.Get(ServiceName, MasterKeyItem)
 	if err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
-			return nil, errors.New("master key not found in keyring (run 'signet init' first)")
+			return "", nil, errors.New("master key not found in keyring (run 'signet init' first)")
 		}
-		return nil, errors.New("failed to retrieve key from keyring")
+		return "", nil, errors.New("failed to retrieve key from keyring")
 	}
 
-	// Copy the retrieved string to avoid modifying the mock keyring's internal
-	// state during tests, then immediately zero the original reference to shorten
-	// the secret's lifetime in memory.
-	seedHexCopy := seedHex
-	expectedHexLen := ed25519.SeedSize * 2
-
-	if len(seedHexCopy) != expectedHexLen {
-		return nil, errors.New("invalid key data in keyring")
-	}
-
-	// Decode hex to seed
-	seed, err := hex.DecodeString(seedHexCopy)
-	if err != nil {
-		return nil, errors.New("invalid key data in keyring")
-	}
-
-	// Validate seed size (defense in depth)
-	if len(seed) != ed25519.SeedSize {
-		keys.ZeroizeBytes(seed)
-		return nil, errors.New("invalid key data in keyring")
-	}
-
-	return seed, nil
+	return parseKeyringValue(seedHex)
 }
 
-// seedToPublicKeyHex converts a seed to hex-encoded public key
-// Note: This function zeros the private key internally
+// seedToSignerAndPublicKey creates a signer and public key from a seed using the given algorithm.
+func seedToSignerAndPublicKey(alg algorithm.Algorithm, seed []byte) (crypto.PublicKey, crypto.Signer, error) {
+	ops, err := algorithm.Get(alg)
+	if err != nil {
+		return nil, nil, err
+	}
+	pub, signer, err := ops.GenerateKeyFromSeed(seed)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pub, signer, nil
+}
+
+// seedToPublicKeyHex converts a seed to hex-encoded public key (Ed25519 only, for backward compat)
 func seedToPublicKeyHex(seed []byte) string {
 	privateKey := ed25519.NewKeyFromSeed(seed)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 	keys.ZeroizePrivateKey(privateKey)
 	return hex.EncodeToString(publicKey)
+}
+
+// publicKeyHex returns a hex-encoded representation of any public key.
+func publicKeyHex(alg algorithm.Algorithm, pub crypto.PublicKey) (string, error) {
+	ops, err := algorithm.Get(alg)
+	if err != nil {
+		return "", err
+	}
+	b, err := ops.MarshalPublicKey(pub)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // readSeedFromPEM reads and validates a PEM-encoded seed from file
@@ -118,10 +168,22 @@ func readSeedFromPEM(keyPath string, checkPermissions bool) ([]byte, error) {
 	return seed, nil
 }
 
-// InitializeSecure generates a master key and stores it in the OS keyring
-func InitializeSecure(force bool) error {
+// InitializeSecure generates a master key and stores it in the OS keyring.
+// The alg parameter specifies which algorithm to use (empty string defaults to Ed25519).
+func InitializeSecure(force bool, alg ...algorithm.Algorithm) error {
+	// Determine algorithm
+	selectedAlg := algorithm.DefaultAlgorithm
+	if len(alg) > 0 && alg[0] != "" {
+		selectedAlg = alg[0]
+	}
+
+	ops, err := algorithm.Get(selectedAlg)
+	if err != nil {
+		return fmt.Errorf("unsupported algorithm: %w", err)
+	}
+
 	// Check if key already exists
-	_, err := keyring.Get(ServiceName, MasterKeyItem)
+	_, err = keyring.Get(ServiceName, MasterKeyItem)
 	if err == nil {
 		if !force {
 			return errors.New("master key already exists in keyring (use --force to overwrite)")
@@ -132,76 +194,124 @@ func InitializeSecure(force bool) error {
 		}
 	}
 
-	// Generate new Ed25519 key pair
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return fmt.Errorf("failed to generate master key: %w", err)
+	// Generate seed
+	seed := make([]byte, ops.SeedSize())
+	if _, err := rand.Read(seed); err != nil {
+		return fmt.Errorf("failed to generate random seed: %w", err)
 	}
 
-	// Use loan pattern for private key lifecycle
-	privZeroizer := func(key *ed25519.PrivateKey) {
-		keys.ZeroizePrivateKey(*key)
+	seedZeroizer := func(s *[]byte) {
+		keys.ZeroizeBytes(*s)
 	}
 
-	return lifecycle.WithSecureValue(priv, privZeroizer, func(securePriv *ed25519.PrivateKey) error {
-		// Extract seed with nested loan pattern
-		seed := (*securePriv).Seed()
-		seedZeroizer := func(s *[]byte) {
-			keys.ZeroizeBytes(*s)
+	return lifecycle.WithSecureValue(seed, seedZeroizer, func(secureSeed *[]byte) error {
+		// Derive public key for display
+		pub, _, err := ops.GenerateKeyFromSeed(*secureSeed)
+		if err != nil {
+			return fmt.Errorf("failed to derive key from seed: %w", err)
 		}
 
-		return lifecycle.WithSecureValue(seed, seedZeroizer, func(secureSeed *[]byte) error {
-			// Encode to hex with nested loan pattern
-			seedHexBytes := make([]byte, hex.EncodedLen(len(*secureSeed)))
-			hex.Encode(seedHexBytes, *secureSeed)
-			hexZeroizer := func(h *[]byte) {
-				keys.ZeroizeBytes(*h)
+		// Encode to hex with nested loan pattern
+		seedHexBytes := make([]byte, hex.EncodedLen(len(*secureSeed)))
+		hex.Encode(seedHexBytes, *secureSeed)
+		hexZeroizer := func(h *[]byte) {
+			keys.ZeroizeBytes(*h)
+		}
+
+		return lifecycle.WithSecureValue(seedHexBytes, hexZeroizer, func(secureHex *[]byte) error {
+			// Build storage value: "algorithm:hex-seed"
+			var storeValue string
+			if selectedAlg == algorithm.Ed25519 {
+				// Legacy format for Ed25519 backward compat
+				storeValue = string(*secureHex)
+			} else {
+				storeValue = string(selectedAlg) + ":" + string(*secureHex)
 			}
 
-			return lifecycle.WithSecureValue(seedHexBytes, hexZeroizer, func(secureHex *[]byte) error {
-				// Store in OS keyring
-				if err := keyring.Set(ServiceName, MasterKeyItem, string(*secureHex)); err != nil {
-					return fmt.Errorf("failed to store key in keyring: %w", err)
-				}
+			// Store in OS keyring
+			if err := keyring.Set(ServiceName, MasterKeyItem, storeValue); err != nil {
+				return fmt.Errorf("failed to store key in keyring: %w", err)
+			}
 
-				fmt.Printf("Master key generated and stored in OS keyring\n")
-				pubHex := fmt.Sprintf("%x", pub)
+			pubHex, err := publicKeyHex(selectedAlg, pub)
+			if err != nil {
+				pubHex = "[error encoding public key]"
+			}
+
+			fmt.Printf("Master key generated and stored in OS keyring\n")
+			fmt.Printf("Algorithm: %s\n", selectedAlg)
+			if len(pubHex) > 32 {
 				fmt.Printf("Public key: %s...%s\n", pubHex[:16], pubHex[len(pubHex)-16:])
-				fmt.Printf("Service: %s\n", ServiceName)
-				fmt.Printf("Item: %s\n", MasterKeyItem)
+			} else {
+				fmt.Printf("Public key: %s\n", pubHex)
+			}
+			fmt.Printf("Service: %s\n", ServiceName)
+			fmt.Printf("Item: %s\n", MasterKeyItem)
 
-				return nil
-			})
+			return nil
 		})
 	})
 }
 
 // LoadMasterKeySecure loads the master key from the OS keyring.
+// Returns a crypto.Signer that the caller must Destroy() when done
+// (if the signer implements a Destroy() method).
 //
 // SECURITY: This function returns a key derived from a secret that is loaded
 // into memory as a string. Due to Go's string immutability, the secret may
 // persist in memory until garbage collected. See package-level documentation
 // for more details.
 func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
-	seed, err := retrieveSeedFromKeyring()
+	alg, seed, err := retrieveSeedFromKeyring()
 	if err != nil {
 		return nil, err
 	}
 
-	// Use loan pattern to ensure seed is zeroized
+	// For backward compat, the original function returns *keys.Ed25519Signer.
+	// Non-Ed25519 keys should use LoadMasterKeySecureGeneric().
+	if alg != algorithm.Ed25519 {
+		keys.ZeroizeBytes(seed)
+		return nil, fmt.Errorf("keyring contains %s key; use LoadMasterKeySecureGeneric() for non-Ed25519 keys", alg)
+	}
+
 	seedZeroizer := func(s *[]byte) {
 		keys.ZeroizeBytes(*s)
 	}
 
 	return lifecycle.WithSecureValueResult(seed, seedZeroizer, func(secureSeed *[]byte) (*keys.Ed25519Signer, error) {
-		// Reconstruct private key from seed
 		privateKey := ed25519.NewKeyFromSeed(*secureSeed)
-
-		// Note: privateKey is NOT zeroed here because NewEd25519Signer stores a reference
-		// to the same underlying array. The caller must call Destroy() on the returned
-		// signer to zero the private key when done.
 		return keys.NewEd25519Signer(privateKey), nil
 	})
+}
+
+// LoadMasterKeySecureGeneric loads any algorithm's master key from the OS keyring.
+// Returns the algorithm used and a crypto.Signer.
+func LoadMasterKeySecureGeneric() (algorithm.Algorithm, crypto.Signer, error) {
+	alg, seed, err := retrieveSeedFromKeyring()
+	if err != nil {
+		return "", nil, err
+	}
+
+	seedZeroizer := func(s *[]byte) {
+		keys.ZeroizeBytes(*s)
+	}
+
+	type result struct {
+		alg    algorithm.Algorithm
+		signer crypto.Signer
+	}
+
+	r, err := lifecycle.WithSecureValueResult(seed, seedZeroizer, func(secureSeed *[]byte) (result, error) {
+		_, signer, err := seedToSignerAndPublicKey(alg, *secureSeed)
+		if err != nil {
+			return result{}, err
+		}
+		return result{alg: alg, signer: signer}, nil
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	return r.alg, r.signer, nil
 }
 
 // GetKeyIDSecure returns the key ID (hex-encoded public key) from the OS keyring
@@ -210,19 +320,21 @@ func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 // string. Due to Go's string immutability, the secret may persist in memory
 // until garbage collected. See package-level documentation for more details.
 func GetKeyIDSecure() (string, error) {
-	seed, err := retrieveSeedFromKeyring()
+	alg, seed, err := retrieveSeedFromKeyring()
 	if err != nil {
 		return "", err
 	}
 
-	// Use loan pattern to ensure seed is zeroized
 	seedZeroizer := func(s *[]byte) {
 		keys.ZeroizeBytes(*s)
 	}
 
 	return lifecycle.WithSecureValueResult(seed, seedZeroizer, func(secureSeed *[]byte) (string, error) {
-		// Return hex-encoded public key as ID
-		return seedToPublicKeyHex(*secureSeed), nil
+		pub, _, err := seedToSignerAndPublicKey(alg, *secureSeed)
+		if err != nil {
+			return "", err
+		}
+		return publicKeyHex(alg, pub)
 	})
 }
 
@@ -239,7 +351,8 @@ func DeleteMasterKeySecure() error {
 	return nil
 }
 
-// InitializeInsecure generates a master key and stores it in a file (for testing)
+// InitializeInsecure generates a master key and stores it in a file (for testing).
+// Only supports Ed25519 (file-based storage is for testing/fallback).
 func InitializeInsecure(signetPath string, force bool) error {
 	// Create directory with restricted permissions
 	if err := os.MkdirAll(signetPath, 0700); err != nil {
@@ -305,12 +418,7 @@ func LoadMasterKeyInsecure(signetPath string) (*keys.Ed25519Signer, error) {
 	}
 
 	return lifecycle.WithSecureValueResult(seed, seedZeroizer, func(secureSeed *[]byte) (*keys.Ed25519Signer, error) {
-		// Reconstruct private key from seed
 		privateKey := ed25519.NewKeyFromSeed(*secureSeed)
-
-		// Note: privateKey is NOT zeroed here because NewEd25519Signer stores a reference
-		// to the same underlying array. The caller must call Destroy() on the returned
-		// signer to zero the private key when done.
 		return keys.NewEd25519Signer(privateKey), nil
 	})
 }
@@ -320,7 +428,6 @@ func GetKeyIDInsecure(signetPath string) (string, error) {
 	keyPath := filepath.Join(signetPath, "master.key")
 
 	// Read seed without permission checking (for backward compatibility)
-	// Consider adding permission check here in the future for consistency
 	seed, err := readSeedFromPEM(keyPath, false)
 	if err != nil {
 		return "", err
@@ -332,7 +439,6 @@ func GetKeyIDInsecure(signetPath string) (string, error) {
 	}
 
 	return lifecycle.WithSecureValueResult(seed, seedZeroizer, func(secureSeed *[]byte) (string, error) {
-		// Return hex-encoded public key as ID
 		return seedToPublicKeyHex(*secureSeed), nil
 	})
 }

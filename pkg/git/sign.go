@@ -15,6 +15,7 @@ import (
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/config"
 	"github.com/jamestexas/signet/pkg/cli/keystore"
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 	"github.com/jamestexas/signet/pkg/lifecycle"
 )
@@ -51,8 +52,15 @@ func withMasterKey(cfg *config.Config, fn func(*keys.Ed25519Signer) error) error
 }
 
 // SignCommit signs commit data from stdin and writes signature to stdout
-// This implements the gpgsm-compatible signing interface expected by Git
+// This implements the gpgsm-compatible signing interface expected by Git.
+// Git signing requires Ed25519 because go-cms only supports Ed25519/ECDSA for CMS/PKCS#7.
+// For post-quantum signing (ML-DSA), use `signet sign` instead.
 func SignCommit(cfg *config.Config, localUser string, statusFd int) error {
+	// Guard: Git signing requires Ed25519 (CMS/PKCS#7 constraint)
+	if cfg.Algorithm != "" && algorithm.Algorithm(cfg.Algorithm) != algorithm.Ed25519 {
+		return fmt.Errorf("git signing requires Ed25519; configured algorithm %q is not supported for git commits. Use `signet sign` for %s signing", cfg.Algorithm, cfg.Algorithm)
+	}
+
 	return withMasterKey(cfg, func(masterKey *keys.Ed25519Signer) error {
 		// Read commit data from stdin
 		commitData, err := io.ReadAll(os.Stdin)

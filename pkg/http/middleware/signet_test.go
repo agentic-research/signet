@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -568,16 +569,13 @@ func TestMultiKeyProvider(t *testing.T) {
 	}
 }
 
-func equalKeys(a, b ed25519.PublicKey) bool {
-	if len(a) != len(b) {
+func equalKeys(a, b crypto.PublicKey) bool {
+	aEd, aOk := a.(ed25519.PublicKey)
+	bEd, bOk := b.(ed25519.PublicKey)
+	if !aOk || !bOk {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return bytes.Equal(aEd, bEd)
 }
 
 func TestJSONErrorHandler(t *testing.T) {

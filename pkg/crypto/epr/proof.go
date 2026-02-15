@@ -3,11 +3,11 @@ package epr
 import (
 	"context"
 	"crypto"
-	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
 	"time"
 
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 	signetErrors "github.com/jamestexas/signet/pkg/errors"
 )
@@ -118,9 +118,9 @@ func (g *Generator) GenerateProof(ctx context.Context, request *ProofRequest) (*
 
 // createBindingMessage creates the domain-separated message to sign
 func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpose string) ([]byte, error) {
-	// Convert to ed25519.PublicKey
-	pubBytes, ok := ephemeralPub.(ed25519.PublicKey)
-	if !ok {
+	// Marshal public key bytes (works for any registered algorithm)
+	pubBytes, err := algorithm.MarshalPublicKey(ephemeralPub)
+	if err != nil {
 		return nil, signetErrors.NewKeyError("binding", "ephemeral", signetErrors.ErrInvalidKeyType)
 	}
 
@@ -163,8 +163,8 @@ func (v *Verifier) VerifyBinding(ctx context.Context, proof *EphemeralProof, mas
 		return signetErrors.ErrExpiredProof
 	}
 
-	// Validate that the ephemeral public key is the correct type
-	if _, ok := proof.EphemeralPublicKey.(ed25519.PublicKey); !ok {
+	// Validate that the ephemeral public key can be marshaled (is a known type)
+	if _, err := algorithm.MarshalPublicKey(proof.EphemeralPublicKey); err != nil {
 		return signetErrors.NewKeyError("verify", "ephemeral public key", signetErrors.ErrInvalidKeyType)
 	}
 
@@ -174,13 +174,12 @@ func (v *Verifier) VerifyBinding(ctx context.Context, proof *EphemeralProof, mas
 		return err
 	}
 
-	// Verify the binding signature
-	masterPub, ok := masterPublicKey.(ed25519.PublicKey)
-	if !ok {
+	// Verify the binding signature using the algorithm registry
+	valid, err := algorithm.Verify(masterPublicKey, message, proof.BindingSignature)
+	if err != nil {
 		return signetErrors.NewKeyError("verify", "master public key", signetErrors.ErrInvalidKeyType)
 	}
-
-	if !ed25519.Verify(masterPub, message, proof.BindingSignature) {
+	if !valid {
 		return signetErrors.NewSignatureError("binding", "verification failed", signetErrors.ErrInvalidBindingSignature)
 	}
 
@@ -198,12 +197,11 @@ func (v *Verifier) VerifyRequestSignature(ctx context.Context, proof *EphemeralP
 	}
 
 	// Verify the request signature with the ephemeral public key
-	ephemeralPub, ok := proof.EphemeralPublicKey.(ed25519.PublicKey)
-	if !ok {
+	valid, err := algorithm.Verify(proof.EphemeralPublicKey, message, signature)
+	if err != nil {
 		return signetErrors.NewKeyError("verify", "ephemeral public key", signetErrors.ErrInvalidKeyType)
 	}
-
-	if !ed25519.Verify(ephemeralPub, message, signature) {
+	if !valid {
 		return signetErrors.NewSignatureError("request", "verification failed", signetErrors.ErrInvalidRequestSignature)
 	}
 
