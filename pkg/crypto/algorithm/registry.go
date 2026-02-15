@@ -53,6 +53,9 @@ var registry = map[Algorithm]AlgorithmOps{}
 // algorithm, since dispatch functions rely on exactly one match.
 func Register(alg Algorithm, ops AlgorithmOps) {
 	// Generate a test key pair to check for key-type collisions.
+	// Note: signer is crypto.Signer but also satisfies crypto.PrivateKey for
+	// ZeroizePrivateKey — this is an implicit contract on GenerateKey() that
+	// the returned signer's concrete type must match MatchesPrivateKey.
 	pub, signer, err := ops.GenerateKey()
 	if err != nil {
 		panic(fmt.Sprintf("Register(%s): GenerateKey failed: %v", alg, err))
