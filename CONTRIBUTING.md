@@ -15,7 +15,7 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ### Prerequisites
 
-- **Go 1.21+** - Required for building the project
+- **Go 1.25+** - Required for building the project
 - **OpenSSL** - For signature verification
 - **Git** - Version control
 - **(Optional) Docker** - For integration testing

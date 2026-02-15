@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+For project overview, architecture, and feature list, see [README.md](README.md).
+
 ## Build and Test Commands
 
 ### Core Development Tasks
@@ -57,118 +59,94 @@ make lint                   # Run linters (requires golangci-lint)
 make security              # Security scan (requires gosec)
 ```
 
-## Architecture Overview
+## Binaries
 
-Signet is a cryptographic authentication protocol replacing bearer tokens with ephemeral proof-of-possession. The codebase implements machine-as-identity through local certificate authorities and offline-first design.
+| Binary | Location | Purpose |
+|--------|----------|---------|
+| `signet` | `cmd/signet/` | Unified CLI (sign, authority subcommands) |
+| `signet-git` | `cmd/signet-git/` | Git gpg.x509.program integration |
+| `signet-proxy` | `cmd/signet-proxy/` | Reverse proxy with Signet auth |
+| `signet-agent` | `cmd/signet-agent/` | gRPC agent for key operations |
+| `sigstore-kms-signet` | `cmd/sigstore-kms-signet/` | Sigstore KMS plugin (cosign/gitsign bridge) |
 
-### Core Components
+## Key Packages
 
-**libsignet (pkg/)** - Core protocol library:
+| Package | Purpose |
+|---------|---------|
+| `pkg/crypto/algorithm/` | Algorithm registry (Ed25519, ML-DSA-44) with pluggable `AlgorithmOps` interface |
+| `pkg/crypto/epr/` | Ephemeral Proof Routines — two-step verification (master → ephemeral → request) |
+| `pkg/crypto/keys/` | Algorithm-agile key management, signing interfaces, secure zeroization |
+| `pkg/crypto/cose/` | COSE Sign1 message creation/verification, SIG1 wire format |
+| `pkg/http/middleware/` | HTTP authentication middleware with replay prevention, pluggable stores (memory, Redis) |
+| `pkg/revocation/` | SPIRE-model token revocation via CA bundle rotation |
+| `pkg/attest/x509/` | Local CA for short-lived certificates (5-minute default) |
+| `pkg/signet/` | CBOR token structures, SIG1 wire format (`SIG1.<CBOR>.<COSE_Sign1>`) |
+| `pkg/git/` | Git commit signing/verification via CMS/PKCS#7 |
+| `pkg/agent/` | gRPC agent server/client for key operations |
+| `pkg/lifecycle/` | Loan-pattern memory zeroization (`SecureValue[T]`) |
+| `pkg/errors/` | Structured error codes (`CodedError[T]`) |
+| `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`) |
+| `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
-- `pkg/signet/`: CBOR token structures with integer keys for deterministic serialization
-- `pkg/crypto/algorithm/`: Algorithm registry (Ed25519, ML-DSA-44) with pluggable AlgorithmOps interface
-- `pkg/crypto/epr/`: Ephemeral Proof Routines - two-step verification (master signs ephemeral, ephemeral signs request)
-- `pkg/crypto/keys/`: Algorithm-agile key management, signing interfaces, and secure zeroization
-- `pkg/attest/x509/`: Local CA for generating short-lived certificates (5-minute default)
-- `pkg/cli/`: Shared CLI utilities (keystore, config, Lipgloss styling)
-- **Note**: CMS/PKCS#7 implementation has been extracted to [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
+External: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8419), used for both git signing and file signing.
 
-**signet (cmd/signet/)** - Unified CLI with Cobra and Lipgloss:
+## Implementation Patterns
 
-- `main.go` & `root.go`: Root command and global configuration
-- `sign.go`: Universal file signing with ephemeral certificates
-- `authority.go`: OIDC certificate authority server
+These patterns are used throughout the codebase. Follow them when writing new code.
 
-**signet-git (cmd/signet-git/)** - Git integration binary:
+### Lifecycle Management (`pkg/lifecycle`)
 
-- Standalone binary for Git's gpg.x509.program interface
-- Subcommands: `init`, `export-key-id`
-- GPG-compatible signing and verification for Git commits
+Sensitive data (keys, secrets) must be wrapped in `lifecycle.SecureValue[T]` for proper zeroization.
 
-### Key Design Patterns
-
-1. **Offline-First**: All operations work without network connectivity
-2. **Two-Step Verification**: Master key → ephemeral key → request signature
-3. **Short-Lived Certificates**: 5-minute ephemeral certificates for each operation
-4. **CBOR Tokens**: Binary encoding with integer keys (1-6) for efficiency
-5. **Domain Separation**: Cryptographic contexts prevent cross-protocol attacks
-6. **Generic Lifecycle Management**: Type-safe memory zeroization with `lifecycle.SecureValue[T]`
-7. **Generic Error Handling**: Structured error codes with `errors.CodedError[T]`
-8. **Generic Concurrency**: Thread-safe collections with `collections.ConcurrentMap[K, V]`
-
-### Testing Strategy
-
-The project uses integration tests that verify end-to-end workflows:
-
-- `scripts/testing/test_integration.sh`: Full git signing workflow
-
-## Implementation Notes
-
-### Generic Architecture Patterns
-
-The codebase uses Go 1.18+ generics to provide type-safe, reusable patterns for common operations:
-
-#### Lifecycle Management (`pkg/lifecycle`)
-
-Sensitive data (keys, secrets) is wrapped in `lifecycle.SecureValue[T]` to ensure proper zeroization.
-
-**Recommended API - Loan Pattern (WithSecureValue):**
+**Recommended — Loan Pattern (99% of use cases):**
 
 ```go
-// For one-shot operations (recommended)
 zeroizer := func(key *ed25519.PrivateKey) {
     for i := range *key {
         (*key)[i] = 0
     }
 }
 
-// Simple case - just need error
+// Simple case
 err := lifecycle.WithSecureValue(privateKey, zeroizer, func(key *ed25519.PrivateKey) error {
     signature := ed25519.Sign(*key, message)
     return sendSignature(signature)
 })
-// Key automatically zeroized, even if sendSignature panics
+// Key automatically zeroized, even on panic
 
 // With return value
 signature, err := lifecycle.WithSecureValueResult(privateKey, zeroizer,
     func(key *ed25519.PrivateKey) ([]byte, error) {
-        sig := ed25519.Sign(*key, message)
-        return sig, nil
+        return ed25519.Sign(*key, message), nil
     },
 )
-// Key automatically zeroized, signature extracted safely
 ```
 
-**Low-level API (New/Destroy):**
-
-For long-lived objects, use the explicit API:
+**Long-lived objects only — explicit API:**
 
 ```go
 secureKey := lifecycle.New(privateKey, zeroizer)
 defer secureKey.Destroy()
 
-// Use the key safely (note: receives pointer)
 err := secureKey.Use(func(key *ed25519.PrivateKey) error {
     signature := ed25519.Sign(*key, message)
     return nil
 })
 ```
 
-**Key Features:**
-- **Loan pattern eliminates lifecycle bugs** - Cannot forget to Destroy()
-- **Panic-safe** - Cleanup guaranteed even if user code panics
-- **Type-safe zeroization** with custom zeroizer functions
-- **Concurrency-safe** - RWMutex allows parallel Use(), WaitGroup blocks Destroy()
-- **Pointer API prevents accidental copies** - Forces explicit dereferencing
-- Used in: COSE signers (Ed25519, ECDSA P-256)
+Properties: panic-safe, concurrency-safe (RWMutex), pointer API prevents accidental copies.
 
-**Design Philosophy:**
-- `WithSecureValue()` - Recommended for 99% of use cases (ephemeral operations)
-- `New()/Destroy()` - Only for long-lived objects (e.g., server-lifetime keys)
+### Algorithm Registry (`pkg/crypto/algorithm`)
 
-#### Structured Error Handling (`pkg/errors`)
+Adding a new algorithm: implement `AlgorithmOps` interface, call `Register()` in `init()`.
 
-Type-safe error codes for programmatic error handling:
+Key dispatch rules:
+- `Verify()`, `MarshalPublicKey()`, `ZeroizePrivateKey()` dispatch via `MatchesPublicKey`/`MatchesPrivateKey` (deterministic, exactly one match)
+- `UnmarshalPublicKey()` requires explicit algorithm name (raw bytes are ambiguous)
+- `Register()` validates key-type uniqueness at init time (panics on overlap)
+- `ZeroizePrivateKey()` panics on unknown key types (security-critical, never silent)
+
+### Structured Error Handling (`pkg/errors`)
 
 ```go
 type StoreErrorCode int
@@ -177,52 +155,27 @@ const (
     TokenExpired  StoreErrorCode = 2
 )
 
-// Create structured error
 err := errors.NewCoded(TokenNotFound, "token not found", nil)
-
-// Check error code
-if errors.HasCode(err, TokenNotFound) {
-    // Return 404
-}
+if errors.HasCode(err, TokenNotFound) { /* ... */ }
 ```
 
-**Key Features:**
-- Compile-time type safety (can't mix different error code types)
-- Error wrapping support
-- Works with Go's `errors.Is()` and `errors.As()`
-- Used in: HTTP middleware (planned)
+Compile-time type safety, error wrapping, works with `errors.Is()`/`errors.As()`.
 
-#### Thread-Safe Collections (`pkg/collections`)
-
-Generic concurrent map with RWMutex locking:
+### Thread-Safe Collections (`pkg/collections`)
 
 ```go
 cm := collections.NewConcurrentMap[string, *TokenRecord]()
 cm.Set("token123", record)
 value, ok := cm.Get("token123")
-cm.Delete("token123")
 ```
 
-**Key Features:**
-- Type-safe key-value storage
-- Read-write locking for performance
-- Atomic operations (GetOrSet, CompareAndDelete)
-- Race-detector verified
-- Used in: HTTP middleware stores (planned)
-
-### CMS/PKCS#7 with Ed25519
-
-The CMS/PKCS#7 implementation supporting Ed25519 has been extracted to a standalone library:
-
-- Repository: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
-- Uses RFC 8410 and RFC 8419 for Ed25519 in CMS
-- Generates OpenSSL-compatible signatures
+RWMutex-based, atomic operations (GetOrSet, CompareAndDelete), race-detector verified.
 
 ### Token Structure
 
-Tokens use CBOR with integer keys for deterministic serialization:
+CBOR with integer keys for deterministic serialization:
 
-```go
+```
 1: IssuerID (string)
 2: ConfirmationID ([]byte) - master key hash
 3: ExpiresAt (int64) - Unix timestamp
@@ -231,70 +184,17 @@ Tokens use CBOR with integer keys for deterministic serialization:
 6: NotBefore (int64) - Unix timestamp
 ```
 
-### CLI Structure
+## Security Conventions
 
-**signet-git** - Standalone Git integration binary:
+- All private key material must be zeroized after use (use `lifecycle.SecureValue` or algorithm-specific `ZeroizePrivateKey`)
+- `ZeroizePrivateKey` implementations must panic on type mismatch, never silently return
+- Defensive copies for `[]byte`-aliased key types (e.g., `ed25519.PublicKey`) to prevent caller mutation
+- Domain separation via cryptographic contexts prevents cross-protocol attacks
+- Cryptographic operations use `golang.org/x/crypto` and `cloudflare/circl` (ML-DSA-44)
 
-```bash
-# Initialize
-signet-git init
+## Project Conventions
 
-# Export key ID
-signet-git export-key-id
-
-# Configure Git
-git config --global gpg.format x509
-git config --global gpg.x509.program signet-git
-git config --global user.signingKey $(signet-git export-key-id)
-```
-
-The unified `signet` binary provides two subcommands:
-
-**signet sign** - Universal file signing:
-
-```bash
-# Initialize (shares keystore with commit)
-signet sign --init
-
-# Sign any file
-signet sign document.pdf
-signet sign -o custom.sig data.json
-```
-
-**signet authority** - OIDC certificate authority:
-
-```bash
-# Run server with config
-signet authority --config config.json
-
-# See help for configuration format
-signet authority --help
-```
-
-## Current State
-
-**What Works (Alpha):**
-
-- `signet-git`: Git signing with ephemeral certificates (GPG replacement, Ed25519 only)
-- `signet sign`: Universal file signing with CMS/PKCS#7 format (Ed25519 + ML-DSA-44)
-- `signet authority`: OIDC-based certificate authority (experimental)
-- Algorithm agility via `pkg/crypto/algorithm` registry (Ed25519, ML-DSA-44 post-quantum)
-- Unified Cobra-based CLI with Lipgloss styling
-- Shared keystore and configuration across binaries
-
-**In Progress:**
-
-- Signature verification (currently delegates to Git/OpenSSL)
-- Python SDK, JavaScript SDK
-- COSE integration for wire format v1
-
-**Planned:**
-
-- HTTP middleware for service-to-service authentication
-- Service mesh integration
-- True ZK proofs for privacy-preserving authentication
-- Certificate revocation and renewal
-
-The codebase prioritizes correctness and security over features. Cryptographic operations use standard libraries (golang.org/x/crypto) and cloudflare/circl (for ML-DSA-44) with careful attention to memory zeroization and timing attacks.
-
-If a file is added to gitignore, please do not suggest committing that file. Some things, like INVESTIGATION_LOG.md are not tracked in git but are useful for local context.
+- Cobra + Lipgloss for all CLI commands
+- All binaries share the same master key, certificate authority, and keystore
+- CMS/PKCS#7 lives in go-cms, not here
+- If a file is added to `.gitignore`, do not suggest committing it. Files like `INVESTIGATION_LOG.md` are local-only context.

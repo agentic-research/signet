@@ -1,6 +1,6 @@
 # Revocation Strategy
 
-**Status**: Proposed
+**Status**: Implemented (see `pkg/revocation/`)
 **Date**: 2025-10-05
 
 ---

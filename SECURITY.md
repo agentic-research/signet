@@ -2,17 +2,17 @@
 
 ## Project Status
 
-⚠️ **EXPERIMENTAL SOFTWARE** - v0.0.1 is an alpha release not suitable for production use.
+⚠️ **EXPERIMENTAL SOFTWARE** - v0.1.0 is an alpha release not suitable for production use.
 
 ## Supported Versions
 
 | Version | Supported          | Status |
 | ------- | ------------------ | ------ |
-| 0.0.1   | :white_check_mark: | Alpha - Development only |
+| 0.1.0   | :white_check_mark: | Alpha - Development only |
 
 ## Known Security Limitations
 
-### v0.0.1 Alpha
+### v0.1.0 Alpha
 - Keys stored in the OS keyring by default; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or Signet is initialized with `--insecure`
 - `signet authority` and other long-running automation currently use file-based master keys (secure keyring support planned)
 - No security audit performed
@@ -51,7 +51,7 @@ Instead, please report them via:
 
 ## Security Best Practices
 
-When using Signet v0.0.1:
+When using Signet v0.1.0:
 1. **Do not use in production** - This is experimental software
 2. **Protect master keys** - Store in secure locations with proper permissions
 3. **Monitor key usage** - Check for unauthorized access to `~/.signet/`
@@ -69,9 +69,10 @@ Planned for v1.0:
 
 ## Cryptographic Details
 
-- **Signatures**: Ed25519 (RFC 8032)
+- **Signatures**: Ed25519 (RFC 8032), ML-DSA-44 (FIPS 204) via cloudflare/circl
 - **Hashing**: SHA-256, BLAKE3
-- **Encoding**: CMS/PKCS#7 (RFC 5652) with Ed25519 (RFC 8410)
+- **Encoding**: CMS/PKCS#7 (RFC 5652) with Ed25519 (RFC 8419)
+- **Wire Format**: COSE Sign1 with SIG1 compact encoding
 - **Certificates**: X.509 v3 with 5-minute validity
 - **Key derivation**: Not yet implemented (planned)
 

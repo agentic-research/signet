@@ -1,6 +1,6 @@
 # Signet Performance Benchmarks
 
-**Version:** v0.0.1-alpha
+**Version:** v0.1.0-alpha
 **Hardware:** Apple M3 Max
 **Date:** September 2025
 
@@ -87,13 +87,10 @@ The performance advantage comes from:
 
 ```bash
 # Run CMS benchmarks
-go test -bench=. ./pkg/cms -benchtime=10s -benchmem
-
-# Run certificate benchmarks
 go test -bench=. ./pkg/attest/x509 -benchtime=10s -benchmem
 
-# Run end-to-end benchmarks
-go test -bench=. ./cmd/signet-commit -benchtime=10s -benchmem
+# Run end-to-end benchmarks (CMS benchmarks live in go-cms repo)
+go test -bench=. ./cmd/signet-git -benchtime=10s -benchmem
 ```
 
 ## Known Limitations
