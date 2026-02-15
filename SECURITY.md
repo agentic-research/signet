@@ -71,7 +71,7 @@ Planned for v1.0:
 
 - **Signatures**: Ed25519 (RFC 8032), ML-DSA-44 (FIPS 204) via cloudflare/circl
 - **Hashing**: SHA-256, BLAKE3
-- **Encoding**: CMS/PKCS#7 (RFC 5652) with Ed25519 (RFC 8419)
+- **Encoding**: CMS/PKCS#7 (RFC 5652) with Ed25519 (RFC 8410)
 - **Wire Format**: COSE Sign1 with SIG1 compact encoding
 - **Certificates**: X.509 v3 with 5-minute validity
 - **Key derivation**: Not yet implemented (planned)
