@@ -3,15 +3,18 @@ package keys
 import (
 	"fmt"
 	"time"
+
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 )
 
 // internal configuration struct for the signer factory.
 // It is unexported to force the use of functional options.
 type signerConfig struct {
-	module   string
-	options  string
-	pin      string
-	validity time.Duration
+	module    string
+	options   string
+	pin       string
+	validity  time.Duration
+	algorithm algorithm.Algorithm
 }
 
 // A SignerOption configures a Signer.
@@ -49,6 +52,18 @@ func WithOptions(opts string) SignerOption {
 func WithPIN(pin string) SignerOption {
 	return func(c *signerConfig) error {
 		c.pin = pin
+		return nil
+	}
+}
+
+// WithAlgorithm sets the signing algorithm for the software signer.
+// Default is Ed25519. Only affects the "software" module.
+func WithAlgorithm(alg algorithm.Algorithm) SignerOption {
+	return func(c *signerConfig) error {
+		if !alg.Valid() {
+			return fmt.Errorf("unsupported algorithm: %s", alg)
+		}
+		c.algorithm = alg
 		return nil
 	}
 }

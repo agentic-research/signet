@@ -1,6 +1,6 @@
 # Signet
 
-Replace bearer tokens with cryptographic proof-of-possession. Signet provides tools for signing commits, files, and HTTP requests using ephemeral Ed25519 certificates.
+Replace bearer tokens with cryptographic proof-of-possession. Signet provides tools for signing commits, files, and HTTP requests using ephemeral certificates with algorithm agility (Ed25519 + ML-DSA-44 post-quantum).
 
 ## ⚠️ Status: v0.0.1 Experimental (Alpha)
 
@@ -46,14 +46,17 @@ git commit -S -m "Signed with Signet"
 Sign any file with the same primitives:
 
 ```bash
-# Initialize (shares keys with git signing)
+# Initialize with Ed25519 (default, shares keys with git signing)
 ./signet sign --init
+
+# Or initialize with ML-DSA-44 (post-quantum)
+./signet sign --init --algorithm ml-dsa-44
 
 # Sign files
 ./signet sign document.pdf
 # Creates document.pdf.sig
 
-# Verify with OpenSSL
+# Verify with OpenSSL (Ed25519 signatures)
 openssl cms -verify -binary -in document.pdf.sig -inform PEM
 ```
 
@@ -161,9 +164,10 @@ Signet's primitives are designed to be used independently:
 | Package | Purpose | Status |
 |---------|---------|--------|
 | [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ Unaudited |
+| [`pkg/crypto/algorithm`](./pkg/crypto/algorithm) | Algorithm registry (Ed25519, ML-DSA-44) with pluggable ops | Internal† |
 | [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
 | [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
-| [`pkg/crypto/keys`](./pkg/crypto/keys) | Ed25519 signer with zeroization + pluggable backends (PKCS#11, TouchID) | Internal† |
+| [`pkg/crypto/keys`](./pkg/crypto/keys) | Algorithm-agile signer with zeroization + pluggable backends (PKCS#11, TouchID) | Internal† |
 | [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal† |
 | [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal† |
 | [`pkg/http/middleware`](./pkg/http/middleware) | HTTP authentication middleware (server + client) | Internal† |
@@ -205,7 +209,8 @@ Signet is a set of cryptographic primitives with tools built on top:
 │                    Core Primitives (pkg/)                     │
 │  CMS (go-cms)  │  COSE  │  EPR  │  Tokens  │  LocalCA       │
 ├─────────────────────────────────────────────────────────────┤
-│                       Ed25519                                │
+│              Algorithm Registry (pkg/crypto/algorithm)        │
+│              Ed25519 (default)  │  ML-DSA-44 (post-quantum)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -237,13 +242,13 @@ make fmt lint
 
 Signet is in **alpha** (v0.0.1).
 
-**Current focus:** Hardening core primitives, Sigstore ecosystem integration, algorithm agility.
+**Current focus:** Hardening core primitives, Sigstore ecosystem integration.
 
 **Critical gaps before v1.0:**
 - Security audit (required before production use)
-- Algorithm agility (Ed25519 currently hardcoded; post-quantum readiness)
 - Complete key storage migration (some features still use plaintext fallback)
 - Signature verification CLI (`signet verify`)
+- ~~Algorithm agility~~ ✅ Implemented (Ed25519 + ML-DSA-44 via cloudflare/circl)
 
 ## Contributing
 
@@ -265,6 +270,7 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for develop
 
 **Unique features:**
 - One of the first Go libraries with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/jamestexas/go-cms), not yet security reviewed)
+- **Post-quantum ready** via ML-DSA-44 (FIPS 204) using [cloudflare/circl](https://github.com/cloudflare/circl)
 - Offline-first design (no network dependencies)
 - Ephemeral certificates (5-minute lifetime)
 - Sub-millisecond verification

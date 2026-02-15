@@ -66,8 +66,9 @@ Signet is a cryptographic authentication protocol replacing bearer tokens with e
 **libsignet (pkg/)** - Core protocol library:
 
 - `pkg/signet/`: CBOR token structures with integer keys for deterministic serialization
+- `pkg/crypto/algorithm/`: Algorithm registry (Ed25519, ML-DSA-44) with pluggable AlgorithmOps interface
 - `pkg/crypto/epr/`: Ephemeral Proof Routines - two-step verification (master signs ephemeral, ephemeral signs request)
-- `pkg/crypto/keys/`: Ed25519 key management and signing interfaces
+- `pkg/crypto/keys/`: Algorithm-agile key management, signing interfaces, and secure zeroization
 - `pkg/attest/x509/`: Local CA for generating short-lived certificates (5-minute default)
 - `pkg/cli/`: Shared CLI utilities (keystore, config, Lipgloss styling)
 - **Note**: CMS/PKCS#7 implementation has been extracted to [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms)
@@ -274,9 +275,10 @@ signet authority --help
 
 **What Works (Alpha):**
 
-- `signet-git`: Git signing with ephemeral certificates (GPG replacement)
-- `signet sign`: Universal file signing with CMS/PKCS#7 format
+- `signet-git`: Git signing with ephemeral certificates (GPG replacement, Ed25519 only)
+- `signet sign`: Universal file signing with CMS/PKCS#7 format (Ed25519 + ML-DSA-44)
 - `signet authority`: OIDC-based certificate authority (experimental)
+- Algorithm agility via `pkg/crypto/algorithm` registry (Ed25519, ML-DSA-44 post-quantum)
 - Unified Cobra-based CLI with Lipgloss styling
 - Shared keystore and configuration across binaries
 
@@ -293,6 +295,6 @@ signet authority --help
 - True ZK proofs for privacy-preserving authentication
 - Certificate revocation and renewal
 
-The codebase prioritizes correctness and security over features. All cryptographic operations use standard libraries (golang.org/x/crypto) with careful attention to memory zeroization and timing attacks.
+The codebase prioritizes correctness and security over features. Cryptographic operations use standard libraries (golang.org/x/crypto) and cloudflare/circl (for ML-DSA-44) with careful attention to memory zeroization and timing attacks.
 
 If a file is added to gitignore, please do not suggest committing that file. Some things, like INVESTIGATION_LOG.md are not tracked in git but are useful for local context.

@@ -2,13 +2,14 @@ package revocation
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 	"github.com/jamestexas/signet/pkg/revocation/cabundle"
 	"github.com/jamestexas/signet/pkg/revocation/types"
@@ -26,13 +27,14 @@ type CABundleChecker struct {
 	fetcher     types.Fetcher
 	storage     types.Storage
 	cache       *cabundle.BundleCache
-	trustAnchor ed25519.PublicKey // Public key to verify bundle signatures
+	trustAnchor crypto.PublicKey // Public key to verify bundle signatures
 }
 
 // NewCABundleChecker creates a new CABundleChecker with signature verification.
 // The trustAnchor is the public key used to verify CA bundle signatures.
 // This prevents attackers from serving fake bundles.
-func NewCABundleChecker(fetcher types.Fetcher, storage types.Storage, cache *cabundle.BundleCache, trustAnchor ed25519.PublicKey) *CABundleChecker {
+// Accepts any crypto.PublicKey (Ed25519, ML-DSA, etc.).
+func NewCABundleChecker(fetcher types.Fetcher, storage types.Storage, cache *cabundle.BundleCache, trustAnchor crypto.PublicKey) *CABundleChecker {
 	return &CABundleChecker{
 		fetcher:     fetcher,
 		storage:     storage,
@@ -148,7 +150,7 @@ func extractKID(token *signet.Token) string {
 	return string(token.KeyID)
 }
 
-// verifyBundleSignature verifies the Ed25519 signature on a CA bundle.
+// verifyBundleSignature verifies the signature on a CA bundle.
 // The signature covers the deterministic CBOR encoding of the bundle
 // (excluding the signature field itself).
 func (c *CABundleChecker) verifyBundleSignature(bundle *types.CABundle) error {
@@ -191,8 +193,12 @@ func (c *CABundleChecker) verifyBundleSignature(bundle *types.CABundle) error {
 		return fmt.Errorf("failed to marshal bundle for verification: %w", err)
 	}
 
-	// Verify Ed25519 signature
-	if !ed25519.Verify(c.trustAnchor, canonical, signatureCopy) {
+	// Verify signature using the algorithm registry
+	valid, err := algorithm.Verify(c.trustAnchor, canonical, signatureCopy)
+	if err != nil {
+		return fmt.Errorf("%w: unsupported trust anchor key type", ErrInvalidBundle)
+	}
+	if !valid {
 		return ErrInvalidBundle
 	}
 

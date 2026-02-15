@@ -5,6 +5,8 @@ package keys
 import (
 	"crypto"
 	"fmt"
+
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 )
 
 // NewSigner is the factory function for creating signers.
@@ -21,11 +23,19 @@ func NewSigner(opts ...SignerOption) (crypto.Signer, error) {
 	// 2. Route to the correct signer constructor
 	switch cfg.module {
 	case "", "software":
-		_, priv, err := GenerateEd25519KeyPair()
+		alg := cfg.algorithm
+		if alg == "" {
+			alg = algorithm.Ed25519
+		}
+		ops, err := algorithm.Get(alg)
+		if err != nil {
+			return nil, fmt.Errorf("unsupported algorithm %q: %w", alg, err)
+		}
+		_, signer, err := ops.GenerateKey()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate ephemeral key for software signer: %w", err)
 		}
-		return NewEd25519Signer(priv), nil
+		return signer, nil
 	case "pkcs11":
 		return nil, fmt.Errorf("pkcs11 support not compiled in; please build with '-tags pkcs11'")
 	case "touchid":

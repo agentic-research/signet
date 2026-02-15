@@ -24,6 +24,10 @@ type Config struct {
 
 	// CertificateValidityMinutes is the duration for ephemeral certificates
 	CertificateValidityMinutes int
+
+	// Algorithm is the signing algorithm to use (default: "ed25519").
+	// Supported values: "ed25519", "ml-dsa-44".
+	Algorithm string
 }
 
 // Default returns the default configuration
@@ -48,6 +52,10 @@ func Load() (*Config, error) {
 
 	if did := os.Getenv("SIGNET_DID"); did != "" {
 		cfg.IssuerDID = did
+	}
+
+	if alg := os.Getenv("SIGNET_ALGORITHM"); alg != "" {
+		cfg.Algorithm = alg
 	}
 
 	return cfg, nil

@@ -11,6 +11,7 @@ import (
 	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
 	"github.com/jamestexas/signet/pkg/cli/keystore"
 	"github.com/jamestexas/signet/pkg/cli/styles"
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 	"github.com/jamestexas/signet/pkg/crypto/keys"
 )
 
@@ -24,6 +25,7 @@ var (
 	signVerifySig    string
 	signSignerModule string
 	signSignerOpts   string
+	signAlgorithm    string
 )
 
 var signCmd = &cobra.Command{
@@ -67,6 +69,7 @@ func init() {
 	signCmd.Flags().StringVar(&signVerifySig, "verify-sig", "", "Signature file for verification")
 	signCmd.Flags().StringVar(&signSignerModule, "signer-module", "software", "Signer module: software (default) or pkcs11")
 	signCmd.Flags().StringVar(&signSignerOpts, "signer-opts", "", "Module-specific options (e.g., for pkcs11: module-path=/path/to/lib.so,slot-id=0)")
+	signCmd.Flags().StringVar(&signAlgorithm, "algorithm", "ed25519", "Signing algorithm: ed25519 (default), ml-dsa-44")
 
 	rootCmd.AddCommand(signCmd)
 }
@@ -77,7 +80,11 @@ func runSign(cmd *cobra.Command, args []string) error {
 
 	// Handle initialization
 	if signInitFlag {
-		if err := keystore.InitializeSecure(signForceFlag); err != nil {
+		alg := algorithm.Algorithm(signAlgorithm)
+		if !alg.Valid() {
+			return fmt.Errorf("unsupported algorithm: %s (supported: ed25519, ml-dsa-44)", signAlgorithm)
+		}
+		if err := keystore.InitializeSecure(signForceFlag, alg); err != nil {
 			return fmt.Errorf("initialization failed: %w", err)
 		}
 

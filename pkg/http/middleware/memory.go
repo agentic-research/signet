@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"encoding/hex"
 	"fmt"
 	"sync"
@@ -180,25 +180,25 @@ func (s *MemoryNonceStore) cleanupLoop() {
 // MultiKeyProvider implements KeyProvider with support for multiple issuers
 type MultiKeyProvider struct {
 	mu   sync.RWMutex
-	keys map[string]ed25519.PublicKey
+	keys map[string]crypto.PublicKey
 }
 
 // NewMultiKeyProvider creates a key provider supporting multiple issuers
 func NewMultiKeyProvider() *MultiKeyProvider {
 	return &MultiKeyProvider{
-		keys: make(map[string]ed25519.PublicKey),
+		keys: make(map[string]crypto.PublicKey),
 	}
 }
 
 // AddKey registers a master public key for an issuer
-func (p *MultiKeyProvider) AddKey(issuerID string, key ed25519.PublicKey) {
+func (p *MultiKeyProvider) AddKey(issuerID string, key crypto.PublicKey) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.keys[issuerID] = key
 }
 
 // GetMasterKey retrieves the master public key for an issuer
-func (p *MultiKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (ed25519.PublicKey, error) {
+func (p *MultiKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (crypto.PublicKey, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 

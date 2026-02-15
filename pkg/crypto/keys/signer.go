@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/jamestexas/signet/pkg/crypto/algorithm"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -98,12 +99,13 @@ func DeriveKeyFromPassword(password []byte, salt []byte) []byte {
 	return key
 }
 
-// HashPublicKey creates a hash of a public key for use as ConfirmationID
+// HashPublicKey creates a hash of a public key for use as ConfirmationID.
+// Supports any algorithm registered in the algorithm registry.
 func HashPublicKey(publicKey crypto.PublicKey) ([]byte, error) {
-	pub, ok := publicKey.(ed25519.PublicKey)
-	if !ok {
+	pubBytes, err := algorithm.MarshalPublicKey(publicKey)
+	if err != nil {
 		return nil, errors.New("unsupported public key type")
 	}
-	hash := sha256.Sum256(pub)
+	hash := sha256.Sum256(pubBytes)
 	return hash[:], nil
 }

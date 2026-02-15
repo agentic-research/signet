@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"fmt"
 	"log"
@@ -209,11 +210,11 @@ func Example_customCanonical() {
 
 // DynamicKeyProvider fetches keys from an external authority
 type DynamicKeyProvider struct {
-	cache     map[string]ed25519.PublicKey
+	cache     map[string]crypto.PublicKey
 	cacheTime time.Time
 }
 
-func (p *DynamicKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (ed25519.PublicKey, error) {
+func (p *DynamicKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (crypto.PublicKey, error) {
 	// Check cache
 	if time.Since(p.cacheTime) > 5*time.Minute {
 		// Refresh cache from authority
