@@ -53,6 +53,23 @@ func (e *ed25519Ops) MarshalPublicKey(pub crypto.PublicKey) ([]byte, error) {
 	return []byte(edPub), nil
 }
 
+func (e *ed25519Ops) UnmarshalPublicKey(data []byte) (crypto.PublicKey, error) {
+	if len(data) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid ed25519 public key length: got %d, want %d", len(data), ed25519.PublicKeySize)
+	}
+	return ed25519.PublicKey(data), nil
+}
+
+func (e *ed25519Ops) MatchesPublicKey(pub crypto.PublicKey) bool {
+	_, ok := pub.(ed25519.PublicKey)
+	return ok
+}
+
+func (e *ed25519Ops) MatchesPrivateKey(key crypto.PrivateKey) bool {
+	_, ok := key.(ed25519.PrivateKey)
+	return ok
+}
+
 func (e *ed25519Ops) ZeroizePrivateKey(key crypto.PrivateKey) {
 	edKey, ok := key.(ed25519.PrivateKey)
 	if !ok {

@@ -58,6 +58,24 @@ func (m *mldsaOps) MarshalPublicKey(pub crypto.PublicKey) ([]byte, error) {
 	return mlPub.Bytes(), nil
 }
 
+func (m *mldsaOps) UnmarshalPublicKey(data []byte) (crypto.PublicKey, error) {
+	pub := new(mldsa44.PublicKey)
+	if err := pub.UnmarshalBinary(data); err != nil {
+		return nil, fmt.Errorf("invalid ml-dsa-44 public key: %w", err)
+	}
+	return pub, nil
+}
+
+func (m *mldsaOps) MatchesPublicKey(pub crypto.PublicKey) bool {
+	_, ok := pub.(*mldsa44.PublicKey)
+	return ok
+}
+
+func (m *mldsaOps) MatchesPrivateKey(key crypto.PrivateKey) bool {
+	_, ok := key.(*mldsa44.PrivateKey)
+	return ok
+}
+
 func (m *mldsaOps) ZeroizePrivateKey(key crypto.PrivateKey) {
 	mlKey, ok := key.(*mldsa44.PrivateKey)
 	if !ok {
