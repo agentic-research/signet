@@ -25,16 +25,50 @@ type AlgorithmOps interface {
 	// MarshalPublicKey serializes a public key to bytes for hashing or storage.
 	MarshalPublicKey(pub crypto.PublicKey) ([]byte, error)
 
+	// UnmarshalPublicKey deserializes a public key from bytes.
+	UnmarshalPublicKey(data []byte) (crypto.PublicKey, error)
+
+	// MatchesPublicKey reports whether the given public key is of this algorithm's type.
+	MatchesPublicKey(pub crypto.PublicKey) bool
+
+	// MatchesPrivateKey reports whether the given private key is of this algorithm's type.
+	MatchesPrivateKey(key crypto.PrivateKey) bool
+
 	// ZeroizePrivateKey securely zeros private key material.
 	ZeroizePrivateKey(key crypto.PrivateKey)
 }
 
 // registry maps algorithm names to their implementations.
+//
+// Dispatch functions (Verify, MarshalPublicKey, ZeroizePrivateKey) iterate this map
+// and match via MatchesPublicKey/MatchesPrivateKey, so exactly one algorithm should
+// claim each concrete key type. If two algorithms claim the same type, the first
+// match wins — but map iteration order is non-deterministic, so that would be a bug.
 var registry = map[Algorithm]AlgorithmOps{}
 
 // Register adds an algorithm implementation to the registry.
 // Called by init() functions in algorithm-specific files.
+//
+// Panics if the new algorithm's key types overlap with an already-registered
+// algorithm, since dispatch functions rely on exactly one match.
 func Register(alg Algorithm, ops AlgorithmOps) {
+	// Generate a test key pair to check for key-type collisions.
+	// Note: signer is crypto.Signer but also satisfies crypto.PrivateKey for
+	// ZeroizePrivateKey — this is an implicit contract on GenerateKey() that
+	// the returned signer's concrete type must match MatchesPrivateKey.
+	pub, signer, err := ops.GenerateKey()
+	if err != nil {
+		panic(fmt.Sprintf("Register(%s): GenerateKey failed: %v", alg, err))
+	}
+	defer ops.ZeroizePrivateKey(signer)
+	for existingAlg, existingOps := range registry {
+		if existingOps.MatchesPublicKey(pub) {
+			panic(fmt.Sprintf("Register(%s): public key type %T already claimed by %s", alg, pub, existingAlg))
+		}
+		if existingOps.MatchesPrivateKey(signer) {
+			panic(fmt.Sprintf("Register(%s): private key type %T already claimed by %s", alg, signer, existingAlg))
+		}
+	}
 	registry[alg] = ops
 }
 
@@ -58,32 +92,48 @@ func MustGet(alg Algorithm) AlgorithmOps {
 }
 
 // MarshalPublicKey serializes a public key using the appropriate algorithm.
-// It tries each registered algorithm until one succeeds.
+// Dispatches deterministically via MatchesPublicKey.
 func MarshalPublicKey(pub crypto.PublicKey) ([]byte, error) {
 	for _, ops := range registry {
-		b, err := ops.MarshalPublicKey(pub)
-		if err == nil {
-			return b, nil
+		if ops.MatchesPublicKey(pub) {
+			return ops.MarshalPublicKey(pub)
 		}
 	}
 	return nil, fmt.Errorf("unsupported public key type: %T", pub)
 }
 
+// UnmarshalPublicKey deserializes a public key using the named algorithm.
+// The algorithm must be specified because raw bytes are ambiguous.
+func UnmarshalPublicKey(alg Algorithm, data []byte) (crypto.PublicKey, error) {
+	ops, err := Get(alg)
+	if err != nil {
+		return nil, err
+	}
+	return ops.UnmarshalPublicKey(data)
+}
+
 // Verify checks a signature using the appropriate algorithm for the given public key.
-// It tries each registered algorithm until one succeeds.
+// Dispatches deterministically via MatchesPublicKey.
 func Verify(pub crypto.PublicKey, message, signature []byte) (bool, error) {
 	for _, ops := range registry {
-		ok, err := ops.Verify(pub, message, signature)
-		if err == nil {
-			return ok, nil
+		if ops.MatchesPublicKey(pub) {
+			return ops.Verify(pub, message, signature)
 		}
 	}
 	return false, fmt.Errorf("unsupported public key type for verification: %T", pub)
 }
 
 // ZeroizePrivateKey securely zeros private key material using the appropriate algorithm.
+// Dispatches deterministically via MatchesPrivateKey.
+//
+// Panics if no registered algorithm matches the key type. For a security-critical
+// operation, silently ignoring an unrecognized key would mask bugs.
 func ZeroizePrivateKey(key crypto.PrivateKey) {
 	for _, ops := range registry {
-		ops.ZeroizePrivateKey(key)
+		if ops.MatchesPrivateKey(key) {
+			ops.ZeroizePrivateKey(key)
+			return
+		}
 	}
+	panic(fmt.Sprintf("ZeroizePrivateKey: no registered algorithm for key type %T", key))
 }

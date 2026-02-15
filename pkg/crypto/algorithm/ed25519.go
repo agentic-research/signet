@@ -27,6 +27,12 @@ func (e *ed25519Ops) GenerateKeyFromSeed(seed []byte) (crypto.PublicKey, crypto.
 	if len(seed) != ed25519.SeedSize {
 		hash := sha256.Sum256(seed)
 		seed = hash[:]
+		defer func() {
+			for i := range hash {
+				hash[i] = 0
+			}
+			runtime.KeepAlive(hash)
+		}()
 	}
 	priv := ed25519.NewKeyFromSeed(seed)
 	pub := priv.Public().(ed25519.PublicKey)
@@ -53,10 +59,31 @@ func (e *ed25519Ops) MarshalPublicKey(pub crypto.PublicKey) ([]byte, error) {
 	return []byte(edPub), nil
 }
 
+func (e *ed25519Ops) UnmarshalPublicKey(data []byte) (crypto.PublicKey, error) {
+	if len(data) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid ed25519 public key length: got %d, want %d", len(data), ed25519.PublicKeySize)
+	}
+	// Defensive copy — ed25519.PublicKey is a []byte alias, so without this
+	// the caller could mutate data and change the key.
+	key := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	copy(key, data)
+	return key, nil
+}
+
+func (e *ed25519Ops) MatchesPublicKey(pub crypto.PublicKey) bool {
+	_, ok := pub.(ed25519.PublicKey)
+	return ok
+}
+
+func (e *ed25519Ops) MatchesPrivateKey(key crypto.PrivateKey) bool {
+	_, ok := key.(ed25519.PrivateKey)
+	return ok
+}
+
 func (e *ed25519Ops) ZeroizePrivateKey(key crypto.PrivateKey) {
 	edKey, ok := key.(ed25519.PrivateKey)
 	if !ok {
-		return
+		panic(fmt.Sprintf("ed25519Ops.ZeroizePrivateKey: expected ed25519.PrivateKey, got %T", key))
 	}
 	for i := range edKey {
 		edKey[i] = 0
