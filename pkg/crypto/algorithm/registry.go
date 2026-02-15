@@ -57,6 +57,7 @@ func Register(alg Algorithm, ops AlgorithmOps) {
 	if err != nil {
 		panic(fmt.Sprintf("Register(%s): GenerateKey failed: %v", alg, err))
 	}
+	defer ops.ZeroizePrivateKey(signer)
 	for existingAlg, existingOps := range registry {
 		if existingOps.MatchesPublicKey(pub) {
 			panic(fmt.Sprintf("Register(%s): public key type %T already claimed by %s", alg, pub, existingAlg))

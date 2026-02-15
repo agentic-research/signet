@@ -57,7 +57,11 @@ func (e *ed25519Ops) UnmarshalPublicKey(data []byte) (crypto.PublicKey, error) {
 	if len(data) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("invalid ed25519 public key length: got %d, want %d", len(data), ed25519.PublicKeySize)
 	}
-	return ed25519.PublicKey(data), nil
+	// Defensive copy — ed25519.PublicKey is a []byte alias, so without this
+	// the caller could mutate data and change the key.
+	key := make(ed25519.PublicKey, ed25519.PublicKeySize)
+	copy(key, data)
+	return key, nil
 }
 
 func (e *ed25519Ops) MatchesPublicKey(pub crypto.PublicKey) bool {
