@@ -59,12 +59,9 @@ func NewFileStorage(dir string, hmacKey []byte) (*FileStorage, error) {
 	}, nil
 }
 
-// GetLastSeenSeqno returns the last seen sequence number for a given issuer ID.
-// Returns 0 if no sequence number has been stored yet (first time seeing this issuer).
-func (s *FileStorage) GetLastSeenSeqno(ctx context.Context, issuerID string) (uint64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+// readSeqnoInternal reads and verifies the sequence number without locking.
+// Caller must hold the lock (RLock or Lock).
+func (s *FileStorage) readSeqnoInternal(issuerID string) (uint64, error) {
 	filePath := s.seqnoPath(issuerID)
 
 	// If file doesn't exist, this is the first time we're seeing this issuer
@@ -96,11 +93,31 @@ func (s *FileStorage) GetLastSeenSeqno(ctx context.Context, issuerID string) (ui
 	return seqno, nil
 }
 
-// SetLastSeenSeqno stores the last seen sequence number for a given issuer ID.
+// GetLastSeenSeqno returns the last seen sequence number for a given issuer ID.
+// Returns 0 if no sequence number has been stored yet (first time seeing this issuer).
+func (s *FileStorage) GetLastSeenSeqno(ctx context.Context, issuerID string) (uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readSeqnoInternal(issuerID)
+}
+
+// SetLastSeenSeqnoIfGreater stores the last seen sequence number for a given issuer ID
+// ONLY if the new sequence number is greater than the currently stored one.
 // The seqno is protected with an HMAC to prevent tampering.
-func (s *FileStorage) SetLastSeenSeqno(ctx context.Context, issuerID string, seqno uint64) error {
+func (s *FileStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID string, seqno uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Read current value to ensure monotonicity
+	current, err := s.readSeqnoInternal(issuerID)
+	if err != nil {
+		return err
+	}
+
+	// Atomic check: only update if new seqno is greater
+	if seqno <= current {
+		return nil // Already seen a higher or equal seqno
+	}
 
 	filePath := s.seqnoPath(issuerID)
 

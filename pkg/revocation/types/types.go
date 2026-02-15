@@ -40,8 +40,11 @@ type Storage interface {
 	// GetLastSeenSeqno returns the last seen sequence number for a given issuer ID.
 	GetLastSeenSeqno(ctx context.Context, issuerID string) (uint64, error)
 
-	// SetLastSeenSeqno sets the last seen sequence number for a given issuer ID.
-	SetLastSeenSeqno(ctx context.Context, issuerID string, seqno uint64) error
+	// SetLastSeenSeqnoIfGreater sets the last seen sequence number for a given issuer ID
+	// ONLY if the new sequence number is greater than the currently stored one.
+	// This operation MUST be atomic to prevent TOCTOU race conditions.
+	// Returns nil if updated, or an error if the update failed or was not greater.
+	SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID string, seqno uint64) error
 }
 
 // GetKeys returns a defensive copy of the Keys map to prevent external modifications.

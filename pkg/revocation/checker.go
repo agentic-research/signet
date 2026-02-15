@@ -91,15 +91,11 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 	}
 
 	// Step 5: Persist new seqno immediately after validation
-	// Do this BEFORE other checks to prevent TOCTOU issues
-	// Only update if the seqno has actually increased
-	//
-	// NOTE ON ATOMICITY: The storage implementation should provide atomic compare-and-swap
-	// or transaction semantics to handle concurrent updates. The conditional update pattern
-	// (only if greater) provides idempotency - multiple concurrent updates with the same
-	// seqno are safe, and the highest seqno always wins.
+	// Do this BEFORE other checks to prevent TOCTOU issues.
+	// We use SetLastSeenSeqnoIfGreater which provides atomic compare-and-swap semantics
+	// to ensure we never overwrite a higher sequence number with a lower one in case of races.
 	if bundle.Seqno > lastSeenSeqno {
-		if err := c.storage.SetLastSeenSeqno(ctx, token.IssuerID, bundle.Seqno); err != nil {
+		if err := c.storage.SetLastSeenSeqnoIfGreater(ctx, token.IssuerID, bundle.Seqno); err != nil {
 			return false, fmt.Errorf("storage persist failed: %w", err)
 		}
 	}
