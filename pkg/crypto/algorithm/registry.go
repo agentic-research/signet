@@ -39,6 +39,11 @@ type AlgorithmOps interface {
 }
 
 // registry maps algorithm names to their implementations.
+//
+// Dispatch functions (Verify, MarshalPublicKey, ZeroizePrivateKey) iterate this map
+// and match via MatchesPublicKey/MatchesPrivateKey, so exactly one algorithm should
+// claim each concrete key type. If two algorithms claim the same type, the first
+// match wins — but map iteration order is non-deterministic, so that would be a bug.
 var registry = map[Algorithm]AlgorithmOps{}
 
 // Register adds an algorithm implementation to the registry.
@@ -100,6 +105,9 @@ func Verify(pub crypto.PublicKey, message, signature []byte) (bool, error) {
 
 // ZeroizePrivateKey securely zeros private key material using the appropriate algorithm.
 // Dispatches deterministically via MatchesPrivateKey.
+//
+// Panics if no registered algorithm matches the key type. For a security-critical
+// operation, silently ignoring an unrecognized key would mask bugs.
 func ZeroizePrivateKey(key crypto.PrivateKey) {
 	for _, ops := range registry {
 		if ops.MatchesPrivateKey(key) {
@@ -107,4 +115,5 @@ func ZeroizePrivateKey(key crypto.PrivateKey) {
 			return
 		}
 	}
+	panic(fmt.Sprintf("ZeroizePrivateKey: no registered algorithm for key type %T", key))
 }

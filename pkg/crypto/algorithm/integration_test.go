@@ -253,6 +253,17 @@ func TestVerify_UnsupportedKeyType(t *testing.T) {
 	}
 }
 
+// Edge case: ZeroizePrivateKey panics on unknown key type
+func TestZeroizePrivateKey_UnknownType_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for unknown key type")
+		}
+	}()
+	algorithm.ZeroizePrivateKey("not-a-key")
+}
+
 // Edge case: Unmarshal then verify — full deserialization consumer path
 func TestUnmarshalThenVerify_Ed25519(t *testing.T) {
 	testUnmarshalThenVerify(t, algorithm.Ed25519)
