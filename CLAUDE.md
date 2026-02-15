@@ -88,7 +88,7 @@ make security              # Security scan (requires gosec)
 | `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`) |
 | `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
-External: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8419), used for both git signing and file signing.
+External: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), used for both git signing and file signing.
 
 ## Implementation Patterns
 
