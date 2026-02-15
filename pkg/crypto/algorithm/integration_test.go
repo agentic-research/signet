@@ -112,7 +112,7 @@ func TestCrossAlgorithm_VerifyDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ed25519 GenerateKey: %v", err)
 	}
-	_, mlSigner, err := mlOps.GenerateKey()
+	mlPub, mlSigner, err := mlOps.GenerateKey()
 	if err != nil {
 		t.Fatalf("ml-dsa-44 GenerateKey: %v", err)
 	}
@@ -129,22 +129,39 @@ func TestCrossAlgorithm_VerifyDispatch(t *testing.T) {
 		t.Fatalf("ml-dsa-44 Sign: %v", err)
 	}
 
-	// Ed25519 key + ML-DSA sig → should fail gracefully via dispatch
+	// Ed25519 key + ML-DSA sig → should fail gracefully
 	ok, err := algorithm.Verify(edPub, message, mlSig)
 	if err != nil {
-		t.Fatalf("cross-algo Verify returned error: %v", err)
+		t.Fatalf("cross-algo Verify(ed25519 key, mldsa sig) error: %v", err)
 	}
 	if ok {
-		t.Fatal("cross-algo verify should return false")
+		t.Fatal("ed25519 key + mldsa sig should return false")
 	}
 
-	// Verify correct pairing still works
+	// ML-DSA key + Ed25519 sig → should fail gracefully (reverse direction)
+	ok, err = algorithm.Verify(mlPub, message, edSig)
+	if err != nil {
+		t.Fatalf("cross-algo Verify(mldsa key, ed25519 sig) error: %v", err)
+	}
+	if ok {
+		t.Fatal("mldsa key + ed25519 sig should return false")
+	}
+
+	// Verify correct pairings still work
 	ok, err = algorithm.Verify(edPub, message, edSig)
 	if err != nil {
-		t.Fatalf("same-algo Verify: %v", err)
+		t.Fatalf("same-algo Verify(ed25519): %v", err)
 	}
 	if !ok {
-		t.Fatal("same-algo verify should return true")
+		t.Fatal("ed25519 same-algo verify should return true")
+	}
+
+	ok, err = algorithm.Verify(mlPub, message, mlSig)
+	if err != nil {
+		t.Fatalf("same-algo Verify(mldsa): %v", err)
+	}
+	if !ok {
+		t.Fatal("mldsa same-algo verify should return true")
 	}
 }
 
@@ -186,5 +203,100 @@ func testWrongKeySameAlgorithm(t *testing.T, alg algorithm.Algorithm) {
 	}
 	if ok {
 		t.Fatal("signature from key A verified with key B")
+	}
+}
+
+// Edge case: UnmarshalPublicKey rejects invalid input
+func TestUnmarshalPublicKey_InvalidData(t *testing.T) {
+	tests := []struct {
+		name string
+		alg  algorithm.Algorithm
+		data []byte
+	}{
+		{"ed25519/empty", algorithm.Ed25519, []byte{}},
+		{"ed25519/truncated", algorithm.Ed25519, []byte{1, 2, 3}},
+		{"ed25519/too_long", algorithm.Ed25519, make([]byte, 64)},
+		{"mldsa44/empty", algorithm.MLDSA44, []byte{}},
+		{"mldsa44/truncated", algorithm.MLDSA44, []byte{1, 2, 3}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := algorithm.UnmarshalPublicKey(tt.alg, tt.data)
+			if err == nil {
+				t.Fatal("expected error for invalid data")
+			}
+		})
+	}
+}
+
+// Edge case: UnmarshalPublicKey with unknown algorithm
+func TestUnmarshalPublicKey_UnknownAlgorithm(t *testing.T) {
+	_, err := algorithm.UnmarshalPublicKey(algorithm.Algorithm("bogus"), []byte{1, 2, 3})
+	if err == nil {
+		t.Fatal("expected error for unknown algorithm")
+	}
+}
+
+// Edge case: MarshalPublicKey with unsupported key type
+func TestMarshalPublicKey_UnsupportedType(t *testing.T) {
+	_, err := algorithm.MarshalPublicKey("not-a-key")
+	if err == nil {
+		t.Fatal("expected error for unsupported key type")
+	}
+}
+
+// Edge case: Verify with unsupported key type
+func TestVerify_UnsupportedKeyType(t *testing.T) {
+	_, err := algorithm.Verify("not-a-key", []byte("msg"), []byte("sig"))
+	if err == nil {
+		t.Fatal("expected error for unsupported key type")
+	}
+}
+
+// Edge case: Unmarshal then verify — full deserialization consumer path
+func TestUnmarshalThenVerify_Ed25519(t *testing.T) {
+	testUnmarshalThenVerify(t, algorithm.Ed25519)
+}
+
+func TestUnmarshalThenVerify_MLDSA44(t *testing.T) {
+	testUnmarshalThenVerify(t, algorithm.MLDSA44)
+}
+
+func testUnmarshalThenVerify(t *testing.T, alg algorithm.Algorithm) {
+	t.Helper()
+
+	ops, err := algorithm.Get(alg)
+	if err != nil {
+		t.Fatalf("Get(%s): %v", alg, err)
+	}
+
+	pub, signer, err := ops.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+
+	message := []byte("unmarshal-then-verify")
+	sig, err := signer.Sign(rand.Reader, message, crypto.Hash(0))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+
+	// Simulate receiver: marshal key, transmit, unmarshal, verify
+	data, err := algorithm.MarshalPublicKey(pub)
+	if err != nil {
+		t.Fatalf("MarshalPublicKey: %v", err)
+	}
+
+	restored, err := algorithm.UnmarshalPublicKey(alg, data)
+	if err != nil {
+		t.Fatalf("UnmarshalPublicKey: %v", err)
+	}
+
+	ok, err := algorithm.Verify(restored, message, sig)
+	if err != nil {
+		t.Fatalf("Verify with unmarshaled key: %v", err)
+	}
+	if !ok {
+		t.Fatal("signature rejected after marshal/unmarshal round-trip")
 	}
 }
