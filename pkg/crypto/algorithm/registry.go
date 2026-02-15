@@ -48,7 +48,23 @@ var registry = map[Algorithm]AlgorithmOps{}
 
 // Register adds an algorithm implementation to the registry.
 // Called by init() functions in algorithm-specific files.
+//
+// Panics if the new algorithm's key types overlap with an already-registered
+// algorithm, since dispatch functions rely on exactly one match.
 func Register(alg Algorithm, ops AlgorithmOps) {
+	// Generate a test key pair to check for key-type collisions.
+	pub, signer, err := ops.GenerateKey()
+	if err != nil {
+		panic(fmt.Sprintf("Register(%s): GenerateKey failed: %v", alg, err))
+	}
+	for existingAlg, existingOps := range registry {
+		if existingOps.MatchesPublicKey(pub) {
+			panic(fmt.Sprintf("Register(%s): public key type %T already claimed by %s", alg, pub, existingAlg))
+		}
+		if existingOps.MatchesPrivateKey(signer) {
+			panic(fmt.Sprintf("Register(%s): private key type %T already claimed by %s", alg, signer, existingAlg))
+		}
+	}
 	registry[alg] = ops
 }
 
