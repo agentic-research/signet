@@ -35,4 +35,4 @@ Features: EPR verification, replay prevention, pluggable token/nonce stores (mem
 
 ### Usage
 
-See `header_test.go` and `header_vectors_test.go` for wire format examples, and `middleware/example_test.go` for middleware usage.
+See `./header/header_vectors_test.go` for wire format examples, and `./middleware/example_test.go` for middleware usage.
