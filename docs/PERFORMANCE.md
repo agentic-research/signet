@@ -86,11 +86,14 @@ The performance advantage comes from:
 ## How to Reproduce
 
 ```bash
-# Run CMS benchmarks
+# Run Certificate generation benchmarks
 go test -bench=. ./pkg/attest/x509 -benchtime=10s -benchmem
 
-# Run end-to-end benchmarks (CMS benchmarks live in go-cms repo)
-go test -bench=. ./cmd/signet-git -benchtime=10s -benchmem
+# Run Canonical signature benchmarks
+go test -bench=. ./pkg/crypto/epr -benchtime=10s -benchmem
+
+# Run Revocation checking benchmarks
+go test -bench=. ./pkg/revocation -benchtime=10s -benchmem
 ```
 
 ## Known Limitations
