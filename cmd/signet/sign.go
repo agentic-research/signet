@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"time"
@@ -129,51 +131,68 @@ func runSign(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load master key from OS keyring
-	masterKey, err := keystore.LoadMasterKeySecure()
+	alg, masterKey, err := keystore.LoadMasterKeySecureGeneric()
 	if err != nil {
 		msg := styles.Info.Render("→") + " Run " + styles.Code.Render("signet sign --init") + " to initialize\n"
 		fmt.Fprint(os.Stderr, msg)
 		return fmt.Errorf("failed to load master key: %w", err)
 	}
-	defer masterKey.Destroy()
-
-	// Create Local CA
-	ca := attestx509.NewLocalCA(masterKey, cfg.IssuerDID)
-
-	// Calculate certificate validity
-	certValidity := time.Duration(cfg.CertificateValidityMinutes) * time.Minute
-
-	// Create signer using factory (supports software and hardware backends)
-	signer, err := keys.NewSigner(
-		keys.WithModule(signSignerModule),
-		keys.WithOptions(signSignerOpts),
-		keys.WithValidity(certValidity),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create signer: %w", err)
-	}
-
-	// Clean up signer resources if it implements Destroy()
-	if destroyer, ok := signer.(interface{ Destroy() }); ok {
+	if destroyer, ok := masterKey.(interface{ Destroy() }); ok {
 		defer destroyer.Destroy()
 	}
 
-	// Issue certificate for the signer (works with any crypto.Signer implementation)
-	cert, _, err := ca.IssueCertificateForSigner(signer, certValidity)
-	if err != nil {
-		return fmt.Errorf("failed to generate certificate: %w", err)
+	// Auto-switch to raw format for ML-DSA-44 if CMS is requested
+	if alg == algorithm.MLDSA44 && signFormat == "cms" {
+		fmt.Println(styles.Warning.Render("⚠") + " CMS format not supported for ML-DSA-44. Switching to 'raw' format.")
+		signFormat = "raw"
 	}
 
-	// Create CMS signature based on format
+	// Create signature based on format
 	var signature []byte
 	switch signFormat {
 	case "cms":
+		// Create Local CA
+		ca := attestx509.NewLocalCA(masterKey, cfg.IssuerDID)
+
+		// Calculate certificate validity
+		certValidity := time.Duration(cfg.CertificateValidityMinutes) * time.Minute
+
+		// Create signer using factory (supports software and hardware backends)
+		signer, err := keys.NewSigner(
+			keys.WithModule(signSignerModule),
+			keys.WithOptions(signSignerOpts),
+			keys.WithValidity(certValidity),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create signer: %w", err)
+		}
+
+		// Clean up signer resources if it implements Destroy()
+		if destroyer, ok := signer.(interface{ Destroy() }); ok {
+			defer destroyer.Destroy()
+		}
+
+		// Issue certificate for the signer (works with any crypto.Signer implementation)
+		cert, _, err := ca.IssueCertificateForSigner(signer, certValidity)
+		if err != nil {
+			return fmt.Errorf("failed to generate certificate: %w", err)
+		}
+
 		signature, err = cms.SignDataWithSigner(data, cert, signer)
 		if err != nil {
 			return fmt.Errorf("failed to create CMS signature: %w", err)
 		}
+
+	case "raw":
+		// For raw format with ML-DSA-44 (or others), we sign directly with the master key
+		// because X.509/CMS infrastructure is not available/compatible.
+		signature, err = masterKey.Sign(rand.Reader, data, crypto.Hash(0))
+		if err != nil {
+			return fmt.Errorf("failed to create raw signature: %w", err)
+		}
+
 	default:
-		return fmt.Errorf("unsupported format: %s (only 'cms' is currently supported)", signFormat)
+		return fmt.Errorf("unsupported format: %s (only 'cms', 'raw' are currently supported)", signFormat)
 	}
 
 	// Write signature to file

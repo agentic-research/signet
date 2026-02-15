@@ -2,7 +2,7 @@
 
 Replace bearer tokens with cryptographic proof-of-possession. Signet provides tools for signing commits, files, and HTTP requests using ephemeral certificates with algorithm agility (Ed25519 + ML-DSA-44 post-quantum).
 
-## ⚠️ Status: v0.0.1 Experimental (Alpha)
+## ⚠️ Status: v0.1.0 Experimental (Alpha)
 
 **Security Note:**
 - **Not audited** - use for development only

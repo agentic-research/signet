@@ -22,15 +22,17 @@ This package implements the Signet HTTP authentication wire format for ephemeral
 Signet-Proof: v1;m=full;t=<token>;jti=<16bytes>;cap=<16bytes>;s=<signature>;n=<nonce>;ts=<timestamp>
 ```
 
-### What's Not Yet Implemented 🚧
+### HTTP Middleware (Implemented)
 
-- HTTP middleware handlers for popular frameworks (Gin, Echo, Chi)
+Full authentication middleware lives in `pkg/http/middleware/`. See [`pkg/http/middleware/README.md`](./middleware/README.md) for details.
+
+Features: EPR verification, replay prevention, pluggable token/nonce stores (memory, Redis), clock skew tolerance, revocation checking.
+
+### Not Yet Implemented 🚧
+
+- Framework-specific adapters (Gin, Echo, Chi) — use standard `http.Handler` middleware directly
 - Client transport with automatic proof generation
-- Token caching and refresh logic
-- Full integration with EPR verifier
 
 ### Usage
 
-Currently, this package provides the low-level primitives for parsing and validating Signet headers. Full middleware integration is in progress.
-
-See `header_test.go` and `header_vectors_test.go` for usage examples and test vectors.
+See `./header/header_vectors_test.go` for wire format examples, and `./middleware/example_test.go` for middleware usage.
