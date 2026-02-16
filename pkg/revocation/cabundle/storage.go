@@ -41,10 +41,8 @@ func (s *MemoryStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID 
 	if seqno > current {
 		s.seqnos[issuerID] = seqno
 	}
-	// If seqno <= current, we consider it a success (idempotent no-op)
-	// or should we error? The checker logic handles rollback via ErrBundleRollback earlier.
-	// But this method is strictly for persisting valid updates.
-	// If another thread beat us to it, we don't need to error, just not update.
+	// If seqno <= current, this is an idempotent no-op.
+	// Rollback detection is handled earlier in the checker via ErrBundleRollback.
 	return nil
 }
 

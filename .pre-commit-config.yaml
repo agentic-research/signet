@@ -23,7 +23,7 @@ repos:
 
   # Step 3: Lint code (after formatting)
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.5.0
+    rev: v2.9.0
     hooks:
       - id: golangci-lint
         exclude: '\.md$'

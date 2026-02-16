@@ -92,12 +92,11 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 
 	// Step 5: Persist new seqno immediately after validation
 	// Do this BEFORE other checks to prevent TOCTOU issues.
-	// We use SetLastSeenSeqnoIfGreater which provides atomic compare-and-swap semantics
-	// to ensure we never overwrite a higher sequence number with a lower one in case of races.
-	if bundle.Seqno > lastSeenSeqno {
-		if err := c.storage.SetLastSeenSeqnoIfGreater(ctx, token.IssuerID, bundle.Seqno); err != nil {
-			return false, fmt.Errorf("storage persist failed: %w", err)
-		}
+	// Always call SetLastSeenSeqnoIfGreater unconditionally — the storage layer
+	// handles the atomic compare-and-swap. Avoiding a caller-side check eliminates
+	// a TOCTOU window between the read of lastSeenSeqno and this write.
+	if err := c.storage.SetLastSeenSeqnoIfGreater(ctx, token.IssuerID, bundle.Seqno); err != nil {
+		return false, fmt.Errorf("storage persist failed: %w", err)
 	}
 
 	// Step 6: Check epoch-based revocation

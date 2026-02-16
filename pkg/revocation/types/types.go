@@ -43,7 +43,8 @@ type Storage interface {
 	// SetLastSeenSeqnoIfGreater sets the last seen sequence number for a given issuer ID
 	// ONLY if the new sequence number is greater than the currently stored one.
 	// This operation MUST be atomic to prevent TOCTOU race conditions.
-	// Returns nil if updated, or an error if the update failed or was not greater.
+	// If seqno is not greater than the currently stored value, this MUST be a successful no-op.
+	// Returns nil if the operation succeeded (whether or not an update occurred), or a non-nil error on storage failure.
 	SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID string, seqno uint64) error
 }
 
