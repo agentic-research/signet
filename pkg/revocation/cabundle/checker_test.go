@@ -51,11 +51,14 @@ func (m *mockStorage) GetLastSeenSeqno(ctx context.Context, issuerID string) (ui
 	return m.seqnos[issuerID], nil
 }
 
-func (m *mockStorage) SetLastSeenSeqno(ctx context.Context, issuerID string, seqno uint64) error {
+func (m *mockStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID string, seqno uint64) error {
 	if m.err != nil {
 		return m.err
 	}
-	m.seqnos[issuerID] = seqno
+	current := m.seqnos[issuerID]
+	if seqno > current {
+		m.seqnos[issuerID] = seqno
+	}
 	return nil
 }
 

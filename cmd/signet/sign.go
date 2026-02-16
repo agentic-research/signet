@@ -35,17 +35,19 @@ var signCmd = &cobra.Command{
 	Short: "Sign files using ephemeral certificates",
 	Long: `Sign files using Signet's ephemeral certificate approach.
 
-The sign command creates CMS (PKCS#7) signatures for any file using
-short-lived ephemeral certificates derived from your master key.
+The sign command creates signatures for any file using your master key.
+Ed25519 keys use CMS (PKCS#7) format with short-lived ephemeral certificates.
+ML-DSA-44 keys use raw format (CMS is not yet supported for post-quantum keys).
 
-` + styles.Success.Render("What Works:") + `
-  • File signing with CMS format
-  • Ephemeral certificate generation
-  • OpenSSL-compatible signatures
+` + styles.Success.Render("Supported Formats:") + `
+  • cms  — CMS/PKCS#7 with ephemeral certificates (Ed25519)
+  • raw  — Direct signature with master key (ML-DSA-44, Ed25519)
+
+` + styles.Info.Render("Note:") + ` ML-DSA-44 keys automatically switch to raw format.
 
 ` + styles.Warning.Render("Planned:") + `
   • Signature verification
-  • Additional output formats (JWS, raw Ed25519)
+  • Additional output formats (JWS)
   • Batch signing operations`,
 	Example: `  # Initialize Signet (one-time setup)
   signet sign --init
@@ -65,7 +67,7 @@ short-lived ephemeral certificates derived from your master key.
 func init() {
 	signCmd.Flags().BoolVar(&signInitFlag, "init", false, "Initialize Signet configuration")
 	signCmd.Flags().BoolVar(&signForceFlag, "force", false, "Force re-initialization (overwrites existing key)")
-	signCmd.Flags().StringVarP(&signFormat, "format", "f", "cms", "Output format: cms (more formats planned)")
+	signCmd.Flags().StringVarP(&signFormat, "format", "f", "cms", "Output format: cms, raw (ML-DSA-44 auto-switches to raw)")
 	signCmd.Flags().StringVarP(&signOutput, "output", "o", "", "Output file (default: <input>.sig)")
 	signCmd.Flags().StringVar(&signVerifyFile, "verify-data", "", "Data file for verification")
 	signCmd.Flags().StringVar(&signVerifySig, "verify-sig", "", "Signature file for verification")

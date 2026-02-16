@@ -32,8 +32,8 @@ func TestFileStorage_BasicOperation(t *testing.T) {
 	}
 
 	// Store a sequence number
-	if err := storage.SetLastSeenSeqno(ctx, issuerID, 42); err != nil {
-		t.Fatalf("SetLastSeenSeqno failed: %v", err)
+	if err := storage.SetLastSeenSeqnoIfGreater(ctx, issuerID, 42); err != nil {
+		t.Fatalf("SetLastSeenSeqnoIfGreater failed: %v", err)
 	}
 
 	// Retrieve it
@@ -60,8 +60,8 @@ func TestFileStorage_Persistence(t *testing.T) {
 		t.Fatalf("failed to create storage: %v", err)
 	}
 
-	if err := storage1.SetLastSeenSeqno(ctx, issuerID, 123); err != nil {
-		t.Fatalf("SetLastSeenSeqno failed: %v", err)
+	if err := storage1.SetLastSeenSeqnoIfGreater(ctx, issuerID, 123); err != nil {
+		t.Fatalf("SetLastSeenSeqnoIfGreater failed: %v", err)
 	}
 
 	// Create a NEW storage instance (simulating restart)
@@ -94,8 +94,8 @@ func TestFileStorage_TamperDetection(t *testing.T) {
 	issuerID := "tampered-issuer"
 
 	// Write a value
-	if err := storage.SetLastSeenSeqno(ctx, issuerID, 100); err != nil {
-		t.Fatalf("SetLastSeenSeqno failed: %v", err)
+	if err := storage.SetLastSeenSeqnoIfGreater(ctx, issuerID, 100); err != nil {
+		t.Fatalf("SetLastSeenSeqnoIfGreater failed: %v", err)
 	}
 
 	// Tamper with the file by changing the seqno bytes
@@ -137,11 +137,11 @@ func TestFileStorage_MultipleIssuers(t *testing.T) {
 	ctx := context.Background()
 
 	// Store different values for different issuers
-	if err := storage.SetLastSeenSeqno(ctx, "issuer-A", 10); err != nil {
-		t.Fatalf("SetLastSeenSeqno failed for A: %v", err)
+	if err := storage.SetLastSeenSeqnoIfGreater(ctx, "issuer-A", 10); err != nil {
+		t.Fatalf("SetLastSeenSeqnoIfGreater failed for A: %v", err)
 	}
-	if err := storage.SetLastSeenSeqno(ctx, "issuer-B", 20); err != nil {
-		t.Fatalf("SetLastSeenSeqno failed for B: %v", err)
+	if err := storage.SetLastSeenSeqnoIfGreater(ctx, "issuer-B", 20); err != nil {
+		t.Fatalf("SetLastSeenSeqnoIfGreater failed for B: %v", err)
 	}
 
 	// Verify they don't interfere
@@ -186,8 +186,8 @@ func TestFileStorage_WrongKeyDetectsCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
-	if err := storage1.SetLastSeenSeqno(ctx, issuerID, 99); err != nil {
-		t.Fatalf("SetLastSeenSeqno failed: %v", err)
+	if err := storage1.SetLastSeenSeqnoIfGreater(ctx, issuerID, 99); err != nil {
+		t.Fatalf("SetLastSeenSeqnoIfGreater failed: %v", err)
 	}
 
 	// Try to read with key2 - should fail HMAC verification

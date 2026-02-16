@@ -32,11 +32,17 @@ func (s *MemoryStorage) GetLastSeenSeqno(ctx context.Context, issuerID string) (
 	return s.seqnos[issuerID], nil
 }
 
-// SetLastSeenSeqno sets the last seen sequence number for a given issuer ID.
-func (s *MemoryStorage) SetLastSeenSeqno(ctx context.Context, issuerID string, seqno uint64) error {
+// SetLastSeenSeqnoIfGreater sets the last seen sequence number if it's greater than current.
+func (s *MemoryStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID string, seqno uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seqnos[issuerID] = seqno
+
+	current := s.seqnos[issuerID]
+	if seqno > current {
+		s.seqnos[issuerID] = seqno
+	}
+	// If seqno <= current, this is an idempotent no-op.
+	// Rollback detection is handled earlier in the checker via ErrBundleRollback.
 	return nil
 }
 
