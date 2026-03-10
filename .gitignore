@@ -73,6 +73,9 @@ test.txt
 *.key
 *.crt
 #
+# Claude session files
+claude-resume.txt
+
 # Internal documentation (keep locally but don't push)
 INVESTIGATION_LOG.md
 @INVESTIGATION_LOG.md
