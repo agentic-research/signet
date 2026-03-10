@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
-	"github.com/jamestexas/signet/pkg/crypto/keys"
-	signetErrors "github.com/jamestexas/signet/pkg/errors"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
+	signetErrors "github.com/agentic-research/signet/pkg/errors"
 )
 
 // EphemeralProof represents a proof that a master key has authorized

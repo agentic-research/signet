@@ -29,11 +29,11 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/time/rate"
 
-	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
-	"github.com/jamestexas/signet/pkg/cli/styles"
-	"github.com/jamestexas/signet/pkg/collections"
-	"github.com/jamestexas/signet/pkg/crypto/keys"
-	oidcprovider "github.com/jamestexas/signet/pkg/oidc"
+	attestx509 "github.com/agentic-research/signet/pkg/attest/x509"
+	"github.com/agentic-research/signet/pkg/cli/styles"
+	"github.com/agentic-research/signet/pkg/collections"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
+	oidcprovider "github.com/agentic-research/signet/pkg/oidc"
 )
 
 var (

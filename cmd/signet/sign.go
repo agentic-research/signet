@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jamestexas/go-cms/pkg/cms"
-	attestx509 "github.com/jamestexas/signet/pkg/attest/x509"
-	"github.com/jamestexas/signet/pkg/cli/keystore"
-	"github.com/jamestexas/signet/pkg/cli/styles"
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
-	"github.com/jamestexas/signet/pkg/crypto/keys"
+	"github.com/agentic-research/go-cms/pkg/cms"
+	attestx509 "github.com/agentic-research/signet/pkg/attest/x509"
+	"github.com/agentic-research/signet/pkg/cli/keystore"
+	"github.com/agentic-research/signet/pkg/cli/styles"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 var (

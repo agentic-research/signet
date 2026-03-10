@@ -5,7 +5,7 @@ import (
 	"crypto"
 	"fmt"
 
-	signetErrors "github.com/jamestexas/signet/pkg/errors"
+	signetErrors "github.com/agentic-research/signet/pkg/errors"
 )
 
 // VerificationOptions contains options for proof verification

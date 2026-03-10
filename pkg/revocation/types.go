@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // ErrBundleRollback indicates a potential rollback attack.

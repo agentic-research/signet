@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	agent_server "github.com/jamestexas/signet/pkg/agent"
-	pb "github.com/jamestexas/signet/pkg/agent/api/v1"
+	agent_server "github.com/agentic-research/signet/pkg/agent"
+	pb "github.com/agentic-research/signet/pkg/agent/api/v1"
 )
 
 // TODO: Make this configurable

@@ -14,9 +14,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/cose"
-	"github.com/jamestexas/signet/pkg/crypto/epr"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/crypto/cose"
+	"github.com/agentic-research/signet/pkg/crypto/epr"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // TokenInfo holds the cryptographic material received from server

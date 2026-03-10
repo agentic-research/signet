@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/cli/keystore"
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/cli/keystore"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
 )

@@ -18,11 +18,11 @@ jobs:
   claude-review:
     # Only run if:
     # 1. Manually triggered OR
-    # 2. Tests passed AND PR is from jamestexas
+    # 2. Tests passed AND PR is from agentic-research
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_repository.owner.login == 'jamestexas')
+       github.event.workflow_run.head_repository.owner.login == 'agentic-research')
 
     runs-on: ubuntu-latest
     permissions:

@@ -23,7 +23,7 @@ providers:
       # Optional: Restrict to specific repositories
       # Useful for self-hosted authorities serving specific organizations
       # allowed_repositories:
-      #   - jamestexas/signet
+      #   - agentic-research/signet
       #   - acme/production-app
       #   - acme/internal-tool
 

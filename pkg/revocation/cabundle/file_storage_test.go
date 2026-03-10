@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/revocation/cabundle"
+	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 )
 
 // TestFileStorage_BasicOperation verifies basic read/write functionality

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/http/header"
-	"github.com/jamestexas/signet/pkg/revocation"
+	"github.com/agentic-research/signet/pkg/http/header"
+	"github.com/agentic-research/signet/pkg/revocation"
 )
 
 // Option configures the Signet middleware.

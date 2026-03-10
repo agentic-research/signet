@@ -42,7 +42,7 @@ jobs:
         run: |
           # Download and install Signet
           # (In production, pin to a specific version)
-          curl -L https://github.com/jamestexas/signet/releases/latest/download/signet-linux-amd64 -o signet
+          curl -L https://github.com/agentic-research/signet/releases/latest/download/signet-linux-amd64 -o signet
           chmod +x signet
           sudo mv signet /usr/local/bin/
 

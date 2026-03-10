@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	signetErrors "github.com/jamestexas/signet/pkg/errors"
+	signetErrors "github.com/agentic-research/signet/pkg/errors"
 )
 
 func generateTestKeyPair() (crypto.PublicKey, crypto.PrivateKey) {

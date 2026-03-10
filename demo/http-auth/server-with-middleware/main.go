@@ -15,9 +15,9 @@ import (
 
 	"crypto/rand"
 
-	"github.com/jamestexas/signet/pkg/crypto/epr"
-	"github.com/jamestexas/signet/pkg/http/middleware"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/crypto/epr"
+	"github.com/agentic-research/signet/pkg/http/middleware"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 var (

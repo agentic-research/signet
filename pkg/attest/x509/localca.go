@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 // LocalCA provides the logic to issue self-signed, short-lived X.509 certificates

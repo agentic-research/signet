@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/jamestexas/signet/pkg/revocation/types"
+	"github.com/agentic-research/signet/pkg/revocation/types"
 )
 
 // ErrNotFound is returned when a key is not found in storage.

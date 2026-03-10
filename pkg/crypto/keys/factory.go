@@ -6,7 +6,7 @@ import (
 	"crypto"
 	"fmt"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
 // NewSigner is the factory function for creating signers.

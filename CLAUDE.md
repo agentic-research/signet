@@ -47,7 +47,7 @@ make docker-shell           # Interactive shell for debugging
 - 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)
 
 **Test Separation**:
-- **CMS/PKCS#7 testing** → Lives in [go-cms](https://github.com/jamestexas/go-cms) repo
+- **CMS/PKCS#7 testing** → Lives in [go-cms](https://github.com/agentic-research/go-cms) repo
 - **Git integration testing** → Lives here in signet repo
 - **Docker-First Strategy**: All CI tests run in Docker for environment parity
 
@@ -88,7 +88,7 @@ make security              # Security scan (requires gosec)
 | `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`) |
 | `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
-External: [github.com/jamestexas/go-cms](https://github.com/jamestexas/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), used for both git signing and file signing.
+External: [github.com/agentic-research/go-cms](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), used for both git signing and file signing.
 
 ## Implementation Patterns
 

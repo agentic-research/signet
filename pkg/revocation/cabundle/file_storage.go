@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/jamestexas/signet/pkg/revocation/types"
+	"github.com/agentic-research/signet/pkg/revocation/types"
 )
 
 var (

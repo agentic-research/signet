@@ -23,9 +23,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jamestexas/signet/pkg/cli/config"
-	"github.com/jamestexas/signet/pkg/cli/keystore"
-	"github.com/jamestexas/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/cli/config"
+	"github.com/agentic-research/signet/pkg/cli/keystore"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/kms/cliplugin/handler"
 )

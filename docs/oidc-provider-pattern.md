@@ -194,7 +194,7 @@ providers:
 
       # Provider-specific options
       allowed_repositories:
-        - jamestexas/signet
+        - agentic-research/signet
       allowed_workflows:
         - .github/workflows/release.yml
       require_ref_protection: false
@@ -212,7 +212,7 @@ registry, err := oidc.LoadProvidersFromFile(ctx, "oidc-providers.yaml")
 # Enable GitHub Actions provider
 export SIGNET_GITHUB_ACTIONS_ENABLED=true
 export SIGNET_GITHUB_ACTIONS_AUDIENCE=https://signet-authority.example.com
-export SIGNET_GITHUB_ACTIONS_ALLOWED_REPOS=jamestexas/signet,acme/app
+export SIGNET_GITHUB_ACTIONS_ALLOWED_REPOS=agentic-research/signet,acme/app
 ```
 
 Load with:
@@ -245,9 +245,9 @@ urn:signet:cap:{action}:{resource}[:{constraint}*]
 
 **GitHub Actions:**
 ```
-urn:signet:cap:write:repo:github.com/jamestexas/signet
-urn:signet:cap:read:repo:github.com/jamestexas/signet
-urn:signet:cap:workflow:github.com/jamestexas/signet:.github/workflows/release.yml
+urn:signet:cap:write:repo:github.com/agentic-research/signet
+urn:signet:cap:read:repo:github.com/agentic-research/signet
+urn:signet:cap:workflow:github.com/agentic-research/signet:.github/workflows/release.yml
 ```
 
 **GitLab CI:**

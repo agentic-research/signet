@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package signet.agent.v1;
 
-option go_package = "github.com/jamestexas/signet/pkg/agent/api/v1";
+option go_package = "github.com/agentic-research/signet/pkg/agent/api/v1";
 
 import "google/protobuf/empty.proto";
 

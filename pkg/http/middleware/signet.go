@@ -11,10 +11,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/epr"
-	"github.com/jamestexas/signet/pkg/http/header"
-	"github.com/jamestexas/signet/pkg/revocation"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/crypto/epr"
+	"github.com/agentic-research/signet/pkg/http/header"
+	"github.com/agentic-research/signet/pkg/revocation"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // SignetMiddleware creates HTTP middleware that enforces Signet two-step verification.

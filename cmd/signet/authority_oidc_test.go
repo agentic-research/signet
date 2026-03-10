@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	oidcprovider "github.com/jamestexas/signet/pkg/oidc"
+	oidcprovider "github.com/agentic-research/signet/pkg/oidc"
 	"golang.org/x/time/rate"
 )
 

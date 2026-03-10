@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamestexas/go-cms/pkg/cms"
+	"github.com/agentic-research/go-cms/pkg/cms"
 )
 
 // TestCertificateChainValidation tests that certificates issued by LocalCA

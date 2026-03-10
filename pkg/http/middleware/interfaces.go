@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/http/header"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/http/header"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // TokenStore defines the interface for token storage and retrieval.

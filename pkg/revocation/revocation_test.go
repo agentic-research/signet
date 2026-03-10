@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
-	"github.com/jamestexas/signet/pkg/crypto/epr"
-	"github.com/jamestexas/signet/pkg/http/middleware"
-	"github.com/jamestexas/signet/pkg/revocation"
-	"github.com/jamestexas/signet/pkg/revocation/cabundle"
-	"github.com/jamestexas/signet/pkg/revocation/types"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/crypto/epr"
+	"github.com/agentic-research/signet/pkg/http/middleware"
+	"github.com/agentic-research/signet/pkg/revocation"
+	"github.com/agentic-research/signet/pkg/revocation/cabundle"
+	"github.com/agentic-research/signet/pkg/revocation/types"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 func TestRevocation(t *testing.T) {

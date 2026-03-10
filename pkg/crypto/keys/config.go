@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
 // internal configuration struct for the signer factory.

@@ -29,7 +29,7 @@ type GitHubActionsConfig struct {
 	// AllowedRepositories restricts which repositories can get bridge certificates.
 	// Empty list = allow all repositories. Useful for self-hosted authority servers
 	// that only serve specific organizations/repositories.
-	// Format: "owner/repo" (e.g., "jamestexas/signet")
+	// Format: "owner/repo" (e.g., "agentic-research/signet")
 	AllowedRepositories []string `json:"allowed_repositories" yaml:"allowed_repositories"`
 
 	// AllowedWorkflows restricts which workflow files can get bridge certificates.
@@ -45,7 +45,7 @@ type GitHubActionsConfig struct {
 // GitHubActionsClaims represents GitHub Actions-specific OIDC token claims.
 // Reference: https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect#understanding-the-oidc-token
 type GitHubActionsClaims struct {
-	// Repository is the owner/repo (e.g., "jamestexas/signet")
+	// Repository is the owner/repo (e.g., "agentic-research/signet")
 	Repository string `json:"repository"`
 
 	// Ref is the git ref that triggered the workflow (e.g., "refs/heads/main")
@@ -64,7 +64,7 @@ type GitHubActionsClaims struct {
 	// Format: "owner/repo/.github/workflows/file.yml@refs/heads/main"
 	JobWorkflowRef string `json:"job_workflow_ref"`
 
-	// RepositoryOwner is the repository owner (e.g., "jamestexas")
+	// RepositoryOwner is the repository owner (e.g., "agentic-research")
 	RepositoryOwner string `json:"repository_owner"`
 
 	// RepositoryOwnerID is the owner's numeric GitHub ID

@@ -284,7 +284,7 @@ package git
 
 import (
     "crypto/x509"
-    "github.com/jamestexas/signet/pkg/crypto/keys"
+    "github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 // Identity represents a signing identity with optional user attribution.

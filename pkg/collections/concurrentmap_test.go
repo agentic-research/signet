@@ -8,7 +8,7 @@ import (
 	// Used for timeout detection in attack tests (deadlock detection)
 	"time"
 
-	"github.com/jamestexas/signet/pkg/collections"
+	"github.com/agentic-research/signet/pkg/collections"
 )
 
 // TestConcurrentMap_BasicOperations verifies basic get/set/delete
