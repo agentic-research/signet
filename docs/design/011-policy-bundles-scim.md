@@ -198,7 +198,7 @@ This is what we're building.
 
 ## 4. The Taxonomy: Three Concerns
 
-Your framing crystallizes the right separation:
+The following separation of concerns captures the distinct responsibilities of each component:
 
 ```
 signet (authorization)     sigid (identity)         sigpol (policy)
@@ -245,29 +245,46 @@ The key relationships:
 
 ### 5.1 The Trust Policy Bundle
 
-A new signed bundle type, parallel to the existing CA bundle (`pkg/revocation/types/types.go`), using identical distribution and verification patterns.
+A new signed bundle type, parallel to the existing CA bundle (`pkg/revocation/types/types.go`), using identical distribution and verification patterns (DNS TXT and JSON over HTTPS as described in ADR-006).
 
-**CBOR Wire Format** (integer keys, matching signet token conventions):
+Policy bundles reuse the existing CA-bundle transport path: on the wire they are delivered as JSON (HTTPS) or DNS TXT records. The CBOR structure below defines the **canonical payload** that is signed and verified; no new CBOR-specific fetcher/transport is required.
+
+**Canonical CBOR Payload** (integer keys, matching signet token conventions):
 
 ```cddl
 trust-policy-bundle = {
   1: uint,                    ; epoch — bump = mass revocation
   2: uint,                    ; seqno — monotonic, rollback protection
   3: { * tstr => subject },   ; subjects — OIDC subject ID → subject policy
-  4: { * tstr => [* uint] },  ; groups — group name → capability token set
-  5: int,                     ; issuedAt — Unix timestamp
-  6: bstr,                    ; signature — signed by authority key
+  4: { * tstr => group },     ; groups — group name → group policy
+  5: uint,                    ; issuedAt — Unix timestamp (non-negative)
+  6: bstr,                    ; signature — over CBOR encoding of fields 1-5 only
+}
+
+group = {
+  1: [* uint],                ; capTokens — capability token set (ADR-010 registry values)
+  ? 2: uint,                  ; maxCertTTL — group-level cert lifetime override (seconds)
 }
 
 subject = {
   1: bool,                    ; active — false = soft-revoke
   2: [* tstr],                ; groups — group memberships
   ? 3: tstr,                  ; algorithm — preferred key algorithm
-  ? 4: int,                   ; maxCertTTL — per-subject cert lifetime override (seconds)
+  ? 4: uint,                  ; maxCertTTL — per-subject override (takes precedence over group)
 }
 ```
 
-**Domain separation**: `sigpol-trust-v1:` prefix on all hashed content (prevents cross-protocol attacks with CA bundles).
+**Capability token values**: The `uint` values in `group.capTokens` correspond to capability token IDs from the semantic capability registry defined in ADR-010 (e.g., `0x0001`=read, `0x0002`=write). These are the same values used in `cap_tokens` (field 11) of Signet tokens (ADR-001). A group maps a name to a set of capability tokens that subjects in that group receive. The optional `maxCertTTL` on the group allows policies like "all contractors get 2-hour certs" without per-subject configuration; subject-level `maxCertTTL` takes precedence when set.
+
+**Signing convention**: Field 6 contains the signature over the canonical CBOR encoding of fields 1-5 only (field 6 is excluded from the signed bytes). This matches the existing CA bundle pattern in `pkg/revocation/checker.go:verifyBundleSignature`.
+
+**Domain separation**: Signatures are computed over the bytes `sigpol-trust-v1:` || `canonical_cbor(fields 1-5)`. Verifiers MUST prepend this ASCII prefix before signing/verifying, providing a domain-separated signature context and preventing cross-protocol attacks with CA bundles.
+
+**Canonical CBOR requirement**: Policy bundles MUST be serialized using deterministic CBOR (RFC 8949 Section 4.2 via `cbor.CanonicalEncOptions()`) before signing. Standard CBOR map key ordering is non-deterministic and would produce different signatures for semantically identical bundles.
+
+**Maximum bundle age**: Policy bundles older than `maxPolicyBundleAge` (default: 1 hour, matching CA bundle `maxBundleAge`) are rejected even if the cache TTL has not expired. This prevents stale bundles from backups or caches from being accepted.
+
+**Multi-IdP subject keys**: OIDC `sub` claims are only unique within an issuer. For v1 (single-authority, single-IdP), raw `sub` values are acceptable as map keys. In a multi-IdP deployment, subject keys MUST use a composite `{issuer}/{sub}` format to prevent identity collision.
 
 **Properties inherited from CA bundles** (no new patterns):
 - Signed by authority key (same trust anchor)
@@ -285,7 +302,7 @@ SCIM POST /Users      →  staging.addSubject(oidcSub, groups)
 SCIM DELETE /Users     →  staging.removeSubject(oidcSub) + bumpEpoch()
 SCIM PATCH active=false →  staging.deactivateSubject(oidcSub)
 SCIM POST /Groups      →  staging.defineGroup(name, capTokens)
-SCIM DELETE /Groups    →  staging.removeGroup(name) + bumpEpoch()
+SCIM DELETE /Groups    →  staging.deactivateGroup(name)  // no epoch bump; certs age out
 SCIM PATCH /Groups     →  staging.updateGroupCaps(name, capTokens)
                               │
                               ▼
@@ -316,11 +333,14 @@ claims, err := provider.Verify(ctx, token)
 // Proposed: also check the trust policy bundle
 claims, err := provider.Verify(ctx, token)
 subject, err := policyChecker.GetSubject(ctx, claims.Subject)
-if subject == nil {
-    return ErrSubjectNotProvisioned
+if err != nil {
+    if errors.HasCode(err, SubjectNotProvisioned) {
+        return err  // SCIM hasn't provisioned this user
+    }
+    return fmt.Errorf("policy check failed: %w", err)
 }
 if !subject.Active {
-    return ErrSubjectDeactivated
+    return errors.NewCoded(SubjectDeactivated, "subject deactivated", nil)
 }
 // Derive capabilities from subject's group memberships
 caps := policyChecker.ResolveCapabilities(subject.Groups)
@@ -335,7 +355,7 @@ Verifiers consume the policy bundle the same way they consume CA bundles:
 // PolicyChecker mirrors CABundleChecker (pkg/revocation/checker.go)
 type PolicyChecker struct {
     fetcher     Fetcher           // same interface as CA bundle fetcher
-    storage     Storage           // same interface for seqno persistence
+    storage     types.Storage     // reuses pkg/revocation/types.Storage for seqno persistence
     cache       *BundleCache      // same caching pattern
     trustAnchor crypto.PublicKey  // same verification
 }
@@ -372,6 +392,18 @@ We implement a **minimal SCIM subset** — only what enterprise IdPs actually ne
 **Not implemented**: Bulk operations, PATCH path syntax beyond `replace`, `sortBy`/`sortOrder` on list, `PUT` (full replace).
 
 **SCIM filter support**: `eq` on `userName`, `externalId`, `emails.value`, `active`. This covers what Okta, Entra ID, and Google Workspace actually send.
+
+**SCIM endpoint authentication**: Per RFC 7644, SCIM endpoints MUST require authentication. The authority validates the IdP caller via one of:
+- **OAuth 2.0 Bearer Token** (default) — pre-shared token configured in the authority, rotated out-of-band. Simplest for v1.
+- **mTLS client certificate** — consistent with signet's mTLS posture; the IdP presents a pre-provisioned client cert. Preferred for production.
+
+The authentication mechanism is configured in the authority config alongside the SCIM endpoint. Unauthenticated SCIM requests MUST be rejected with 401.
+
+**Bootstrap / fail-open**: If Phase 1 ships the authority policy check before any policy bundle exists (no SCIM ingestion yet), all cert requests would fail with `SubjectNotProvisioned`. To handle this:
+- Phase 1 operates in **bootstrap mode**: if no policy bundle has ever been fetched, the authority falls back to the pre-policy behavior (issue certs to any valid OIDC subject).
+- Once the first policy bundle is observed, bootstrap mode is permanently disabled (fail-closed from that point forward).
+- A startup log message and health check field indicate whether the authority is in bootstrap mode.
+- Explicit `signet authority --require-policy` flag disables bootstrap mode entirely (for deployments where SCIM is already configured).
 
 ## 6. Naming: sigpol
 
@@ -467,7 +499,7 @@ The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. N
 
 1. **Should sigpol be a separate binary?** Options: (a) new routes on `signet authority`, (b) `signet policy` subcommand, (c) separate `sigpol` binary. Recommend (a) for v1 — the authority already serves OIDC and HTTP; adding `/scim/v2/*` routes is natural.
 
-2. **Bundle size at scale**. With 10k users and 100 groups, the CBOR bundle is roughly 500KB–1MB. At 100k users, it could hit 5–10MB. Do we need delta bundles? Probably not for v1 — CA bundles operate on similar economics and the 30-second cache TTL limits bandwidth.
+2. **Bundle size at scale**. OIDC `sub` claims are 28-36 bytes; with 3-5 group memberships at ~20 bytes each plus CBOR overhead, each subject is roughly 200-400 bytes. At 10k users: 2-4MB. At 100k users: 20-40MB. Delta bundles may need to move from Phase 3 to Phase 2 if large deployments are targeted early.
 
 3. **Multi-tenant / multi-authority**. Should one policy bundle serve multiple authorities (tenants), or one bundle per authority? Recommend one per authority for simplicity and security isolation.
 
@@ -504,7 +536,7 @@ The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. N
 3. **Enterprise IdP integration** — Okta/Entra push SCIM, signet compiles and distributes
 4. **Rollback protection** — monotonic seqno on policy bundles (most systems lack this)
 5. **Clean separation of concerns** — signet/sigid/sigpol taxonomy clarifies the ecosystem
-6. **Formal revocation** — SCIM DELETE → epoch bump → instant mass revocation via existing mechanism
+6. **Formal revocation** — SCIM DELETE → epoch bump → mass revocation once new bundle is observed (bounded by cache TTL + distribution staleness, same as CA bundles per ADR-006)
 
 ### Negative
 1. **Eventual consistency** — policy changes propagate on bundle cache TTL (30s default), not instantly
