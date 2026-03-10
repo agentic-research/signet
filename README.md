@@ -6,7 +6,7 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 
 **Security Note:**
 - **Not audited** - use for development only
-- Core cryptography is unit-tested (10k+ LOC) and partially fuzzed (5 fuzz functions covering critical parsing paths)
+- Core cryptography is unit-tested (13k+ LOC) and partially fuzzed (3 fuzz functions covering critical parsing paths)
 - Native Go implementation via [`go-cms`](https://github.com/jamestexas/go-cms) (no external review, passes OpenSSL interop tests)
 - **Platform:** Built for macOS, should work on Linux (minimal testing)
 - **Key storage:** Defaults to OS keyring; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or initialized with `--insecure`
@@ -67,16 +67,20 @@ Two-step verification middleware for Go HTTP servers:
 ```go
 import "github.com/jamestexas/signet/pkg/http/middleware"
 
-handler := middleware.SignetMiddleware(
+auth, err := middleware.SignetMiddleware(
     middleware.WithMasterKey(masterPubKey),
     middleware.WithClockSkew(30*time.Second),
-)(yourHandler)
+)
+if err != nil {
+    log.Fatal(err)
+}
+handler := auth(yourHandler)
 ```
 
 **Features:**
 - Ephemeral proof verification (master→ephemeral→request)
 - Replay attack prevention
-- Pluggable token/nonce stores (memory, Redis)
+- Pluggable token/nonce stores (memory, Redis with `redis` build tag)
 - Clock skew tolerance
 - **Token revocation** via SPIRE-model CA bundle rotation
 
@@ -87,12 +91,23 @@ See [`pkg/http/middleware/README.md`](./pkg/http/middleware/README.md) for detai
 Mint X.509 client certificates from OIDC login (Fulcio-style):
 
 ```bash
-# Configure OIDC provider
-export OIDC_ISSUER_URL="https://accounts.google.com"
-export OIDC_CLIENT_ID="your-client-id"
+# Create config file (config.json)
+cat > config.json <<EOF
+{
+  "oidc_provider_url": "https://accounts.google.com",
+  "oidc_client_id": "your-client-id",
+  "oidc_client_secret": "your-secret",
+  "redirect_url": "http://localhost:8080/callback",
+  "authority_master_key_path": "/path/to/master.key",
+  "listen_addr": ":8080"
+}
+EOF
+
+# Set session secret (required)
+export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
 
 # Run authority
-./signet authority --port 8443
+./signet authority --config config.json
 ```
 
 See [`cmd/signet/authority.go`](./cmd/signet/authority.go) for configuration details.
@@ -137,17 +152,19 @@ SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
 **How it works:**
 ```go
 // Configure revocation checker
-checker := revocation.NewCABundleChecker(
-    fetcher:  cabundle.NewHTTPSFetcher(bundleServerURL, nil),
-    storage:  cabundle.NewMemoryStorage(),
-    cache:    cabundle.NewBundleCache(30*time.Second),
-    trustAnchor: bundleSigningPublicKey,
-)
+fetcher := cabundle.NewHTTPSFetcher(bundleServerURL, nil)
+storage := cabundle.NewMemoryStorage()
+cache := cabundle.NewBundleCache(30 * time.Second)
+checker := revocation.NewCABundleChecker(fetcher, storage, cache, bundleSigningPublicKey)
 
 // Add to middleware
-handler := middleware.SignetMiddleware(
+auth, err := middleware.SignetMiddleware(
     middleware.WithRevocationChecker(checker),
-)(yourHandler)
+)
+if err != nil {
+    log.Fatal(err)
+}
+handler := auth(yourHandler)
 ```
 
 Tokens are automatically checked against the CA bundle for:
@@ -240,7 +257,7 @@ make fmt lint
 
 ## Roadmap
 
-Signet is in **alpha** (v0.0.1).
+Signet is in **alpha** (v0.1.0).
 
 **Current focus:** Hardening core primitives, Sigstore ecosystem integration.
 
