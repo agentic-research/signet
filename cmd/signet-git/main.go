@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jamestexas/signet/pkg/cli/config"
-	"github.com/jamestexas/signet/pkg/cli/keystore"
-	"github.com/jamestexas/signet/pkg/cli/styles"
-	"github.com/jamestexas/signet/pkg/git"
+	"github.com/agentic-research/signet/pkg/cli/config"
+	"github.com/agentic-research/signet/pkg/cli/keystore"
+	"github.com/agentic-research/signet/pkg/cli/styles"
+	"github.com/agentic-research/signet/pkg/git"
 )
 
 var (

@@ -240,7 +240,7 @@ const file_pkg_agent_api_v1_agent_proto_rawDesc = "" +
 	"identities2\xa5\x01\n" +
 	"\vSignetAgent\x12C\n" +
 	"\x04Sign\x12\x1c.signet.agent.v1.SignRequest\x1a\x1d.signet.agent.v1.SignResponse\x12Q\n" +
-	"\x0eListIdentities\x12\x16.google.protobuf.Empty\x1a'.signet.agent.v1.ListIdentitiesResponseB/Z-github.com/jamestexas/signet/pkg/agent/api/v1b\x06proto3"
+	"\x0eListIdentities\x12\x16.google.protobuf.Empty\x1a'.signet.agent.v1.ListIdentitiesResponseB/Z-github.com/agentic-research/signet/pkg/agent/api/v1b\x06proto3"
 
 var (
 	file_pkg_agent_api_v1_agent_proto_rawDescOnce sync.Once

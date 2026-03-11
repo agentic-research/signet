@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 func TestEd25519SignerConcurrency(t *testing.T) {

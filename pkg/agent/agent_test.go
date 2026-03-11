@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/jamestexas/signet/pkg/agent"
-	pb "github.com/jamestexas/signet/pkg/agent/api/v1"
+	"github.com/agentic-research/signet/pkg/agent"
+	pb "github.com/agentic-research/signet/pkg/agent/api/v1"
 )
 
 func TestListIdentities(t *testing.T) {

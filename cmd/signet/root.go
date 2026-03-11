@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jamestexas/signet/pkg/cli/config"
-	"github.com/jamestexas/signet/pkg/cli/styles"
+	"github.com/agentic-research/signet/pkg/cli/config"
+	"github.com/agentic-research/signet/pkg/cli/styles"
 	"github.com/spf13/cobra"
 )
 

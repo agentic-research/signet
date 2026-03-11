@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // TestTokenRegistry_StoreAndRetrieve_Consistency verifies that the storage key

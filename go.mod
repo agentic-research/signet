@@ -1,14 +1,14 @@
-module github.com/jamestexas/signet
+module github.com/agentic-research/signet
 
 go 1.25.1
 
 require (
+	github.com/agentic-research/go-cms v0.0.4
+	github.com/agentic-research/go-platform-signers v0.0.2
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cloudflare/circl v1.6.3
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/fxamacker/cbor/v2 v2.9.0
-	github.com/jamestexas/go-cms v0.0.2
-	github.com/jamestexas/go-platform-signers v0.0.1
 	github.com/muesli/termenv v0.16.0
 	github.com/sigstore/sigstore v1.10.4
 	github.com/spf13/cobra v1.10.1

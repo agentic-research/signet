@@ -5,7 +5,7 @@ import (
 	"crypto/ed25519"
 	"runtime"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
 // ZeroizePrivateKey securely zeros an Ed25519 private key from memory.

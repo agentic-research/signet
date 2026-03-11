@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
-	"github.com/jamestexas/signet/pkg/crypto/keys"
-	"github.com/jamestexas/signet/pkg/lifecycle"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/lifecycle"
 	"github.com/zalando/go-keyring"
 )
 

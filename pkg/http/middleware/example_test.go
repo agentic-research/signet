@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/http/header"
-	"github.com/jamestexas/signet/pkg/http/middleware"
+	"github.com/agentic-research/signet/pkg/http/header"
+	"github.com/agentic-research/signet/pkg/http/middleware"
 )
 
 // Example_simpleUsage demonstrates basic middleware setup with a static key

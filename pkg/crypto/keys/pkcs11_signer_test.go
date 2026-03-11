@@ -8,7 +8,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	platformpkcs11 "github.com/jamestexas/go-platform-signers/pkcs11"
+	platformpkcs11 "github.com/agentic-research/go-platform-signers/pkcs11"
 )
 
 // TestPKCS11Signer_Public tests that Public() returns the correct public key from the token

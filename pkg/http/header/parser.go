@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 // SignetProof represents a parsed Signet-Proof header

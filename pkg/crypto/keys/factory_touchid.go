@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jamestexas/go-platform-signers/touchid"
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/go-platform-signers/touchid"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
 // validateKeyLabel checks for control characters and ensures reasonable length.

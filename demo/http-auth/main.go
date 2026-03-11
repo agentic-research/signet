@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/http/header"
+	"github.com/agentic-research/signet/pkg/http/header"
 )
 
 // NonceTracker prevents replay attacks by tracking nonces per JTI

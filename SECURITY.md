@@ -95,14 +95,14 @@ Signet follows a **minimal wrapper code** philosophy for cryptographic and hardw
   - Used for Ed25519 operations
   - Well-audited standard library extensions
 
-- **`github.com/jamestexas/go-cms`** - CMS/PKCS#7 with Ed25519
+- **`github.com/agentic-research/go-cms`** - CMS/PKCS#7 with Ed25519
   - Extracted from this project for reuse
   - OpenSSL-compatible signatures
   - No CGO dependencies
 
 #### Hardware Signers (Optional, CGO Required)
-- **`github.com/jamestexas/go-platform-signers`** - Hardware token integration
-  - Public repository: https://github.com/jamestexas/go-platform-signers
+- **`github.com/agentic-research/go-platform-signers`** - Hardware token integration
+  - Public repository: https://github.com/agentic-research/go-platform-signers
   - Provides `crypto.Signer` implementations for PKCS#11
   - Only compiled when `-tags=pkcs11` is specified
   - **Status**: Under active security review

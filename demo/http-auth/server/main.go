@@ -16,10 +16,10 @@ import (
 
 	"crypto/rand"
 
-	"github.com/jamestexas/signet/pkg/crypto/cose"
-	"github.com/jamestexas/signet/pkg/crypto/epr"
-	"github.com/jamestexas/signet/pkg/http/header"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/crypto/cose"
+	"github.com/agentic-research/signet/pkg/crypto/epr"
+	"github.com/agentic-research/signet/pkg/http/header"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // TokenRegistry stores issued tokens for verification

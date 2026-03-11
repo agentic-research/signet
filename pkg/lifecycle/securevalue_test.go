@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/lifecycle"
+	"github.com/agentic-research/signet/pkg/lifecycle"
 )
 
 // TestSecureValue_BasicUsage verifies basic usage pattern

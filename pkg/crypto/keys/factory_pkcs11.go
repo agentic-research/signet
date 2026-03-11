@@ -10,8 +10,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/jamestexas/go-platform-signers/pkcs11"
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/go-platform-signers/pkcs11"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
 // validateModulePath checks for path traversal attacks and ensures the path is absolute.

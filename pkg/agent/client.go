@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/jamestexas/signet/pkg/agent/api/v1"
+	pb "github.com/agentic-research/signet/pkg/agent/api/v1"
 )
 
 // AgentClient wraps a gRPC client connection and implements io.Closer.

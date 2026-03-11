@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/http/middleware"
+	"github.com/agentic-research/signet/pkg/http/middleware"
 )
 
 var (

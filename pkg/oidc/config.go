@@ -166,7 +166,7 @@ providers:
 
       # Optional: Restrict to specific repositories
       # allowed_repositories:
-      #   - jamestexas/signet
+      #   - agentic-research/signet
       #   - acme/production-app
 
       # Optional: Restrict to specific workflows

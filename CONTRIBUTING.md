@@ -23,7 +23,7 @@ Thank you for your interest in contributing! This guide will help you get starte
 ### Clone and Build
 
 ```bash
-git clone https://github.com/jamestexas/signet.git
+git clone https://github.com/agentic-research/signet.git
 cd signet
 make build
 ```
@@ -204,9 +204,9 @@ How you tested this change:
 
 New contributors should look for issues tagged:
 
-- [`good-first-issue`](https://github.com/jamestexas/signet/labels/good-first-issue) - Beginner-friendly
-- [`help-wanted`](https://github.com/jamestexas/signet/labels/help-wanted) - Contributions welcome
-- [`documentation`](https://github.com/jamestexas/signet/labels/documentation) - Documentation improvements
+- [`good-first-issue`](https://github.com/agentic-research/signet/labels/good-first-issue) - Beginner-friendly
+- [`help-wanted`](https://github.com/agentic-research/signet/labels/help-wanted) - Contributions welcome
+- [`documentation`](https://github.com/agentic-research/signet/labels/documentation) - Documentation improvements
 
 ### High-Impact Contribution Areas
 
@@ -269,16 +269,16 @@ From [DEVELOPMENT_ROADMAP.md Phase 4](./DEVELOPMENT_ROADMAP.md#phase-4-http-auth
 
 Primary forum for community interaction:
 
-- **[Q&A category](https://github.com/jamestexas/signet/discussions/categories/q-a)** - Ask questions
-- **[Ideas category](https://github.com/jamestexas/signet/discussions/categories/ideas)** - Propose features
-- **[Roadmap category](https://github.com/jamestexas/signet/discussions/categories/roadmap)** - Discuss priorities
+- **[Q&A category](https://github.com/agentic-research/signet/discussions/categories/q-a)** - Ask questions
+- **[Ideas category](https://github.com/agentic-research/signet/discussions/categories/ideas)** - Propose features
+- **[Roadmap category](https://github.com/agentic-research/signet/discussions/categories/roadmap)** - Discuss priorities
 
 ### Issue Tracker
 
 For bugs and feature requests:
 
-- **[Bug reports](https://github.com/jamestexas/signet/issues/new?labels=bug)** - Report issues
-- **[Feature requests](https://github.com/jamestexas/signet/issues/new?labels=enhancement)** - Suggest features
+- **[Bug reports](https://github.com/agentic-research/signet/issues/new?labels=bug)** - Report issues
+- **[Feature requests](https://github.com/agentic-research/signet/issues/new?labels=enhancement)** - Suggest features
 
 **Before opening an issue:**
 1. Search existing issues to avoid duplicates
@@ -313,7 +313,7 @@ Be respectful, constructive, and collaborative. We follow the [Contributor Coven
 Stuck? Reach out:
 
 1. **Comment on the relevant issue** - Maintainers will respond
-2. **Start a [GitHub Discussion](https://github.com/jamestexas/signet/discussions)** - Community support
+2. **Start a [GitHub Discussion](https://github.com/agentic-research/signet/discussions)** - Community support
 3. **Check [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md)** - Understand project context
 4. **Read [ARCHITECTURE.md](./ARCHITECTURE.md)** - Understand design decisions
 
@@ -331,4 +331,4 @@ Contributors are recognized in:
 
 **Thank you for contributing to Signet!** Every contribution, no matter how small, helps build a more secure authentication ecosystem.
 
-**Questions about this guide?** Open a [discussion](https://github.com/jamestexas/signet/discussions/new?category=q-a)
+**Questions about this guide?** Open a [discussion](https://github.com/agentic-research/signet/discussions/new?category=q-a)

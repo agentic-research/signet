@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jamestexas/signet/pkg/crypto/cose"
+	"github.com/agentic-research/signet/pkg/crypto/cose"
 )
 
 const (

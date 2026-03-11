@@ -7,7 +7,7 @@ Replace bearer tokens with cryptographic proof-of-possession. Signet provides to
 **Security Note:**
 - **Not audited** - use for development only
 - Core cryptography is unit-tested (13k+ LOC) and partially fuzzed (3 fuzz functions covering critical parsing paths)
-- Native Go implementation via [`go-cms`](https://github.com/jamestexas/go-cms) (no external review, passes OpenSSL interop tests)
+- Native Go implementation via [`go-cms`](https://github.com/agentic-research/go-cms) (no external review, passes OpenSSL interop tests)
 - **Platform:** Built for macOS, should work on Linux (minimal testing)
 - **Key storage:** Defaults to OS keyring; falls back to plaintext `~/.signet/master.key` when the keyring is unavailable or initialized with `--insecure`
 - TouchID integration (macOS) requires CGO; Linux/CI builds are Pure Go (Static)
@@ -65,7 +65,7 @@ openssl cms -verify -binary -in document.pdf.sig -inform PEM
 Two-step verification middleware for Go HTTP servers:
 
 ```go
-import "github.com/jamestexas/signet/pkg/http/middleware"
+import "github.com/agentic-research/signet/pkg/http/middleware"
 
 auth, err := middleware.SignetMiddleware(
     middleware.WithMasterKey(masterPubKey),
@@ -180,7 +180,7 @@ Signet's primitives are designed to be used independently:
 
 | Package | Purpose | Status |
 |---------|---------|--------|
-| [`github.com/jamestexas/go-cms`](https://github.com/jamestexas/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ Unaudited |
+| [`github.com/agentic-research/go-cms`](https://github.com/agentic-research/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ Unaudited |
 | [`pkg/crypto/algorithm`](./pkg/crypto/algorithm) | Algorithm registry (Ed25519, ML-DSA-44) with pluggable ops | Internal† |
 | [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
 | [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
@@ -198,7 +198,7 @@ Signet's primitives are designed to be used independently:
 ### From Source
 
 ```bash
-git clone https://github.com/jamestexas/signet.git
+git clone https://github.com/agentic-research/signet.git
 cd signet
 make build
 ```
@@ -253,7 +253,7 @@ make fmt lint
 - **[Contributing](CONTRIBUTING.md)** - How to contribute effectively
 - **[Performance](docs/PERFORMANCE.md)** - Benchmarks and analysis
 - **[Sigstore Integration](docs/sigstore-integration.md)** - Using Signet keys with cosign/gitsign
-- **[CMS Implementation](https://github.com/jamestexas/go-cms/blob/main/docs/IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details (go-cms repo)
+- **[CMS Implementation](https://github.com/agentic-research/go-cms/blob/main/docs/IMPLEMENTATION.md)** - Ed25519 CMS/PKCS#7 details (go-cms repo)
 
 ## Roadmap
 
@@ -277,7 +277,7 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for develop
 - Security review and testing
 - Documentation and examples
 
-**Questions?** Open a [GitHub Discussion](https://github.com/jamestexas/signet/discussions)
+**Questions?** Open a [GitHub Discussion](https://github.com/agentic-research/signet/discussions)
 
 ## Why Signet?
 
@@ -286,7 +286,7 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for develop
 **Solution:** Cryptographic proof-of-possession. Every request proves knowledge of a private key without revealing it. Tokens can't be stolen and replayed.
 
 **Unique features:**
-- One of the first Go libraries with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/jamestexas/go-cms), not yet security reviewed)
+- One of the first Go libraries with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/agentic-research/go-cms), not yet security reviewed)
 - **Post-quantum ready** via ML-DSA-44 (FIPS 204) using [cloudflare/circl](https://github.com/cloudflare/circl)
 - Offline-first design (no network dependencies)
 - Ephemeral certificates (5-minute lifetime)
@@ -303,5 +303,5 @@ Inspired by [Sigstore](https://sigstore.dev) for supply chain security. Signet e
 
 ---
 
-**Questions?** Open an [issue](https://github.com/jamestexas/signet/issues)
+**Questions?** Open an [issue](https://github.com/agentic-research/signet/issues)
 **Ready to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md)

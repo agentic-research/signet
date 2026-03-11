@@ -38,7 +38,7 @@ cd signet
 go build -o signet-proxy ./cmd/signet-proxy
 
 # Or install
-go install github.com/jamestexas/signet/cmd/signet-proxy@latest
+go install github.com/agentic-research/signet/cmd/signet-proxy@latest
 ```
 
 ## Configuration
@@ -447,7 +447,7 @@ package main
 
 import (
     "net/http"
-    "github.com/jamestexas/signet/pkg/http/client"
+    "github.com/agentic-research/signet/pkg/http/client"
 )
 
 func main() {

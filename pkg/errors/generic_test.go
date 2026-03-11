@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/errors"
+	"github.com/agentic-research/signet/pkg/errors"
 )
 
 // Test error codes for storage operations

@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
 // S1: External consumer workflow — generate, sign, verify, tamper-reject

@@ -20,7 +20,7 @@ Production-ready HTTP middleware for Signet authentication with two-step cryptog
 ```go
 import (
     "net/http"
-    "github.com/jamestexas/signet/pkg/http/middleware"
+    "github.com/agentic-research/signet/pkg/http/middleware"
 )
 
 // Create middleware with simple configuration

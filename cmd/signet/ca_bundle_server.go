@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/jamestexas/signet/pkg/revocation/types"
+	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/spf13/cobra"
 )
 

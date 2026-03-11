@@ -16,7 +16,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // Checker determines if a token has been revoked.

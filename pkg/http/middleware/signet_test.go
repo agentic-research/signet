@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamestexas/signet/pkg/crypto/epr"
-	"github.com/jamestexas/signet/pkg/signet"
+	"github.com/agentic-research/signet/pkg/crypto/epr"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // setupTestMiddleware creates a middleware instance with test configuration

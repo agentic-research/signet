@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	pb "github.com/jamestexas/signet/pkg/agent/api/v1"
+	pb "github.com/agentic-research/signet/pkg/agent/api/v1"
 )
 
 // Server implements the SignetAgent gRPC service.

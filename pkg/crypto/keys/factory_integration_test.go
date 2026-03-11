@@ -5,8 +5,8 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/jamestexas/signet/pkg/crypto/algorithm"
-	"github.com/jamestexas/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/crypto/algorithm"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 // S2: KeyFactory produces crypto.Signer, sign + verify round-trip
