@@ -5,8 +5,8 @@ repos:
     hooks:
       - id: mdformat
         additional_dependencies:
-          - mdformat-gfm
-          - mdformat-frontmatter
+          - mdformat-gfm==0.3.5
+          - mdformat-frontmatter==0.4.1
         exclude: '^\.beads/'
 
   # Step 1: Format code first
