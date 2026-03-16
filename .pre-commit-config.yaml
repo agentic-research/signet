@@ -1,3 +1,5 @@
+exclude: '^\.beads/'
+
 repos:
   # Markdown formatting
   - repo: https://github.com/hukkin/mdformat
@@ -7,7 +9,6 @@ repos:
         additional_dependencies:
           - mdformat-gfm==0.3.5
           - mdformat-frontmatter==0.4.1
-        exclude: '^\.beads/'
 
   # Step 1: Format code first
   - repo: https://github.com/dnephin/pre-commit-golang
