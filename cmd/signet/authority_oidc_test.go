@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
@@ -75,7 +76,7 @@ func createTestAuthority(t *testing.T, providers ...oidcprovider.Provider) (*Aut
 		Level: slog.LevelError, // Quiet during tests
 	}))
 
-	_, masterKey, err := ed25519.GenerateKey(nil)
+	_, masterKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("Failed to generate master key: %v", err)
 	}
