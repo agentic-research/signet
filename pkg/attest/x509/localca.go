@@ -105,6 +105,59 @@ func (ca *LocalCA) IssueCodeSigningCertificateSecure(validityDuration time.Durat
 	return cert, certDER, secPriv, nil // Caller now owns secPriv
 }
 
+// IssueCodeSigningCertWithParent creates an ephemeral code-signing certificate
+// signed by ca.masterKey, using parentCert as the issuer template.
+// This enables cert chains like: root CA → bridge cert → ephemeral cert.
+// The parentCert's Subject becomes the ephemeral cert's Issuer, ensuring
+// correct X.509 chain validation.
+func (ca *LocalCA) IssueCodeSigningCertWithParent(parentCert *x509.Certificate, validityDuration time.Duration) (*x509.Certificate, []byte, *keys.SecurePrivateKey, error) {
+	if parentCert == nil {
+		return nil, nil, nil, errors.New("parent certificate cannot be nil")
+	}
+	if validityDuration <= 0 {
+		return nil, nil, nil, errors.New("validity duration must be positive")
+	}
+
+	ephemeralPub, secPriv, err := keys.GenerateSecureKeyPair()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	var ownershipTransferred bool
+	defer func() {
+		if !ownershipTransferred {
+			secPriv.Destroy()
+		}
+	}()
+
+	template := ca.CreateCertificateTemplate(validityDuration)
+	if template == nil {
+		return nil, nil, nil, errors.New("failed to create certificate template")
+	}
+
+	template.SubjectKeyId = generateSubjectKeyID(ephemeralPub)
+	template.AuthorityKeyId = parentCert.SubjectKeyId
+
+	certDER, err := x509.CreateCertificate(
+		rand.Reader,
+		template,     // certificate being created
+		parentCert,   // issuer certificate (bridge cert)
+		ephemeralPub, // public key being certified
+		ca.masterKey, // private key matching parentCert's public key
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	ownershipTransferred = true
+	return cert, certDER, secPriv, nil
+}
+
 // IssueCertificateForSigner creates an X.509 certificate for code signing
 // for a provided crypto.Signer with the specified validity duration.
 // The certificate is issued by the master key (CA) for the signer's public key.

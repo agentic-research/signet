@@ -2,7 +2,9 @@ package x509
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
+	"math/big"
 	"testing"
 	"time"
 
@@ -161,4 +163,101 @@ func TestEndEntityTemplateShouldHaveCodeSigningExtKeyUsage(t *testing.T) {
 	if !hasCodeSigning {
 		t.Error("End-entity template should have ExtKeyUsageCodeSigning")
 	}
+}
+
+// TestIssueCodeSigningCertWithParent verifies that ephemeral certs issued
+// under a parent (bridge) cert form a valid chain.
+// Uses real crypto throughout (Rule 4: test reality, not mocks).
+func TestIssueCodeSigningCertWithParent(t *testing.T) {
+	// Root CA (master key)
+	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bridge key (intermediate CA)
+	bridgePub, bridgePriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create root CA cert
+	rootCA := NewLocalCA(masterPriv, "did:key:root")
+	rootTemplate := rootCA.CreateCACertificateTemplate()
+	rootTemplate.SubjectKeyId = generateSubjectKeyID(masterPriv.Public())
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, masterPriv.Public(), masterPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootCert, err := x509.ParseCertificate(rootDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create bridge cert signed by root
+	now := time.Now()
+	bridgeTemplate := &x509.Certificate{
+		SerialNumber:          mustSerial(t),
+		Subject:               EncodeDIDAsSubject("alice@example.com"),
+		NotBefore:             now.Add(-1 * time.Hour),
+		NotAfter:              now.Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		MaxPathLen:            0,
+		MaxPathLenZero:        true,
+		SubjectKeyId:          generateSubjectKeyID(bridgePub),
+		AuthorityKeyId:        rootTemplate.SubjectKeyId,
+	}
+	bridgeDER, err := x509.CreateCertificate(rand.Reader, bridgeTemplate, rootTemplate, bridgePub, masterPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgeCert, err := x509.ParseCertificate(bridgeDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Issue ephemeral cert under bridge cert
+	bridgeCA := NewLocalCA(bridgePriv, "alice@example.com")
+	ephCert, _, secKey, err := bridgeCA.IssueCodeSigningCertWithParent(bridgeCert, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("IssueCodeSigningCertWithParent failed: %v", err)
+	}
+	defer secKey.Destroy()
+
+	// Ephemeral cert should NOT be CA
+	if ephCert.IsCA {
+		t.Error("ephemeral cert should not be CA")
+	}
+
+	// Authority key ID should match bridge cert's subject key ID
+	if string(ephCert.AuthorityKeyId) != string(bridgeCert.SubjectKeyId) {
+		t.Error("ephemeral cert's AuthorityKeyId should match bridge cert's SubjectKeyId")
+	}
+
+	// Verify chain: root → bridge → ephemeral
+	roots := x509.NewCertPool()
+	roots.AddCert(rootCert)
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(bridgeCert)
+
+	_, err = ephCert.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		CurrentTime:   time.Now(),
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+	})
+	if err != nil {
+		t.Fatalf("3-cert chain verification failed: %v", err)
+	}
+}
+
+func mustSerial(t *testing.T) *big.Int {
+	t.Helper()
+	sn, err := GenerateSerialNumber()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sn
 }

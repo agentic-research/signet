@@ -79,8 +79,11 @@ For initialization and key management, use the subcommands:
 	rootCmd.PersistentFlags().StringVar(&homeDir, "home", "", "signet home directory")
 
 	// Add subcommands
-	rootCmd.AddCommand(initCmd())
+	initCommand := initCmd()
+	addBridgeFlags(initCommand)
+	rootCmd.AddCommand(initCommand)
 	rootCmd.AddCommand(exportKeyIDCmd())
+	rootCmd.AddCommand(exportBridgeCertCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -150,6 +153,20 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println(styles.Success.Render("✓") + " Signet initialized successfully")
 	}
+
+	// If --email provided, create bridge cert for user attribution (Level 1+)
+	if initEmail != "" {
+		if err := createUserAttribution(cfg.Home, cfg.IssuerDID, initEmail, bridgeValidityDays); err != nil {
+			return fmt.Errorf("failed to create user attribution: %w", err)
+		}
+		fmt.Println(styles.Success.Render("✓") + " User attribution configured: " + initEmail)
+		fmt.Println()
+		fmt.Println("Next steps for GitHub verification:")
+		fmt.Println("  1. Export bridge certificate:")
+		fmt.Println("     $ signet-git export-bridge-cert > bridge.pem")
+		fmt.Println("  2. Upload to GitHub Settings > SSH and GPG keys")
+	}
+
 	return nil
 }
 
