@@ -136,7 +136,7 @@ func (ca *LocalCA) IssueCodeSigningCertWithParent(parentCert *x509.Certificate, 
 		template,     // certificate being created
 		parentCert,   // issuer certificate (bridge cert)
 		ephemeralPub, // public key being certified
-		ca.masterKey, // issuer's private key (bridge key)
+		ca.masterKey, // private key matching parentCert's public key
 	)
 	if err != nil {
 		return nil, nil, nil, err

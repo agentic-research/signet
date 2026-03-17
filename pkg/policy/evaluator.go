@@ -77,17 +77,19 @@ func (s *StaticPolicyEvaluator) Evaluate(_ context.Context, req *EvaluationReque
 	if req == nil {
 		return nil, fmt.Errorf("evaluation request is nil")
 	}
-	if req.Claims == nil {
-		req.Claims = map[string]any{}
+	// Use local claims reference to avoid mutating caller's request
+	claims := req.Claims
+	if claims == nil {
+		claims = map[string]any{}
 	}
 
 	// Check repository allowlist
-	if reason, ok := s.checkAllowlist(req.Claims, "repository", s.AllowedRepositories); !ok {
+	if reason, ok := s.checkAllowlist(claims, "repository", s.AllowedRepositories); !ok {
 		return &EvaluationResult{Allowed: false, Reason: reason}, nil
 	}
 
 	// Check workflow allowlist
-	if reason, ok := s.checkAllowlist(req.Claims, "workflow", s.AllowedWorkflows); !ok {
+	if reason, ok := s.checkAllowlist(claims, "workflow", s.AllowedWorkflows); !ok {
 		return &EvaluationResult{Allowed: false, Reason: reason}, nil
 	}
 
@@ -95,7 +97,7 @@ func (s *StaticPolicyEvaluator) Evaluate(_ context.Context, req *EvaluationReque
 	var caps []string
 	if s.MapCaps != nil {
 		var err error
-		caps, err = s.MapCaps(req.Claims)
+		caps, err = s.MapCaps(claims)
 		if err != nil {
 			return nil, fmt.Errorf("capability mapping failed: %w", err)
 		}

@@ -7,14 +7,15 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	attestx509 "github.com/agentic-research/signet/pkg/attest/x509"
 	"github.com/agentic-research/signet/pkg/cli/keystore"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 )
 
 var (
@@ -73,8 +74,11 @@ func runExportBridgeCert(cmd *cobra.Command, args []string) error {
 
 // createUserAttribution generates a bridge cert and key for email attribution.
 // Called from runInit when --email is provided.
-func createUserAttribution(homePath, email string, validityDays int) error {
-	// Load master key
+//
+// Uses LocalCA for issuer template construction (consistent with library API).
+// The bridge cert has email in CN + SAN for GitHub badge matching.
+func createUserAttribution(homePath, issuerDID, email string, validityDays int) error {
+	// Load master key with zeroization on all exit paths (#1)
 	masterKey, err := keystore.LoadMasterKeySecure()
 	if err != nil {
 		masterKey, err = keystore.LoadMasterKeyInsecure(homePath)
@@ -82,20 +86,30 @@ func createUserAttribution(homePath, email string, validityDays int) error {
 			return fmt.Errorf("failed to load master key: %w", err)
 		}
 	}
+	defer masterKey.Destroy()
+
+	// Use LocalCA for consistent issuer template (#5)
+	ca := attestx509.NewLocalCA(masterKey, issuerDID)
 
 	// Generate bridge key pair (independent from master key)
-	bridgePub, bridgePriv, err := ed25519.GenerateKey(rand.Reader)
+	bridgePub, bridgePrivRaw, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return fmt.Errorf("failed to generate bridge key: %w", err)
 	}
+	// Wrap bridge key for zeroization (#2)
+	bridgePriv := keys.NewSecurePrivateKey(bridgePrivRaw)
+	defer bridgePriv.Destroy()
 
-	// Create bridge cert signed by master key
-	now := time.Now()
-	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	// Create bridge cert template with email for GitHub verification.
+	// This differs from IssueBridgeCertificate (which uses capability extensions)
+	// because the CLI flow needs email in CN + SAN for GitHub badge matching,
+	// while the authority flow needs capability URIs.
+	serialNumber, err := attestx509.GenerateSerialNumber()
 	if err != nil {
 		return fmt.Errorf("failed to generate serial number: %w", err)
 	}
 
+	now := time.Now()
 	bridgeTemplate := &x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -112,21 +126,8 @@ func createUserAttribution(homePath, email string, validityDays int) error {
 		MaxPathLenZero:        true,
 	}
 
-	// Self-sign with master key as issuer
-	issuerTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(0),
-		Subject: pkix.Name{
-			CommonName:   "Signet Master",
-			Organization: []string{"Signet"},
-		},
-		NotBefore:             now.Add(-24 * time.Hour),
-		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-	}
-
-	certDER, err := x509.CreateCertificate(rand.Reader, bridgeTemplate, issuerTemplate, bridgePub, masterKey)
+	// Use LocalCA to issue the bridge cert (consistent issuer template + key IDs)
+	cert, err := ca.IssueClientCertificate(bridgeTemplate, bridgePub)
 	if err != nil {
 		return fmt.Errorf("failed to create bridge certificate: %w", err)
 	}
@@ -138,19 +139,27 @@ func createUserAttribution(homePath, email string, validityDays int) error {
 	}
 
 	// Write bridge cert
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), certPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write bridge cert: %w", err)
 	}
 
-	// Write bridge key as PKCS8
-	pkcs8Key, err := x509.MarshalPKCS8PrivateKey(bridgePriv)
+	// Write bridge key as PKCS8 with zeroization of intermediate buffers (#2)
+	pkcs8Key, err := x509.MarshalPKCS8PrivateKey(bridgePriv.Key())
 	if err != nil {
 		return fmt.Errorf("failed to marshal bridge key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Key})
+	// Zeroize intermediate DER bytes
+	for i := range pkcs8Key {
+		pkcs8Key[i] = 0
+	}
 	if err := os.WriteFile(filepath.Join(gitDir, "bridge-key.pem"), keyPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write bridge key: %w", err)
+	}
+	// Zeroize PEM bytes after writing
+	for i := range keyPEM {
+		keyPEM[i] = 0
 	}
 
 	return nil

@@ -156,7 +156,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// If --email provided, create bridge cert for user attribution (Level 1+)
 	if initEmail != "" {
-		if err := createUserAttribution(cfg.Home, initEmail, bridgeValidityDays); err != nil {
+		if err := createUserAttribution(cfg.Home, cfg.IssuerDID, initEmail, bridgeValidityDays); err != nil {
 			return fmt.Errorf("failed to create user attribution: %w", err)
 		}
 		fmt.Println(styles.Success.Render("✓") + " User attribution configured: " + initEmail)

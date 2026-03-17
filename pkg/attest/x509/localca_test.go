@@ -2,6 +2,7 @@ package x509
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/x509"
 	"math/big"
 	"testing"
@@ -169,14 +170,13 @@ func TestEndEntityTemplateShouldHaveCodeSigningExtKeyUsage(t *testing.T) {
 // Uses real crypto throughout (Rule 4: test reality, not mocks).
 func TestIssueCodeSigningCertWithParent(t *testing.T) {
 	// Root CA (master key)
-	masterPub, masterPriv, err := ed25519.GenerateKey(nil)
+	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = masterPub
 
 	// Bridge key (intermediate CA)
-	bridgePub, bridgePriv, err := ed25519.GenerateKey(nil)
+	bridgePub, bridgePriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestIssueCodeSigningCertWithParent(t *testing.T) {
 	rootCA := NewLocalCA(masterPriv, "did:key:root")
 	rootTemplate := rootCA.CreateCACertificateTemplate()
 	rootTemplate.SubjectKeyId = generateSubjectKeyID(masterPriv.Public())
-	rootDER, err := x509.CreateCertificate(nil, rootTemplate, rootTemplate, masterPriv.Public(), masterPriv)
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, masterPriv.Public(), masterPriv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestIssueCodeSigningCertWithParent(t *testing.T) {
 		SubjectKeyId:          generateSubjectKeyID(bridgePub),
 		AuthorityKeyId:        rootTemplate.SubjectKeyId,
 	}
-	bridgeDER, err := x509.CreateCertificate(nil, bridgeTemplate, rootTemplate, bridgePub, masterPriv)
+	bridgeDER, err := x509.CreateCertificate(rand.Reader, bridgeTemplate, rootTemplate, bridgePub, masterPriv)
 	if err != nil {
 		t.Fatal(err)
 	}
