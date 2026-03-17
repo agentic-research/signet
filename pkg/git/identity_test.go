@@ -32,7 +32,7 @@ func setupTestHome(t *testing.T) (*config.Config, ed25519.PrivateKey) {
 		Type:  "ED25519 PRIVATE KEY",
 		Bytes: masterPriv.Seed(),
 	})
-	if err := os.WriteFile(filepath.Join(home, "master-key"), keyPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "master.key"), keyPEM, 0600); err != nil {
 		t.Fatal(err)
 	}
 
