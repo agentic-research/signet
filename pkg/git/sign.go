@@ -127,6 +127,9 @@ func withEphemeralKey(secKey *keys.SecurePrivateKey, fn func(ed25519.PrivateKey)
 }
 
 // emitStatus writes a gpgsm-compatible status line to the status fd.
+// NOTE: os.NewFile wraps the fd without taking ownership. We intentionally
+// do NOT close the returned *os.File — closing would close git's status fd.
+// The process lifetime is short (single commit sign), so finalizer risk is minimal.
 func emitStatus(statusFd int, line string) {
 	if statusFd <= 0 {
 		return

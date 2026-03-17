@@ -111,6 +111,13 @@ func (ca *LocalCA) IssueCodeSigningCertificateSecure(validityDuration time.Durat
 // The parentCert's Subject becomes the ephemeral cert's Issuer, ensuring
 // correct X.509 chain validation.
 func (ca *LocalCA) IssueCodeSigningCertWithParent(parentCert *x509.Certificate, validityDuration time.Duration) (*x509.Certificate, []byte, *keys.SecurePrivateKey, error) {
+	if parentCert == nil {
+		return nil, nil, nil, errors.New("parent certificate cannot be nil")
+	}
+	if validityDuration <= 0 {
+		return nil, nil, nil, errors.New("validity duration must be positive")
+	}
+
 	ephemeralPub, secPriv, err := keys.GenerateSecureKeyPair()
 	if err != nil {
 		return nil, nil, nil, err

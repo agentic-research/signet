@@ -54,6 +54,9 @@ Upload steps:
 
 func runExportBridgeCert(cmd *cobra.Command, args []string) error {
 	cfg := getConfig()
+	if err := cfg.ValidateHomePathRuntime(); err != nil {
+		return fmt.Errorf("invalid home directory: %w", err)
+	}
 	certPath := filepath.Join(cfg.Home, "git", "bridge-cert.pem")
 
 	if _, err := os.Stat(certPath); os.IsNotExist(err) {
@@ -78,7 +81,11 @@ func runExportBridgeCert(cmd *cobra.Command, args []string) error {
 // Uses LocalCA for issuer template construction (consistent with library API).
 // The bridge cert has email in CN + SAN for GitHub badge matching.
 func createUserAttribution(homePath, issuerDID, email string, validityDays int) error {
-	// Load master key with zeroization on all exit paths (#1)
+	if validityDays <= 0 {
+		return fmt.Errorf("bridge certificate validity must be positive, got %d days", validityDays)
+	}
+
+	// Load master key with zeroization on all exit paths
 	masterKey, err := keystore.LoadMasterKeySecure()
 	if err != nil {
 		masterKey, err = keystore.LoadMasterKeyInsecure(homePath)

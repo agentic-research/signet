@@ -81,7 +81,15 @@ func LoadIdentity(cfg *config.Config) (*Identity, error) {
 	bridgeCertPath := filepath.Join(cfg.Home, "git", "bridge-cert.pem")
 	bridgeKeyPath := filepath.Join(cfg.Home, "git", "bridge-key.pem")
 
-	if !fileExists(bridgeCertPath) || !fileExists(bridgeKeyPath) {
+	certExists, err := fileAccessible(bridgeCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("bridge cert inaccessible: %w", err)
+	}
+	keyExists, err := fileAccessible(bridgeKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("bridge key inaccessible: %w", err)
+	}
+	if !certExists || !keyExists {
 		ownershipTransferred = true
 		return identity, nil
 	}
@@ -96,13 +104,31 @@ func LoadIdentity(cfg *config.Config) (*Identity, error) {
 		return nil, fmt.Errorf("failed to load bridge key: %w", err)
 	}
 
+	// Verify bridge key matches bridge cert public key
+	certPub, ok := identity.BridgeCert.PublicKey.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("bridge cert has non-Ed25519 public key: %T", identity.BridgeCert.PublicKey)
+	}
+	if !certPub.Equal(identity.BridgeKey.Key().Public()) {
+		return nil, fmt.Errorf("bridge key does not match bridge certificate public key")
+	}
+
 	ownershipTransferred = true
 	return identity, nil
 }
 
-func fileExists(path string) bool {
+// fileAccessible checks if a file exists and is accessible.
+// Returns (false, nil) if the file doesn't exist.
+// Returns (false, err) if the file exists but is inaccessible (e.g., permission denied).
+func fileAccessible(path string) (bool, error) {
 	_, err := os.Stat(path)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err // permission error or other issue — don't silently downgrade
 }
 
 func loadCertificatePEM(path string) (*x509.Certificate, error) {
