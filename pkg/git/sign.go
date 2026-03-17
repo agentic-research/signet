@@ -64,9 +64,15 @@ func signLevel0(id *Identity, data []byte, validity time.Duration, statusFd int)
 // signWithBridgeCert signs using the bridge cert chain (3-cert chain).
 // Chain: master key → bridge cert → ephemeral cert → commit signature.
 func signWithBridgeCert(id *Identity, data []byte, validity time.Duration, statusFd int) error {
-	// Extract raw key since SecurePrivateKey doesn't implement crypto.Signer
+	// Extract raw key since SecurePrivateKey doesn't implement crypto.Signer.
+	// Use bridge cert's CN (user email) as issuer DID so ephemeral cert's
+	// subject matches the bridge cert's identity (required for GitHub badges).
 	bridgeRawKey := ed25519.PrivateKey(id.BridgeKey.Key())
-	bridgeCA := attestx509.NewLocalCA(bridgeRawKey, id.MachineID)
+	bridgeIssuer := id.BridgeCert.Subject.CommonName
+	if bridgeIssuer == "" {
+		bridgeIssuer = id.MachineID
+	}
+	bridgeCA := attestx509.NewLocalCA(bridgeRawKey, bridgeIssuer)
 
 	cert, _, secEphemeralKey, err := bridgeCA.IssueCodeSigningCertWithParent(id.BridgeCert, validity)
 	if err != nil {
