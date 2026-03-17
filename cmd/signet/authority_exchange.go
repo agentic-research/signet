@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -73,11 +74,12 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Generate ephemeral Ed25519 keypair
+	// Generate ephemeral Ed25519 keypair with zeroization on exit
 	ephPub, ephPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return fmt.Errorf("failed to generate ephemeral keypair: %w", err)
 	}
+	defer zeroKey(ephPriv)
 
 	ephPubB64 := base64.RawURLEncoding.EncodeToString(ephPub)
 
@@ -138,6 +140,10 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
 		return fmt.Errorf("failed to write ephemeral key: %w", err)
 	}
+	// Zeroize PEM bytes after writing
+	for i := range keyPEM {
+		keyPEM[i] = 0
+	}
 
 	// Status to stderr only (stdout purity)
 	fmt.Fprintln(os.Stderr, styles.Success.Render("✓")+" Bridge certificate saved")
@@ -161,9 +167,9 @@ func resolveOIDCToken() (string, error) {
 		return "", fmt.Errorf("--auto requires GitHub Actions environment (ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN must be set)")
 	}
 
-	// Append audience parameter
+	// Append audience parameter (URL-encoded)
 	audience := exchangeAuthorityURL
-	fullURL := reqURL + "&audience=" + audience
+	fullURL := reqURL + "&audience=" + url.QueryEscape(audience)
 
 	req, err := http.NewRequest(http.MethodGet, fullURL, nil)
 	if err != nil {
@@ -216,13 +222,26 @@ func extractCertPEM(body []byte) []byte {
 }
 
 // marshalEd25519PrivateKey encodes an Ed25519 private key as PKCS#8 PEM.
+// Zeroizes intermediate DER bytes after PEM encoding.
 func marshalEd25519PrivateKey(key ed25519.PrivateKey) ([]byte, error) {
 	der, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return nil, err
 	}
-	return pem.EncodeToMemory(&pem.Block{
+	pemBytes := pem.EncodeToMemory(&pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: der,
-	}), nil
+	})
+	// Zeroize DER after encoding
+	for i := range der {
+		der[i] = 0
+	}
+	return pemBytes, nil
+}
+
+// zeroKey overwrites an Ed25519 private key with zeros.
+func zeroKey(key ed25519.PrivateKey) {
+	for i := range key {
+		key[i] = 0
+	}
 }
