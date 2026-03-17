@@ -44,12 +44,26 @@ func TestIssueBridgeCertificate(t *testing.T) {
 		t.Error("MaxPathLenZero should be true")
 	}
 
-	// Subject
-	if cert.Subject.CommonName != "signet-bridge" {
-		t.Errorf("CN = %q, want %q", cert.Subject.CommonName, "signet-bridge")
+	// Subject should use issuer DID (consistent with other LocalCA methods)
+	if cert.Subject.CommonName != "did:key:test-bridge" {
+		t.Errorf("CN = %q, want %q", cert.Subject.CommonName, "did:key:test-bridge")
 	}
 	if len(cert.Subject.Organization) == 0 || cert.Subject.Organization[0] != "Signet" {
 		t.Errorf("O = %v, want [Signet]", cert.Subject.Organization)
+	}
+
+	// DID URI should be in SAN
+	if len(cert.URIs) == 0 {
+		t.Error("expected DID URI in SAN")
+	}
+
+	// Capability extension must NOT be marked critical (regression guard)
+	for _, ext := range cert.Extensions {
+		if ext.Id.Equal(OIDSignetCapabilities) {
+			if ext.Critical {
+				t.Error("capability extension must not be marked critical")
+			}
+		}
 	}
 }
 

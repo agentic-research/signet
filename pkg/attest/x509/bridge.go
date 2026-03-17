@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"errors"
+	"net/url"
 	"time"
 )
 
@@ -46,15 +47,16 @@ func (ca *LocalCA) IssueBridgeCertificate(
 
 	now := time.Now()
 
+	// Parse DID as URI for SAN (consistent with all other LocalCA templates)
+	didURI, _ := url.Parse(ca.issuerDID)
+
 	template := &x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject: pkix.Name{
-			CommonName:   "signet-bridge",
-			Organization: []string{"Signet"},
-		},
+		SerialNumber:          serialNumber,
+		Subject:               EncodeDIDAsSubject(ca.issuerDID),
 		NotBefore:             now,
 		NotAfter:              now.Add(validity),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		URIs:                  []*url.URL{didURI},
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 		MaxPathLen:            0,
