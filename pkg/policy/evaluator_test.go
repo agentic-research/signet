@@ -175,6 +175,38 @@ func TestStaticPolicyEvaluator_NilRequest(t *testing.T) {
 	}
 }
 
+func TestStaticPolicyEvaluator_NilClaims(t *testing.T) {
+	eval := &StaticPolicyEvaluator{
+		AllowedRepositories: []string{"agentic-research/signet"},
+	}
+	result, err := eval.Evaluate(context.Background(), &EvaluationRequest{
+		Provider: "github-actions",
+		Subject:  "test",
+		Claims:   nil, // nil claims should not panic
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Allowed {
+		t.Error("expected denied when claims is nil but allowlist is set")
+	}
+}
+
+func TestStaticPolicyEvaluator_NilClaimsEmptyAllowlists(t *testing.T) {
+	eval := &StaticPolicyEvaluator{}
+	result, err := eval.Evaluate(context.Background(), &EvaluationRequest{
+		Provider: "github-actions",
+		Subject:  "test",
+		Claims:   nil, // nil claims with empty allowlists should be fine
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Allowed {
+		t.Errorf("expected allowed with nil claims and empty allowlists, got denied: %s", result.Reason)
+	}
+}
+
 func TestStaticPolicyEvaluator_MissingRepoClaim(t *testing.T) {
 	eval := &StaticPolicyEvaluator{
 		AllowedRepositories: []string{"agentic-research/signet"},

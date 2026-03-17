@@ -77,6 +77,9 @@ func (s *StaticPolicyEvaluator) Evaluate(_ context.Context, req *EvaluationReque
 	if req == nil {
 		return nil, fmt.Errorf("evaluation request is nil")
 	}
+	if req.Claims == nil {
+		req.Claims = map[string]any{}
+	}
 
 	// Check repository allowlist
 	if reason, ok := s.checkAllowlist(req.Claims, "repository", s.AllowedRepositories); !ok {
