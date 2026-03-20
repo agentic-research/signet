@@ -35,7 +35,7 @@ func DefaultSocketDir() (string, error) {
 		return "", fmt.Errorf("cannot create socket directory %s: %w", baseDir, err)
 	}
 
-	// Verify ownership and permissions of the directory.
+	// Verify the directory is not a symlink and has restrictive permissions.
 	info, err := os.Lstat(baseDir)
 	if err != nil {
 		return "", fmt.Errorf("cannot stat socket directory: %w", err)
