@@ -16,14 +16,17 @@ import (
 	pb "github.com/agentic-research/signet/pkg/agent/api/v1"
 )
 
-// TODO: Make this configurable
-const defaultSocketPath = "/tmp/signet-agent.sock"
-
 func main() {
-	// Allow socket path to be configured via environment variable
+	// Allow socket path to be configured via environment variable.
+	// If not set, generate a randomized path in a user-private directory
+	// to prevent local attackers from pre-creating the socket.
 	socketPath := os.Getenv("SIGNET_SOCKET")
 	if socketPath == "" {
-		socketPath = defaultSocketPath
+		var err error
+		socketPath, err = agent_server.DefaultSocketPath()
+		if err != nil {
+			log.Fatalf("failed to determine socket path: %v", err)
+		}
 	}
 
 	// Set umask to ensure socket is created with secure permissions (0600)
