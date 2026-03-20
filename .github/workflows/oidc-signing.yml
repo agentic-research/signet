@@ -58,7 +58,7 @@ jobs:
                 name: github-actions
                 issuer_url: https://token.actions.githubusercontent.com
                 audience: http://localhost:8080
-                certificate_validity: 300000000000
+                certificate_validity: 300000000000  # 5 minutes in nanoseconds (time.Duration)
                 enabled: true
           EOF
 
