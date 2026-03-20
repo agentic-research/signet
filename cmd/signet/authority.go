@@ -1126,10 +1126,28 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		grantedCaps = capabilities
 	}
 
-	// Determine certificate validity
+	// Determine certificate validity:
+	// 1. Start with provider-specific validity (if available)
+	// 2. Fall back to authority-wide default
+	// 3. Override with policy result (if set)
+	// 4. Cap to OIDC token remaining lifetime (security: cert must not outlive token)
 	validity := time.Duration(s.config.CertificateValidity) * time.Hour
+	if bp, ok := provider.(interface{ Config() oidcprovider.ProviderConfig }); ok {
+		if pv := bp.Config().CertificateValidity; pv > 0 {
+			validity = pv
+		}
+	}
 	if evalResult.Validity > 0 {
 		validity = evalResult.Validity
+	}
+	tokenRemaining := time.Until(claims.ExpiresAt)
+	if tokenRemaining <= 0 {
+		s.logger.Error("OIDC token already expired", "expires_at", claims.ExpiresAt)
+		http.Error(w, "Token expired", http.StatusUnauthorized)
+		return
+	}
+	if validity > tokenRemaining {
+		validity = tokenRemaining
 	}
 
 	// Mint bridge certificate

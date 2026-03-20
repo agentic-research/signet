@@ -133,6 +133,12 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 	if keyPath == "" {
 		keyPath = filepath.Join(outDir, "ephemeral-key.pem")
 	}
+	// Ensure key output directory exists (may differ from cert output dir)
+	if keyDir := filepath.Dir(keyPath); keyDir != outDir {
+		if err := os.MkdirAll(keyDir, 0700); err != nil {
+			return fmt.Errorf("failed to create key output directory: %w", err)
+		}
+	}
 	keyPEM, err := marshalEd25519PrivateKey(ephPriv)
 	if err != nil {
 		return fmt.Errorf("failed to marshal ephemeral key: %w", err)
@@ -167,15 +173,20 @@ func resolveOIDCToken() (string, error) {
 		return "", fmt.Errorf("--auto requires GitHub Actions environment (ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN must be set)")
 	}
 
-	// Append audience parameter (URL-encoded)
-	audience := exchangeAuthorityURL
-	fullURL := reqURL + "&audience=" + url.QueryEscape(audience)
+	// Append audience parameter using proper URL parsing
+	parsedURL, err := url.Parse(reqURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid OIDC request URL: %w", err)
+	}
+	q := parsedURL.Query()
+	q.Set("audience", exchangeAuthorityURL)
+	parsedURL.RawQuery = q.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, fullURL, nil)
+	req, err := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to build OIDC request: %w", err)
 	}
-	req.Header.Set("Authorization", "bearer "+reqToken)
+	req.Header.Set("Authorization", "Bearer "+reqToken)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)

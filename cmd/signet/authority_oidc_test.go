@@ -189,7 +189,11 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 		t.Fatal("Expected non-empty certificate PEM in response")
 	}
 	if !bytes.Contains([]byte(certPEM), []byte("BEGIN CERTIFICATE")) {
-		t.Errorf("Expected PEM-encoded certificate, got %q", certPEM[:50])
+		preview := certPEM
+		if len(preview) > 50 {
+			preview = preview[:50]
+		}
+		t.Errorf("Expected PEM-encoded certificate, got %q", preview)
 	}
 }
 
