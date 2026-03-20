@@ -21,7 +21,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: go.mod
           cache: true
 
       - name: Build signet
@@ -96,17 +96,45 @@ jobs:
           test -f /tmp/signet-test/bridge-cert.pem
           test -f /tmp/signet-test/ephemeral-key.pem
 
-          # Parse certificate — fails if PEM is malformed
-          openssl x509 -in /tmp/signet-test/bridge-cert.pem -text -noout
+          # Parse and display certificate
+          CERT_TEXT=$(openssl x509 -in /tmp/signet-test/bridge-cert.pem -text -noout)
+          echo "$CERT_TEXT"
 
-          # Verify it is a short-lived cert (not a long-lived CA cert)
+          # Verify short-lived (bridge cert validity <= 24 hours)
+          NOT_BEFORE=$(openssl x509 -in /tmp/signet-test/bridge-cert.pem -startdate -noout | cut -d= -f2)
           NOT_AFTER=$(openssl x509 -in /tmp/signet-test/bridge-cert.pem -enddate -noout | cut -d= -f2)
-          echo "Certificate expires: $NOT_AFTER"
+          echo "Certificate valid from: $NOT_BEFORE"
+          echo "Certificate valid until: $NOT_AFTER"
+          NB_TS=$(date -u -d "$NOT_BEFORE" +%s)
+          NA_TS=$(date -u -d "$NOT_AFTER" +%s)
+          LIFETIME_SECONDS=$((NA_TS - NB_TS))
+          MAX_LIFETIME_SECONDS=$((24 * 60 * 60))
+          if [ "$LIFETIME_SECONDS" -gt "$MAX_LIFETIME_SECONDS" ]; then
+            echo "ERROR: Bridge cert lifetime too long: ${LIFETIME_SECONDS}s (max: ${MAX_LIFETIME_SECONDS}s)"
+            exit 1
+          fi
+          echo "Certificate lifetime: ${LIFETIME_SECONDS}s (within ${MAX_LIFETIME_SECONDS}s limit)"
 
-          # Check that the cert contains capability extensions (OID 2.5.29.*)
-          EXTENSIONS=$(openssl x509 -in /tmp/signet-test/bridge-cert.pem -text -noout)
-          if echo "$EXTENSIONS" | grep -q "X509v3 extensions"; then
-            echo "Certificate contains X509v3 extensions"
+          # Assert bridge cert is intermediate CA (IsCA:true, MaxPathLen:0)
+          if ! echo "$CERT_TEXT" | grep -q "CA:TRUE"; then
+            echo "ERROR: Bridge certificate is not marked as CA"
+            exit 1
+          fi
+          if ! echo "$CERT_TEXT" | grep -Eqi "pathlen:0|Path Length Constraint: 0"; then
+            echo "ERROR: Bridge certificate does not have path length constraint 0"
+            exit 1
+          fi
+
+          # Assert Key Usage includes certificate signing
+          if ! echo "$CERT_TEXT" | grep -qi "Certificate Sign"; then
+            echo "ERROR: Bridge certificate Key Usage does not include Certificate Sign"
+            exit 1
+          fi
+
+          # Assert Signet capability OID present (1.3.6.1.4.1.99999.1.3)
+          if ! echo "$CERT_TEXT" | grep -q "1.3.6.1.4.1.99999.1.3"; then
+            echo "ERROR: Missing Signet capability extension OID 1.3.6.1.4.1.99999.1.3"
+            exit 1
           fi
 
           echo "Bridge certificate verification passed"
