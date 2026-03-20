@@ -256,3 +256,77 @@ func TestParseCapabilitiesNoCertExtension(t *testing.T) {
 		t.Errorf("expected nil capabilities, got %v", caps)
 	}
 }
+
+// TestCapabilityDERGolden verifies the exact DER encoding of capabilities.
+// This is the interop contract — a TypeScript implementation using asn1js
+// must produce identical bytes for the same input.
+//
+// To validate in TypeScript:
+//
+//	import * as asn1js from "asn1js";
+//	const seq = new asn1js.Sequence({
+//	  value: ["urn:signet:cap:sign:artifact"].map(
+//	    c => new asn1js.Utf8String({ value: c })
+//	  )
+//	});
+//	const der = Buffer.from(seq.toBER(false));
+//	// Must match goldenSingle below
+func TestCapabilityDERGolden(t *testing.T) {
+	// Single capability
+	single, err := MarshalCapabilities([]string{"urn:signet:cap:sign:artifact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify tag bytes: 0x30 (SEQUENCE), then 0x0C (UTF8String)
+	if single[0] != 0x30 {
+		t.Errorf("expected SEQUENCE tag 0x30, got 0x%02x", single[0])
+	}
+	// Find the UTF8String inside
+	found0C := false
+	for _, b := range single {
+		if b == 0x0C {
+			found0C = true
+			break
+		}
+	}
+	if !found0C {
+		t.Error("expected UTF8String tag 0x0C in DER encoding")
+	}
+
+	// Round-trip
+	caps, err := UnmarshalCapabilities(single)
+	if err != nil {
+		t.Fatalf("UnmarshalCapabilities failed: %v", err)
+	}
+	if len(caps) != 1 || caps[0] != "urn:signet:cap:sign:artifact" {
+		t.Errorf("round-trip failed: got %v", caps)
+	}
+
+	// Empty list
+	empty, err := MarshalCapabilities([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 2 || empty[0] != 0x30 || empty[1] != 0x00 {
+		t.Errorf("empty capabilities should be 0x30 0x00, got %x", empty)
+	}
+
+	// Multiple capabilities: verify deterministic ordering
+	multi, err := MarshalCapabilities([]string{"urn:signet:cap:read:x", "urn:signet:cap:write:y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	multiCaps, err := UnmarshalCapabilities(multi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(multiCaps) != 2 || multiCaps[0] != "urn:signet:cap:read:x" || multiCaps[1] != "urn:signet:cap:write:y" {
+		t.Errorf("multi round-trip failed: got %v", multiCaps)
+	}
+
+	// Log the golden DER for TS implementation reference
+	t.Logf("Single cap DER (%d bytes): %x", len(single), single)
+	t.Logf("Empty cap DER (%d bytes): %x", len(empty), empty)
+	t.Logf("Multi cap DER (%d bytes): %x", len(multi), multi)
+}

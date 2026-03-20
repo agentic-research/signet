@@ -35,7 +35,7 @@ func (ca *LocalCA) IssueBridgeCertificate(
 	}
 
 	// Encode capabilities as ASN.1 SEQUENCE OF UTF8String
-	capExt, err := marshalCapabilities(capabilities)
+	capExt, err := MarshalCapabilities(capabilities)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -96,11 +96,33 @@ func (ca *LocalCA) IssueBridgeCertificate(
 	return cert, certDER, nil
 }
 
-// marshalCapabilities encodes capability URIs as ASN.1 SEQUENCE OF UTF8String.
-func marshalCapabilities(capabilities []string) ([]byte, error) {
+// MarshalCapabilities encodes capability URIs as ASN.1 SEQUENCE OF UTF8String.
+//
+// Interop contract (must match TypeScript @peculiar/x509 implementation):
+//
+//	DER encoding: SEQUENCE { UTF8String, UTF8String, ... }
+//	ASN.1 tags:   SEQUENCE = 0x30, UTF8String = 0x0C
+//	Empty list:   SEQUENCE {} = 0x30 0x00
+//
+// Example: ["urn:signet:cap:sign:artifact"] encodes as:
+//
+//	30 1E 0C 1C 75 72 6E 3A 73 69 67 6E 65 74 3A 63
+//	61 70 3A 73 69 67 6E 3A 61 72 74 69 66 61 63 74
+//
+// TypeScript equivalent (asn1js):
+//
+//	new asn1js.Sequence({
+//	  value: caps.map(c => new asn1js.Utf8String({ value: c }))
+//	}).toBER(false)
+func MarshalCapabilities(capabilities []string) ([]byte, error) {
 	vals := make([]asn1.RawValue, len(capabilities))
 	for i, cap := range capabilities {
-		b, err := asn1.Marshal(cap)
+		// Force UTF8String (tag 0x0C) to match the declared schema.
+		// Go's default asn1.Marshal produces PrintableString (tag 0x13)
+		// for ASCII-only strings, which is valid ASN.1 but violates the
+		// SEQUENCE OF UTF8String schema and breaks tag-sensitive parsers
+		// like asn1js used by TypeScript consumers.
+		b, err := asn1.MarshalWithParams(cap, "utf8")
 		if err != nil {
 			return nil, err
 		}
@@ -114,14 +136,15 @@ func marshalCapabilities(capabilities []string) ([]byte, error) {
 func ParseCapabilities(cert *x509.Certificate) ([]string, error) {
 	for _, ext := range cert.Extensions {
 		if ext.Id.Equal(OIDSignetCapabilities) {
-			return unmarshalCapabilities(ext.Value)
+			return UnmarshalCapabilities(ext.Value)
 		}
 	}
 	return nil, nil
 }
 
-// unmarshalCapabilities decodes ASN.1 SEQUENCE OF UTF8String back to strings.
-func unmarshalCapabilities(data []byte) ([]string, error) {
+// UnmarshalCapabilities decodes ASN.1 SEQUENCE OF UTF8String back to strings.
+// This is the inverse of MarshalCapabilities and validates the interop contract.
+func UnmarshalCapabilities(data []byte) ([]string, error) {
 	var raw []asn1.RawValue
 	rest, err := asn1.Unmarshal(data, &raw)
 	if err != nil {
