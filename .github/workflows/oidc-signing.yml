@@ -144,8 +144,9 @@ jobs:
           set -euo pipefail
           echo "signet e2e test payload" > /tmp/signet-test/artifact.txt
 
-          # Sign with the ephemeral key that is bound to the bridge cert
-          openssl pkeyutl -sign \
+          # Sign with the ephemeral key bound to the bridge cert
+          # Ed25519 requires -rawin (no digest, signs raw data)
+          openssl pkeyutl -sign -rawin \
             -inkey /tmp/signet-test/ephemeral-key.pem \
             -in /tmp/signet-test/artifact.txt \
             -out /tmp/signet-test/artifact.txt.sig
@@ -154,7 +155,7 @@ jobs:
           openssl x509 -in /tmp/signet-test/bridge-cert.pem -pubkey -noout \
             > /tmp/signet-test/bridge-pub.pem
 
-          openssl pkeyutl -verify \
+          openssl pkeyutl -verify -rawin \
             -pubin -inkey /tmp/signet-test/bridge-pub.pem \
             -in /tmp/signet-test/artifact.txt \
             -sigfile /tmp/signet-test/artifact.txt.sig
