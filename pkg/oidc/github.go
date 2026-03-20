@@ -2,6 +2,8 @@ package oidc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -88,6 +90,10 @@ type GitHubActionsClaims struct {
 
 	// RunAttempt is the attempt number for this run (for re-runs)
 	RunAttempt string `json:"run_attempt"`
+
+	// JTI is the unique token identifier for replay prevention.
+	// If not present in the raw JWT, synthesized from run_id + run_attempt.
+	JTI string `json:"jti"`
 }
 
 // NewGitHubActionsProvider creates a new GitHub Actions OIDC provider.
@@ -135,6 +141,16 @@ func (p *GitHubActionsProvider) Verify(ctx context.Context, rawToken string) (*C
 		return nil, fmt.Errorf("GitHub claims validation failed: %w", err)
 	}
 
+	// Ensure JTI exists for replay prevention.
+	// GHA tokens may include jti in standard claims. If absent, synthesize
+	// one from a SHA-256 hash of the raw token. This is unique per-token
+	// (unlike run_id+run_attempt which can have multiple tokens per run).
+	jti := ghClaims.JTI
+	if jti == "" {
+		h := sha256.Sum256([]byte(rawToken))
+		jti = "gha-" + hex.EncodeToString(h[:16]) // 32 hex chars, prefixed
+	}
+
 	// Convert to normalized Claims structure
 	claims := &Claims{
 		Subject:   idToken.Subject,
@@ -143,6 +159,7 @@ func (p *GitHubActionsProvider) Verify(ctx context.Context, rawToken string) (*C
 		ExpiresAt: idToken.Expiry,
 		IssuedAt:  idToken.IssuedAt,
 		Extra: map[string]interface{}{
+			"jti":                 jti,
 			"repository":          ghClaims.Repository,
 			"ref":                 ghClaims.Ref,
 			"sha":                 ghClaims.SHA,
@@ -354,6 +371,7 @@ func GetGitHubClaims(claims *Claims) (*GitHubActionsClaims, error) {
 	ghClaims.RunID, _ = getString("run_id")
 	ghClaims.RunNumber, _ = getString("run_number")
 	ghClaims.RunAttempt, _ = getString("run_attempt")
+	ghClaims.JTI, _ = getString("jti")
 
 	return ghClaims, nil
 }
