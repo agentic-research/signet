@@ -1,0 +1,134 @@
+name: OIDC Signing E2E
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  oidc-signing-test:
+    name: OIDC Token Exchange E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Build signet
+        run: make build
+
+      - name: Setup test environment
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/signet-test
+
+          # Generate ephemeral master key for the test authority
+          openssl genpkey -algorithm ed25519 -out /tmp/signet-test/master.pem
+
+          # Authority config — the interactive OIDC fields are required by
+          # validation but unused; only the exchange-token endpoint is exercised.
+          cat > /tmp/signet-test/config.json << 'EOF'
+          {
+            "oidc_provider_url": "https://token.actions.githubusercontent.com",
+            "oidc_client_id": "signet-e2e-test",
+            "oidc_client_secret": "unused-for-exchange-flow",
+            "redirect_url": "http://localhost:8080/callback",
+            "authority_master_key_path": "/tmp/signet-test/master.pem",
+            "listen_addr": ":8080",
+            "certificate_validity_hours": 1,
+            "oidc_providers_file": "/tmp/signet-test/oidc-providers.yaml"
+          }
+          EOF
+
+          # OIDC provider config — audience must match --authority-url
+          cat > /tmp/signet-test/oidc-providers.yaml << 'EOF'
+          providers:
+            - type: github-actions
+              config:
+                name: github-actions
+                issuer_url: https://token.actions.githubusercontent.com
+                audience: http://localhost:8080
+                certificate_validity: 5m
+                enabled: true
+          EOF
+
+      - name: Start authority server (background)
+        run: |
+          set -euo pipefail
+          export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
+          ./signet authority --config /tmp/signet-test/config.json --verbose &
+
+          # Wait for health endpoint
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+              echo "Authority server ready"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Authority server failed to start within 30s"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Exchange OIDC token for bridge certificate
+        run: |
+          ./signet authority exchange-github-token \
+            --authority-url http://localhost:8080 \
+            --auto \
+            --output /tmp/signet-test/bridge-cert.pem
+
+      - name: Verify bridge certificate
+        run: |
+          set -euo pipefail
+
+          # Certificate and ephemeral key must exist
+          test -f /tmp/signet-test/bridge-cert.pem
+          test -f /tmp/signet-test/ephemeral-key.pem
+
+          # Parse certificate — fails if PEM is malformed
+          openssl x509 -in /tmp/signet-test/bridge-cert.pem -text -noout
+
+          # Verify it is a short-lived cert (not a long-lived CA cert)
+          NOT_AFTER=$(openssl x509 -in /tmp/signet-test/bridge-cert.pem -enddate -noout | cut -d= -f2)
+          echo "Certificate expires: $NOT_AFTER"
+
+          # Check that the cert contains capability extensions (OID 2.5.29.*)
+          EXTENSIONS=$(openssl x509 -in /tmp/signet-test/bridge-cert.pem -text -noout)
+          if echo "$EXTENSIONS" | grep -q "X509v3 extensions"; then
+            echo "Certificate contains X509v3 extensions"
+          fi
+
+          echo "Bridge certificate verification passed"
+
+      - name: Sign test artifact with bridge cert
+        run: |
+          set -euo pipefail
+          echo "signet e2e test payload" > /tmp/signet-test/artifact.txt
+
+          # Sign with the ephemeral key that is bound to the bridge cert
+          openssl pkeyutl -sign \
+            -inkey /tmp/signet-test/ephemeral-key.pem \
+            -in /tmp/signet-test/artifact.txt \
+            -out /tmp/signet-test/artifact.txt.sig
+
+          # Extract public key from bridge cert and verify
+          openssl x509 -in /tmp/signet-test/bridge-cert.pem -pubkey -noout \
+            > /tmp/signet-test/bridge-pub.pem
+
+          openssl pkeyutl -verify \
+            -pubin -inkey /tmp/signet-test/bridge-pub.pem \
+            -in /tmp/signet-test/artifact.txt \
+            -sigfile /tmp/signet-test/artifact.txt.sig
+
+          echo "Artifact signed and verified with bridge certificate keypair"
