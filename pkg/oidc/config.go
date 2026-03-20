@@ -119,13 +119,12 @@ func createProvider(ctx context.Context, entry ProviderConfigEntry) (Provider, e
 		}
 		return NewGitHubActionsProvider(ctx, config)
 
-	// Future providers can be added here:
-	// case "gitlab-ci":
-	//     var config GitLabCIConfig
-	//     if err := json.Unmarshal(entry.Config, &config); err != nil {
-	//         return nil, fmt.Errorf("failed to parse GitLab CI config: %w", err)
-	//     }
-	//     return NewGitLabCIProvider(ctx, config)
+	case "cloudflare-access":
+		var config CloudflareAccessConfig
+		if err := json.Unmarshal(entry.Config, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse Cloudflare Access config: %w", err)
+		}
+		return NewCloudflareAccessProvider(ctx, config)
 
 	default:
 		return nil, fmt.Errorf("unknown provider type: %q", entry.Type)
