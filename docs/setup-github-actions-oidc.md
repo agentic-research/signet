@@ -28,7 +28,7 @@ providers:
       name: github-actions
       issuer_url: https://token.actions.githubusercontent.com
       audience: https://your-authority.example.com
-      certificate_validity: 300000000000  # 5 minutes (nanoseconds)
+      certificate_validity: 300000000000  # 5m in nanoseconds (Go time.Duration)
       enabled: true
       # Optional: restrict to specific repos
       # allowed_repositories:
@@ -47,9 +47,9 @@ providers:
 `config.json`:
 ```json
 {
-  "oidc_provider_url": "https://token.actions.githubusercontent.com",
-  "oidc_client_id": "signet",
-  "oidc_client_secret": "unused-for-exchange-flow",
+  "oidc_provider_url": "https://accounts.google.com",
+  "oidc_client_id": "your-google-client-id",
+  "oidc_client_secret": "your-google-client-secret",
   "redirect_url": "http://localhost:8080/callback",
   "authority_master_key_path": "/path/to/master.pem",
   "listen_addr": ":8080",
@@ -57,6 +57,12 @@ providers:
   "oidc_providers_file": "/path/to/oidc-providers.yaml"
 }
 ```
+
+> **Note**: The `oidc_provider_url`, `oidc_client_id`, and `oidc_client_secret` configure the
+> authority's interactive login flow (for humans via browser). They are separate from the
+> GitHub Actions exchange flow configured in `oidc-providers.yaml`. For CI-only deployments,
+> these fields are still required by validation but won't be used — set them to any valid
+> OIDC provider.
 
 ### 4. Start the authority server
 

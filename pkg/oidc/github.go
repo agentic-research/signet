@@ -2,6 +2,8 @@ package oidc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -141,10 +143,12 @@ func (p *GitHubActionsProvider) Verify(ctx context.Context, rawToken string) (*C
 
 	// Ensure JTI exists for replay prevention.
 	// GHA tokens may include jti in standard claims. If absent, synthesize
-	// a deterministic one from run_id + run_attempt (unique per token).
+	// one from a SHA-256 hash of the raw token. This is unique per-token
+	// (unlike run_id+run_attempt which can have multiple tokens per run).
 	jti := ghClaims.JTI
-	if jti == "" && ghClaims.RunID != "" {
-		jti = ghClaims.RunID + "-" + ghClaims.RunAttempt
+	if jti == "" {
+		h := sha256.Sum256([]byte(rawToken))
+		jti = "gha-" + hex.EncodeToString(h[:16]) // 32 hex chars, prefixed
 	}
 
 	// Convert to normalized Claims structure
@@ -367,6 +371,7 @@ func GetGitHubClaims(claims *Claims) (*GitHubActionsClaims, error) {
 	ghClaims.RunID, _ = getString("run_id")
 	ghClaims.RunNumber, _ = getString("run_number")
 	ghClaims.RunAttempt, _ = getString("run_attempt")
+	ghClaims.JTI, _ = getString("jti")
 
 	return ghClaims, nil
 }
