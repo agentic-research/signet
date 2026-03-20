@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
