@@ -124,6 +124,11 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce body size at the reader level (not just Content-Length header).
+	// A client could spoof Content-Length while streaming an oversized body.
+	// This wraps r.Body so downstream reads are bounded regardless of headers.
+	r.Body = http.MaxBytesReader(w, r.Body, maxSize)
+
 	// Handle chunked transfer encoding (Finding #28 enhancement)
 	// Chunked requests don't have Content-Length, so we enforce a timeout instead.
 	// This prevents slow-drip DoS attacks via infinite chunked streams.
