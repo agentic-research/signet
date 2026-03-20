@@ -37,6 +37,11 @@ type CloudflareAccessConfig struct {
 	// AllowedEmails restricts which email addresses can get bridge certificates.
 	// Empty list = allow all authenticated emails.
 	AllowedEmails []string `json:"allowed_emails" yaml:"allowed_emails"`
+
+	// CapabilityDomain is the domain used in capability URIs.
+	// Default: uses the TeamDomain value.
+	// Example: "rosary.bot" → urn:signet:cap:mcp:rosary.bot/<email>
+	CapabilityDomain string `json:"capability_domain,omitempty" yaml:"capability_domain,omitempty"`
 }
 
 // CloudflareAccessClaims represents Cloudflare Access-specific OIDC token claims.
@@ -56,13 +61,22 @@ func NewCloudflareAccessProvider(ctx context.Context, config CloudflareAccessCon
 	if config.Name == "" {
 		config.Name = "cloudflare-access"
 	}
-	if config.TeamDomain != "" {
-		if !teamDomainRegex.MatchString(config.TeamDomain) {
-			return nil, fmt.Errorf("invalid team_domain format: %q (must be alphanumeric with hyphens)", config.TeamDomain)
-		}
-		if config.IssuerURL == "" {
-			config.IssuerURL = fmt.Sprintf("https://%s.cloudflareaccess.com", config.TeamDomain)
-		}
+
+	// Validate TeamDomain BEFORE OIDC discovery to prevent outbound requests
+	// to attacker-controlled endpoints via malformed issuer URLs.
+	if config.TeamDomain == "" {
+		return nil, fmt.Errorf("team_domain is required for Cloudflare Access provider")
+	}
+	if !teamDomainRegex.MatchString(config.TeamDomain) {
+		return nil, fmt.Errorf("invalid team_domain format: %q (must be alphanumeric with hyphens)", config.TeamDomain)
+	}
+	if config.IssuerURL == "" {
+		config.IssuerURL = fmt.Sprintf("https://%s.cloudflareaccess.com", config.TeamDomain)
+	}
+	// Verify issuer URL matches team domain (prevents config with mismatched values)
+	expectedPrefix := fmt.Sprintf("https://%s.cloudflareaccess.com", config.TeamDomain)
+	if config.IssuerURL != expectedPrefix {
+		return nil, fmt.Errorf("issuer_url %q does not match team_domain %q (expected %s)", config.IssuerURL, config.TeamDomain, expectedPrefix)
 	}
 
 	base, err := NewBaseProvider(ctx, config.ProviderConfig)
@@ -151,8 +165,13 @@ func (p *CloudflareAccessProvider) MapCapabilities(claims *Claims) ([]string, er
 
 	safeEmail := url.PathEscape(email)
 
+	domain := p.config.CapabilityDomain
+	if domain == "" {
+		domain = p.config.TeamDomain + ".cloudflareaccess.com"
+	}
+
 	capabilities := []string{
-		fmt.Sprintf("urn:signet:cap:mcp:rosary.bot/%s", safeEmail),
+		fmt.Sprintf("urn:signet:cap:mcp:%s/%s", domain, safeEmail),
 	}
 
 	return capabilities, nil

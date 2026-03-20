@@ -215,7 +215,7 @@ func TestCloudflareAccessProvider_MapCapabilities(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := &CloudflareAccessProvider{
 				BaseProvider: &BaseProvider{config: ProviderConfig{Name: "cloudflare-access"}},
-				config:       CloudflareAccessConfig{TeamDomain: "myteam"},
+				config:       CloudflareAccessConfig{TeamDomain: "myteam", CapabilityDomain: "rosary.bot"},
 			}
 
 			caps, err := provider.MapCapabilities(tt.claims)
