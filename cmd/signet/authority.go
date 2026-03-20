@@ -34,6 +34,7 @@ import (
 	"github.com/agentic-research/signet/pkg/collections"
 	"github.com/agentic-research/signet/pkg/crypto/keys"
 	oidcprovider "github.com/agentic-research/signet/pkg/oidc"
+	"github.com/agentic-research/signet/pkg/policy"
 )
 
 var (
@@ -563,13 +564,14 @@ func (tc *TokenCache) cleanup() {
 
 // OIDCServer handles OIDC authentication and certificate issuance
 type OIDCServer struct {
-	provider     *oidc.Provider
-	verifier     *oidc.IDTokenVerifier
-	oauth2Config oauth2.Config
-	authority    *Authority
-	logger       *slog.Logger
-	config       *AuthorityConfig
-	tokenCache   *TokenCache // Prevents token replay attacks
+	provider        *oidc.Provider
+	verifier        *oidc.IDTokenVerifier
+	oauth2Config    oauth2.Config
+	authority       *Authority
+	logger          *slog.Logger
+	config          *AuthorityConfig
+	tokenCache      *TokenCache // Prevents token replay attacks
+	policyEvaluator policy.PolicyEvaluator
 }
 
 type SessionData struct {
@@ -664,6 +666,7 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		logger:       logger,
 		config:       config,
 		tokenCache:   newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}, nil
 }
 
@@ -1094,17 +1097,80 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// TODO: Mint bridge certificate with capabilities
-	// For now, return success with capabilities
-	// Bridge certificate implementation is Phase 3
-	response := map[string]interface{}{
+	// Evaluate policy to authorize and finalize capabilities
+	evalReq := &policy.EvaluationRequest{
+		Provider:      provider.Name(),
+		Subject:       claims.Subject,
+		Claims:        claims.Extra,
+		RequestedCaps: capabilities,
+	}
+	evalResult, err := s.policyEvaluator.Evaluate(ctx, evalReq)
+	if err != nil {
+		s.logger.Error("Policy evaluation failed", "error", err)
+		http.Error(w, "Policy evaluation failed", http.StatusInternalServerError)
+		return
+	}
+	if !evalResult.Allowed {
+		s.logger.Warn("Policy denied token exchange",
+			"provider", provider.Name(),
+			"subject", claims.Subject,
+			"reason", evalResult.Reason,
+		)
+		http.Error(w, "Denied by policy", http.StatusForbidden)
+		return
+	}
+
+	// Use policy-granted capabilities (may differ from provider-mapped ones)
+	grantedCaps := evalResult.Capabilities
+	if grantedCaps == nil {
+		grantedCaps = capabilities
+	}
+
+	// Determine certificate validity:
+	// 1. Start with provider-specific validity (if available)
+	// 2. Fall back to authority-wide default
+	// 3. Override with policy result (if set)
+	// 4. Cap to OIDC token remaining lifetime (security: cert must not outlive token)
+	validity := time.Duration(s.config.CertificateValidity) * time.Hour
+	if bp, ok := provider.(interface{ Config() oidcprovider.ProviderConfig }); ok {
+		if pv := bp.Config().CertificateValidity; pv > 0 {
+			validity = pv
+		}
+	}
+	if evalResult.Validity > 0 {
+		validity = evalResult.Validity
+	}
+	tokenRemaining := time.Until(claims.ExpiresAt)
+	if tokenRemaining <= 0 {
+		s.logger.Error("OIDC token already expired", "expires_at", claims.ExpiresAt)
+		http.Error(w, "Token expired", http.StatusUnauthorized)
+		return
+	}
+	if validity > tokenRemaining {
+		validity = tokenRemaining
+	}
+
+	// Mint bridge certificate
+	cert, certDER, err := s.authority.ca.IssueBridgeCertificate(ephemeralKey, grantedCaps, validity)
+	if err != nil {
+		s.logger.Error("Failed to mint bridge certificate", "error", err)
+		http.Error(w, "Failed to issue certificate", http.StatusInternalServerError)
+		return
+	}
+
+	// PEM-encode the bridge certificate
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+
+	response := map[string]any{
 		"status":       "success",
 		"provider":     provider.Name(),
-		"capabilities": capabilities,
+		"capabilities": grantedCaps,
 		"subject":      claims.Subject,
-		"expires_at":   claims.ExpiresAt.Format(time.RFC3339),
-		// TODO: Add bridge certificate PEM here
-		// "certificate": certPEM,
+		"expires_at":   cert.NotAfter.Format(time.RFC3339),
+		"certificate":  string(certPEM),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1116,7 +1182,8 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	s.logger.Info("Bridge certificate issued",
 		"provider", provider.Name(),
 		"subject", claims.Subject,
-		"capabilities", len(capabilities),
+		"capabilities", len(grantedCaps),
+		"serial", cert.SerialNumber,
 		"jti", jti,
 	)
 }

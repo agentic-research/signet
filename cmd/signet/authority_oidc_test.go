@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"log/slog"
@@ -13,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	attestx509 "github.com/agentic-research/signet/pkg/attest/x509"
 	oidcprovider "github.com/agentic-research/signet/pkg/oidc"
+	"github.com/agentic-research/signet/pkg/policy"
 	"golang.org/x/time/rate"
 )
 
@@ -73,7 +76,15 @@ func createTestAuthority(t *testing.T, providers ...oidcprovider.Provider) (*Aut
 		Level: slog.LevelError, // Quiet during tests
 	}))
 
+	_, masterKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate master key: %v", err)
+	}
+
+	ca := attestx509.NewLocalCA(masterKey, "did:signet:test-authority")
+
 	authority := &Authority{
+		ca:               ca,
 		logger:           logger,
 		providerRegistry: registry,
 		config: &AuthorityConfig{
@@ -115,10 +126,11 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 
 	// Create test server
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	// Create HTTP server
@@ -171,6 +183,18 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 	if capabilities, ok := respBody["capabilities"].([]interface{}); !ok || len(capabilities) != 2 {
 		t.Errorf("Expected 2 capabilities, got %v", respBody["capabilities"])
 	}
+
+	certPEM, ok := respBody["certificate"].(string)
+	if !ok || certPEM == "" {
+		t.Fatal("Expected non-empty certificate PEM in response")
+	}
+	if !bytes.Contains([]byte(certPEM), []byte("BEGIN CERTIFICATE")) {
+		preview := certPEM
+		if len(preview) > 50 {
+			preview = preview[:50]
+		}
+		t.Errorf("Expected PEM-encoded certificate, got %q", preview)
+	}
 }
 
 // TestHandleExchangeToken_MethodNotAllowed tests that only POST is accepted
@@ -179,10 +203,11 @@ func TestHandleExchangeToken_MethodNotAllowed(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -209,10 +234,11 @@ func TestHandleExchangeToken_MissingToken(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -248,10 +274,11 @@ func TestHandleExchangeToken_MissingEphemeralKey(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -283,10 +310,11 @@ func TestHandleExchangeToken_InvalidEphemeralKeyFormat(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -319,10 +347,11 @@ func TestHandleExchangeToken_InvalidEphemeralKeySize(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -368,10 +397,11 @@ func TestHandleExchangeToken_NoProviderRegistry(t *testing.T) {
 	}
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -407,10 +437,11 @@ func TestHandleExchangeToken_UnknownProviderHint(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -453,10 +484,11 @@ func TestHandleExchangeToken_TokenVerificationFailure(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -519,10 +551,11 @@ func TestHandleExchangeToken_AutoDetectProvider(t *testing.T) {
 	authority, _ := createTestAuthority(t, provider1, provider2)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	mux := http.NewServeMux()
@@ -569,10 +602,11 @@ func TestHandleExchangeToken_RateLimiting(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	server := &OIDCServer{
-		authority:  authority,
-		logger:     authority.logger,
-		config:     authority.config,
-		tokenCache: newTokenCache(),
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 
 	// Create a very restrictive rate limiter (1 request per second, burst of 1)
