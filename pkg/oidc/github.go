@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 // SECURITY: Regex for validating GitHub repository format
@@ -37,9 +38,18 @@ type GitHubActionsConfig struct {
 	// Format: relative path (e.g., ".github/workflows/release.yml")
 	AllowedWorkflows []string `json:"allowed_workflows" yaml:"allowed_workflows"`
 
-	// RequireRefProtection requires the ref to be a protected branch.
+	// RequireRefProtection requires the ref to be a protected branch or tag.
 	// Prevents bridge certificates from being issued for PRs from forks.
+	// When enabled, only refs matching refs/heads/* and refs/tags/* are allowed;
+	// refs matching refs/pull/* are explicitly denied.
 	RequireRefProtection bool `json:"require_ref_protection" yaml:"require_ref_protection"`
+
+	// ProtectedBranches restricts which branches are allowed when RequireRefProtection is enabled.
+	// If non-empty, only branches whose name (without the refs/heads/ prefix) appears in this
+	// list are permitted. Tags (refs/tags/*) are always allowed regardless of this setting.
+	// If empty, all refs/heads/* and refs/tags/* refs are allowed.
+	// Example: ["main", "master"]
+	ProtectedBranches []string `json:"protected_branches,omitempty" yaml:"protected_branches,omitempty"`
 }
 
 // GitHubActionsClaims represents GitHub Actions-specific OIDC token claims.
@@ -187,15 +197,37 @@ func (p *GitHubActionsProvider) validateGitHubClaims(claims *GitHubActionsClaims
 
 	// Check ref protection (if required)
 	if p.config.RequireRefProtection {
-		// GitHub marks protected refs with specific patterns
-		// Protected branches: refs/heads/<branch>
-		// Tags: refs/tags/<tag>
-		// Pull requests from forks would have different patterns
 		if claims.Ref == "" {
 			return fmt.Errorf("ref claim is required when ref protection is enabled")
 		}
-		// Note: This is a simplified check. Production implementations should
-		// verify ref protection status via GitHub API or trust specific ref patterns.
+
+		// Explicitly deny pull request refs (PRs from forks)
+		if strings.HasPrefix(claims.Ref, "refs/pull/") {
+			return fmt.Errorf("pull request refs are not allowed when ref protection is enabled: %q", claims.Ref)
+		}
+
+		// Only allow branch and tag refs
+		isBranch := strings.HasPrefix(claims.Ref, "refs/heads/")
+		isTag := strings.HasPrefix(claims.Ref, "refs/tags/")
+		if !isBranch && !isTag {
+			return fmt.Errorf("ref %q is not a branch or tag ref", claims.Ref)
+		}
+
+		// If ProtectedBranches is set, verify the branch is in the allow list.
+		// Tags are always allowed regardless of ProtectedBranches.
+		if isBranch && len(p.config.ProtectedBranches) > 0 {
+			branchName := strings.TrimPrefix(claims.Ref, "refs/heads/")
+			allowed := false
+			for _, pb := range p.config.ProtectedBranches {
+				if branchName == pb {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return fmt.Errorf("branch %q is not in the protected branches list", branchName)
+			}
+		}
 	}
 
 	return nil

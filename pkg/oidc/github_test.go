@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -216,9 +217,9 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 				},
 			},
 			wantCaps: []string{
-				"urn:signet:cap:write:repo:github.com/agentic-research/signet",
-				"urn:signet:cap:read:repo:github.com/agentic-research/signet",
-				"urn:signet:cap:workflow:github.com/agentic-research/signet:.github/workflows/release.yml",
+				"urn:signet:cap:write:repo:github.com/agentic-research%2Fsignet",
+				"urn:signet:cap:read:repo:github.com/agentic-research%2Fsignet",
+				"urn:signet:cap:workflow:github.com/agentic-research%2Fsignet:.github%2Fworkflows%2Frelease.yml",
 			},
 			wantErr: false,
 		},
@@ -265,7 +266,7 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 			errorMessage: "workflow not allowed",
 		},
 		{
-			name: "ref protection required but not protected",
+			name: "ref protection required - PR from fork denied",
 			config: GitHubActionsConfig{
 				ProviderConfig: ProviderConfig{
 					Name: "github-actions",
@@ -275,7 +276,7 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 			claims: &Claims{
 				Extra: map[string]interface{}{
 					"repository": "agentic-research/signet",
-					"ref":        "refs/heads/feature-branch",
+					"ref":        "refs/pull/123/merge",
 					"sha":        "abc123",
 					"workflow":   ".github/workflows/test.yml",
 					"actor":      "agentic-research",
@@ -283,7 +284,7 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 			},
 			wantCaps:     nil,
 			wantErr:      true,
-			errorMessage: "ref protection required",
+			errorMessage: "pull request refs not allowed",
 		},
 		{
 			name: "missing repository claim",
@@ -304,9 +305,11 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a mock provider with the config
-			// We can't create a real GitHubActionsProvider without hitting the OIDC endpoint
-			// So we'll test the capability mapping logic directly
+			// Create a provider with the config to test validateGitHubClaims
+			provider := &GitHubActionsProvider{
+				BaseProvider: &BaseProvider{config: tt.config.ProviderConfig},
+				config:       tt.config,
+			}
 
 			// Get GitHub claims
 			ghClaims, err := GetGitHubClaims(tt.claims)
@@ -318,59 +321,23 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 				return
 			}
 
-			// Test repository allowlist
-			if len(tt.config.AllowedRepositories) > 0 {
-				allowed := false
-				for _, repo := range tt.config.AllowedRepositories {
-					if repo == ghClaims.Repository {
-						allowed = true
-						break
-					}
+			// Validate using the actual validateGitHubClaims method
+			if err := provider.validateGitHubClaims(ghClaims); err != nil {
+				if !tt.wantErr {
+					t.Errorf("Unexpected validation error: %v", err)
 				}
-				if !allowed {
-					if !tt.wantErr {
-						t.Error("Expected repository to be allowed")
-					}
-					return
-				}
+				return
 			}
 
-			// Test workflow allowlist
-			if len(tt.config.AllowedWorkflows) > 0 && ghClaims.Workflow != "" {
-				allowed := false
-				for _, wf := range tt.config.AllowedWorkflows {
-					if wf == ghClaims.Workflow {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					if !tt.wantErr {
-						t.Error("Expected workflow to be allowed")
-					}
-					return
-				}
+			if tt.wantErr {
+				t.Error("Expected error, got nil")
+				return
 			}
 
-			// Test ref protection (simplified - just check if ref contains "main" or "master")
-			if tt.config.RequireRefProtection {
-				if ghClaims.Ref != "refs/heads/main" && ghClaims.Ref != "refs/heads/master" {
-					if !tt.wantErr {
-						t.Error("Expected ref to be protected")
-					}
-					return
-				}
-			}
-
-			// Build capabilities
-			capabilities := []string{
-				"urn:signet:cap:write:repo:github.com/" + ghClaims.Repository,
-				"urn:signet:cap:read:repo:github.com/" + ghClaims.Repository,
-			}
-
-			if ghClaims.Workflow != "" {
-				capabilities = append(capabilities,
-					"urn:signet:cap:workflow:github.com/"+ghClaims.Repository+":"+ghClaims.Workflow)
+			// Build capabilities using MapCapabilities
+			capabilities, err := provider.MapCapabilities(tt.claims)
+			if err != nil {
+				t.Fatalf("MapCapabilities failed: %v", err)
 			}
 
 			// Verify capabilities match expected
@@ -382,6 +349,150 @@ func TestGitHubActionsProvider_MapCapabilities(t *testing.T) {
 			for i, cap := range capabilities {
 				if cap != tt.wantCaps[i] {
 					t.Errorf("Capability %d = %q, want %q", i, cap, tt.wantCaps[i])
+				}
+			}
+		})
+	}
+}
+
+func TestValidateGitHubClaims_RefProtection(t *testing.T) {
+	baseClaims := func(ref string) *GitHubActionsClaims {
+		return &GitHubActionsClaims{
+			Repository: "agentic-research/signet",
+			Ref:        ref,
+			SHA:        "abc123",
+			Workflow:   ".github/workflows/test.yml",
+			Actor:      "agentic-research",
+		}
+	}
+
+	tests := []struct {
+		name             string
+		config           GitHubActionsConfig
+		claims           *GitHubActionsClaims
+		wantErr          bool
+		wantErrSubstring string
+	}{
+		{
+			name: "PR from fork ref denied",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:           baseClaims("refs/pull/123/merge"),
+			wantErr:          true,
+			wantErrSubstring: "pull request refs are not allowed",
+		},
+		{
+			name: "PR head ref denied",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:           baseClaims("refs/pull/456/head"),
+			wantErr:          true,
+			wantErrSubstring: "pull request refs are not allowed",
+		},
+		{
+			name: "protected branch ref allowed",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:  baseClaims("refs/heads/main"),
+			wantErr: false,
+		},
+		{
+			name: "any branch ref allowed when no ProtectedBranches list",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:  baseClaims("refs/heads/feature-branch"),
+			wantErr: false,
+		},
+		{
+			name: "tag ref allowed",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:  baseClaims("refs/tags/v1.0.0"),
+			wantErr: false,
+		},
+		{
+			name: "empty ref denied",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:           baseClaims(""),
+			wantErr:          true,
+			wantErrSubstring: "ref claim is required",
+		},
+		{
+			name: "unknown ref pattern denied",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+			},
+			claims:           baseClaims("refs/remotes/origin/main"),
+			wantErr:          true,
+			wantErrSubstring: "not a branch or tag ref",
+		},
+		{
+			name: "custom ProtectedBranches - allowed branch",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+				ProtectedBranches:    []string{"main", "master"},
+			},
+			claims:  baseClaims("refs/heads/main"),
+			wantErr: false,
+		},
+		{
+			name: "custom ProtectedBranches - disallowed branch",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+				ProtectedBranches:    []string{"main", "master"},
+			},
+			claims:           baseClaims("refs/heads/develop"),
+			wantErr:          true,
+			wantErrSubstring: "not in the protected branches list",
+		},
+		{
+			name: "custom ProtectedBranches - tags always allowed",
+			config: GitHubActionsConfig{
+				RequireRefProtection: true,
+				ProtectedBranches:    []string{"main"},
+			},
+			claims:  baseClaims("refs/tags/v2.0.0"),
+			wantErr: false,
+		},
+		{
+			name: "ref protection disabled - all refs pass",
+			config: GitHubActionsConfig{
+				RequireRefProtection: false,
+			},
+			claims:  baseClaims("refs/pull/123/merge"),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &GitHubActionsProvider{
+				BaseProvider: &BaseProvider{config: tt.config.ProviderConfig},
+				config:       tt.config,
+			}
+
+			err := provider.validateGitHubClaims(tt.claims)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error, got nil")
+					return
+				}
+				if tt.wantErrSubstring != "" {
+					if !strings.Contains(err.Error(), tt.wantErrSubstring) {
+						t.Errorf("Error %q does not contain %q", err.Error(), tt.wantErrSubstring)
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
 				}
 			}
 		})
