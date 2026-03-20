@@ -13,6 +13,10 @@ import (
 // SECURITY: Regex for validating email format (simple but sufficient for capability URIs).
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
+// SECURITY: Regex for validating CF Access team domain format.
+// Prevents injection into the issuer URL (e.g., "evil.com/path#" would construct a deceptive URL).
+var teamDomainRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
+
 // CloudflareAccessProvider implements the Provider interface for Cloudflare Access JWTs.
 // Cloudflare Access issues OIDC tokens for authenticated users via Access policies.
 //
@@ -52,8 +56,13 @@ func NewCloudflareAccessProvider(ctx context.Context, config CloudflareAccessCon
 	if config.Name == "" {
 		config.Name = "cloudflare-access"
 	}
-	if config.TeamDomain != "" && config.IssuerURL == "" {
-		config.IssuerURL = fmt.Sprintf("https://%s.cloudflareaccess.com", config.TeamDomain)
+	if config.TeamDomain != "" {
+		if !teamDomainRegex.MatchString(config.TeamDomain) {
+			return nil, fmt.Errorf("invalid team_domain format: %q (must be alphanumeric with hyphens)", config.TeamDomain)
+		}
+		if config.IssuerURL == "" {
+			config.IssuerURL = fmt.Sprintf("https://%s.cloudflareaccess.com", config.TeamDomain)
+		}
 	}
 
 	base, err := NewBaseProvider(ctx, config.ProviderConfig)
