@@ -203,6 +203,7 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	mux.Handle("/login", loginHandler)
 	mux.Handle("/callback", callbackHandler)
 	mux.HandleFunc("/healthz", server.handleHealthz)
+	mux.HandleFunc("/", server.handleLanding)
 
 	// OIDC token exchange endpoint (for CI/CD platforms)
 	if authority.providerRegistry != nil {
@@ -881,6 +882,465 @@ func (s *OIDCServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("Successfully issued certificate", "email", claims.Email, "subject", claims.Subject)
+}
+
+func (s *OIDCServer) handleLanding(w http.ResponseWriter, r *http.Request) {
+	// Only handle the root path exactly
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	accept := r.Header.Get("Accept")
+
+	// Content negotiation
+	switch {
+	case strings.Contains(accept, "application/json"):
+		s.serveLandingJSON(w)
+	case strings.Contains(accept, "text/markdown"):
+		s.serveLandingMarkdown(w)
+	default:
+		s.serveLandingHTML(w)
+	}
+}
+
+func (s *OIDCServer) serveLandingJSON(w http.ResponseWriter) {
+	hasExchange := s.authority.providerRegistry != nil
+
+	endpoints := []map[string]string{
+		{"path": "/healthz", "method": "GET", "description": "Health check"},
+		{"path": "/login", "method": "GET", "description": "OIDC authentication flow"},
+		{"path": "/callback", "method": "GET", "description": "OIDC callback handler"},
+	}
+	if hasExchange {
+		endpoints = append(endpoints, map[string]string{
+			"path": "/exchange-token", "method": "POST", "description": "CI/CD token exchange",
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"name":      "Signet Authority",
+		"status":    "healthy",
+		"time":      time.Now().Format(time.RFC3339),
+		"endpoints": endpoints,
+	}); err != nil {
+		s.logger.Error("Failed to encode landing JSON", "error", err)
+	}
+}
+
+func (s *OIDCServer) serveLandingMarkdown(w http.ResponseWriter) {
+	hasExchange := s.authority.providerRegistry != nil
+
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	var b strings.Builder
+	b.WriteString("# Signet Authority\n\n")
+	b.WriteString("OIDC-based certificate authority for machine identity.\n\n")
+	b.WriteString("## Endpoints\n\n")
+	b.WriteString("| Path | Method | Description |\n")
+	b.WriteString("|------|--------|-------------|\n")
+	b.WriteString("| `/healthz` | GET | Health check |\n")
+	b.WriteString("| `/login` | GET | OIDC authentication flow |\n")
+	b.WriteString("| `/callback` | GET | OIDC callback handler |\n")
+	if hasExchange {
+		b.WriteString("| `/exchange-token` | POST | CI/CD token exchange |\n")
+	}
+	b.WriteString("\n## Status\n\nHealthy\n")
+	fmt.Fprint(w, b.String())
+}
+
+func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
+	hasExchange := s.authority.providerRegistry != nil
+
+	exchangeRow := ""
+	if hasExchange {
+		exchangeRow = `
+      <tr>
+        <td><code>/exchange-token</code></td>
+        <td><span class="method post">POST</span></td>
+        <td>ci/cd token exchange</td>
+      </tr>`
+	}
+
+	html := `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>signet authority</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,450;0,500;0,700;0,800;1,300;1,400&display=swap');
+
+  :root {
+    --void:       #08080E;
+    --bg:         #0C0C14;
+    --surface:    #12121E;
+    --raised:     #18182A;
+    --elevated:   #1E1E32;
+    --text:       #E0D9C7;
+    --text-2:     #B8A98E;
+    --text-3:     #95866E;
+    --text-4:     #6B6358;
+    --border:     #242038;
+    --border-lit: #342E50;
+    --mint:       #A0D8C8;
+    --teal:       #88CCCC;
+    --sage:       #8ECFA0;
+    --amber:      #E8A878;
+    --lavender:   #CCA8E8;
+    --rose:       #E8A0B8;
+    --pink:       #F0B8D0;
+    --periwinkle: #A8B4E8;
+    --gold:       #D9B34D;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 16px; }
+
+  body {
+    background: var(--void);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-weight: 450;
+    font-size: 0.875rem;
+    line-height: 1.7;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* grain overlay */
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    pointer-events: none;
+    opacity: 0.45;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.035'/%3E%3C/svg%3E");
+    background-size: 512px 512px;
+  }
+
+  /* vignette */
+  .vignette {
+    position: fixed;
+    inset: 0;
+    z-index: 9997;
+    pointer-events: none;
+    background: radial-gradient(
+      ellipse 70% 60% at 50% 50%,
+      transparent 0%,
+      rgba(8, 8, 14, 0.5) 100%
+    );
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 640px;
+    width: 100%;
+    padding: 2rem;
+  }
+
+  /* header with stage marker */
+  .header {
+    margin-bottom: 3rem;
+  }
+
+  .stage-marker {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 1.5rem;
+  }
+
+  .stage-bead {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--lavender);
+    box-shadow: 0 0 12px rgba(204, 168, 232, 0.5);
+    animation: pulse 2.5s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  .stage-label {
+    font-size: 0.625rem;
+    color: var(--text-3);
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 300;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 12px rgba(204, 168, 232, 0.5); }
+    50% { opacity: 0.5; box-shadow: 0 0 4px rgba(204, 168, 232, 0.2); }
+  }
+
+  .title {
+    font-size: clamp(1.6rem, 4vw, 2rem);
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  .subtitle {
+    color: var(--text-3);
+    font-weight: 300;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+    line-height: 1.9;
+  }
+
+  .status-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 1.25rem;
+    padding: 8px 16px;
+    background: var(--void);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    font-size: 0.75rem;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--sage);
+    box-shadow: 0 0 8px rgba(142, 207, 160, 0.5);
+    animation: pulse-sage 2.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-sage {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(142, 207, 160, 0.5); }
+    50% { opacity: 0.5; box-shadow: 0 0 4px rgba(142, 207, 160, 0.2); }
+  }
+
+  .status-text {
+    color: var(--sage);
+    font-size: 0.5625rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+
+  /* endpoints section */
+  .section-tag {
+    display: inline-block;
+    font-size: 0.5625rem;
+    color: var(--text-4);
+    letter-spacing: 0.35em;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .endpoints {
+    margin-bottom: 3rem;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  tr { border-bottom: 1px solid var(--border); }
+  tr:last-child { border-bottom: none; }
+
+  td {
+    padding: 0.625rem 0;
+    vertical-align: middle;
+  }
+
+  td:first-child { width: 45%; }
+  td:nth-child(2) { width: 15%; }
+  td:last-child {
+    color: var(--text-3);
+    font-size: 0.75rem;
+    font-weight: 300;
+  }
+
+  code {
+    color: var(--teal);
+    font-family: inherit;
+    font-weight: 500;
+  }
+
+  .method {
+    font-size: 0.625rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 2px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .method.get {
+    color: var(--mint);
+    background: rgba(160, 216, 200, 0.08);
+    border: 1px solid rgba(160, 216, 200, 0.15);
+  }
+
+  .method.post {
+    color: var(--amber);
+    background: rgba(232, 168, 120, 0.08);
+    border: 1px solid rgba(232, 168, 120, 0.15);
+  }
+
+  /* alpha notice */
+  .notice {
+    position: relative;
+    padding: 20px 24px;
+    margin-bottom: 3rem;
+    font-size: 0.75rem;
+    color: var(--text-2);
+    line-height: 1.8;
+    font-weight: 300;
+  }
+
+  .notice::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 2px;
+    background: linear-gradient(135deg,
+      rgba(204, 168, 232, 0.06) 0%,
+      rgba(160, 216, 200, 0.03) 50%,
+      transparent 100%
+    );
+    z-index: -1;
+  }
+
+  .notice::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--lavender), transparent);
+    opacity: 0.4;
+  }
+
+  .notice-tag {
+    color: var(--gold);
+    font-size: 0.5625rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  /* footer */
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.5625rem;
+    color: var(--text-4);
+    letter-spacing: 0.06em;
+  }
+
+  .footer a {
+    color: var(--text-3);
+    text-decoration: none;
+    transition: color 300ms ease;
+  }
+
+  .footer a:hover { color: var(--text-2); }
+
+  .footer-links {
+    display: flex;
+    gap: 20px;
+  }
+
+  /* divider glyph */
+  .divider {
+    text-align: center;
+    color: var(--text-4);
+    font-size: 0.625rem;
+    margin: 2rem 0;
+    opacity: 0.4;
+    letter-spacing: 0.5em;
+  }
+
+  @media (max-width: 480px) {
+    .container { padding: 1.5rem; }
+    td:last-child { display: none; }
+    td:first-child { width: 60%; }
+    td:nth-child(2) { width: 40%; text-align: right; }
+  }
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="vignette"></div>
+<div class="container">
+  <div class="header">
+    <div class="stage-marker">
+      <span class="stage-bead"></span>
+      <span class="stage-label">authority</span>
+    </div>
+    <div class="title">signet authority</div>
+    <div class="subtitle">oidc certificate authority for machine identity</div>
+    <div class="status-line">
+      <span class="status-dot"></span>
+      <span class="status-text">healthy</span>
+    </div>
+  </div>
+
+  <div class="endpoints">
+    <span class="section-tag">// endpoints</span>
+    <table>
+      <tr>
+        <td><code>/healthz</code></td>
+        <td><span class="method get">get</span></td>
+        <td>health check</td>
+      </tr>
+      <tr>
+        <td><code>/login</code></td>
+        <td><span class="method get">get</span></td>
+        <td>oidc authentication</td>
+      </tr>
+      <tr>
+        <td><code>/callback</code></td>
+        <td><span class="method get">get</span></td>
+        <td>oidc callback</td>
+      </tr>` + exchangeRow + `
+    </table>
+  </div>
+
+  <div class="notice">
+    <span class="notice-tag">&loz; alpha</span>
+    oidc integration and certificate issuance are functional
+    but under active development. device key binding, session
+    management, and health checks are operational.
+  </div>
+
+  <div class="divider">&loz; &loz; &loz;</div>
+
+  <div class="footer">
+    <span>signet &mdash; agentic research</span>
+    <div class="footer-links">
+      <a href="https://github.com/agentic-research/signet">src</a>
+      <a href="/healthz">health</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>`
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, html)
 }
 
 func (s *OIDCServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
