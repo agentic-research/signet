@@ -1082,9 +1082,13 @@ func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
   .title {
     font-size: clamp(1.6rem, 4vw, 2rem);
     font-weight: 800;
-    color: var(--text);
+    color: var(--pink);
     letter-spacing: -0.02em;
     line-height: 1.1;
+    text-shadow:
+      0 0 30px rgba(240, 184, 208, 0.25),
+      0 0 60px rgba(184, 160, 216, 0.1),
+      0 2px 4px rgba(0, 0, 0, 0.3);
   }
 
   .subtitle {
@@ -1133,12 +1137,12 @@ func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
   .section-tag {
     display: inline-block;
     font-size: 0.5625rem;
-    color: var(--text-4);
+    color: var(--lavender);
     letter-spacing: 0.35em;
     margin-bottom: 1rem;
     text-transform: uppercase;
     padding: 4px 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(204, 168, 232, 0.2);
   }
 
   .endpoints {
@@ -1167,7 +1171,7 @@ func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
   }
 
   code {
-    color: var(--teal);
+    color: var(--periwinkle);
     font-family: inherit;
     font-weight: 500;
   }
@@ -1266,11 +1270,12 @@ func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
   /* divider glyph */
   .divider {
     text-align: center;
-    color: var(--text-4);
+    color: var(--rose);
     font-size: 0.625rem;
     margin: 2rem 0;
-    opacity: 0.4;
+    opacity: 0.5;
     letter-spacing: 0.5em;
+    text-shadow: 0 0 12px rgba(232, 160, 184, 0.3);
   }
 
   @media (max-width: 480px) {
