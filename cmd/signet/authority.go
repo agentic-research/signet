@@ -573,6 +573,7 @@ type OIDCServer struct {
 	config          *AuthorityConfig
 	tokenCache      *TokenCache // Prevents token replay attacks
 	policyEvaluator policy.PolicyEvaluator
+	landingHTML     []byte // Precomputed HTML landing page
 }
 
 type SessionData struct {
@@ -659,16 +660,18 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
 	}
 
-	return &OIDCServer{
-		provider:     provider,
-		verifier:     verifier,
-		oauth2Config: oauth2Config,
-		authority:    authority,
-		logger:       logger,
-		config:       config,
-		tokenCache:   newTokenCache(),
+	server := &OIDCServer{
+		provider:        provider,
+		verifier:        verifier,
+		oauth2Config:    oauth2Config,
+		authority:       authority,
+		logger:          logger,
+		config:          config,
+		tokenCache:      newTokenCache(),
 		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}, nil
+	}
+	server.landingHTML = server.buildLandingHTML()
+	return server, nil
 }
 
 func (s *OIDCServer) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -891,17 +894,35 @@ func (s *OIDCServer) handleLanding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Vary", "Accept")
 	accept := r.Header.Get("Accept")
 
 	// Content negotiation
 	switch {
-	case strings.Contains(accept, "application/json"):
+	case acceptsMediaType(accept, "application/json"):
 		s.serveLandingJSON(w)
-	case strings.Contains(accept, "text/markdown"):
+	case acceptsMediaType(accept, "text/markdown"):
 		s.serveLandingMarkdown(w)
 	default:
-		s.serveLandingHTML(w)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(s.landingHTML)
 	}
+}
+
+// acceptsMediaType checks if the Accept header contains the given media type.
+// Parses comma-separated entries and compares the type/subtype case-insensitively.
+func acceptsMediaType(accept, mediaType string) bool {
+	for _, entry := range strings.Split(accept, ",") {
+		entry = strings.TrimSpace(entry)
+		// Strip parameters (e.g., ";q=0.9")
+		if idx := strings.IndexByte(entry, ';'); idx != -1 {
+			entry = entry[:idx]
+		}
+		if strings.EqualFold(strings.TrimSpace(entry), mediaType) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *OIDCServer) serveLandingJSON(w http.ResponseWriter) {
@@ -949,7 +970,7 @@ func (s *OIDCServer) serveLandingMarkdown(w http.ResponseWriter) {
 	fmt.Fprint(w, b.String())
 }
 
-func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
+func (s *OIDCServer) buildLandingHTML() []byte {
 	hasExchange := s.authority.providerRegistry != nil
 
 	exchangeRow := ""
@@ -969,8 +990,6 @@ func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>signet authority</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,450;0,500;0,700;0,800;1,300;1,400&display=swap');
-
   :root {
     --void:       #08080E;
     --bg:         #0C0C14;
@@ -1344,8 +1363,7 @@ func (s *OIDCServer) serveLandingHTML(w http.ResponseWriter) {
 </body>
 </html>`
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprint(w, html)
+	return []byte(html)
 }
 
 func (s *OIDCServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
