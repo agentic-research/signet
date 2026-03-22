@@ -973,14 +973,17 @@ func (s *OIDCServer) serveLandingMarkdown(w http.ResponseWriter) {
 func (s *OIDCServer) buildLandingHTML() []byte {
 	hasExchange := s.authority.providerRegistry != nil
 
-	exchangeRow := ""
+	exchangeCard := ""
 	if hasExchange {
-		exchangeRow = `
-      <tr>
-        <td><code>/exchange-token</code></td>
-        <td><span class="method post">POST</span></td>
-        <td>ci/cd token exchange</td>
-      </tr>`
+		exchangeCard = `
+    <div class="endpoint-card" style="border-left-color: var(--lavender)">
+      <div class="ep-row">
+        <span class="ep-glyph" style="color: var(--lavender)">&#9674;</span>
+        <code class="ep-path" style="color: var(--lavender)">/exchange-token</code>
+        <span class="method post">post</span>
+      </div>
+      <div class="ep-desc">ci/cd token exchange</div>
+    </div>`
 	}
 
 	html := `<!DOCTYPE html>
@@ -991,11 +994,10 @@ func (s *OIDCServer) buildLandingHTML() []byte {
 <title>signet authority</title>
 <style>
   :root {
-    --void:       #08080E;
-    --bg:         #0C0C14;
-    --surface:    #12121E;
-    --raised:     #18182A;
-    --elevated:   #1E1E32;
+    --void:       #0A0A10;
+    --deep:       #0F0F17;
+    --card:       #141420;
+    --card-hover: #1A1A2A;
     --text:       #E0D9C7;
     --text-2:     #B8A98E;
     --text-3:     #95866E;
@@ -1003,13 +1005,13 @@ func (s *OIDCServer) buildLandingHTML() []byte {
     --border:     #242038;
     --border-lit: #342E50;
     --mint:       #A0D8C8;
-    --teal:       #88CCCC;
-    --sage:       #8ECFA0;
-    --amber:      #E8A878;
+    --teal:       #66ADA6;
+    --sage:       #73B873;
+    --amber:      #E09452;
     --lavender:   #CCA8E8;
-    --rose:       #E8A0B8;
+    --rose:       #D18094;
     --pink:       #F0B8D0;
-    --periwinkle: #A8B4E8;
+    --periwinkle: #8C99D9;
     --gold:       #D9B34D;
   }
 
@@ -1135,13 +1137,13 @@ func (s *OIDCServer) buildLandingHTML() []byte {
     height: 6px;
     border-radius: 50%;
     background: var(--sage);
-    box-shadow: 0 0 8px rgba(142, 207, 160, 0.5);
-    animation: pulse-sage 2.5s ease-in-out infinite;
+    box-shadow: 0 0 8px rgba(115, 184, 115, 0.5);
+    animation: pulse-sage 2s ease-in-out infinite;
   }
 
   @keyframes pulse-sage {
-    0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(142, 207, 160, 0.5); }
-    50% { opacity: 0.5; box-shadow: 0 0 4px rgba(142, 207, 160, 0.2); }
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(115, 184, 115, 0.5); }
+    50% { opacity: 0.5; box-shadow: 0 0 4px rgba(115, 184, 115, 0.2); }
   }
 
   .status-text {
@@ -1152,113 +1154,123 @@ func (s *OIDCServer) buildLandingHTML() []byte {
     font-weight: 700;
   }
 
-  /* endpoints section */
-  .section-tag {
-    display: inline-block;
-    font-size: 0.5625rem;
-    color: var(--lavender);
-    letter-spacing: 0.35em;
-    margin-bottom: 1rem;
-    text-transform: uppercase;
-    padding: 4px 0;
-    border-bottom: 1px solid rgba(204, 168, 232, 0.2);
+  /* glyph header — // SECTION pattern */
+  .glyph-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
   }
 
-  .endpoints {
+  .glyph-header .glyph {
+    color: var(--lavender);
+    opacity: 0.5;
+    font-size: 0.875rem;
+  }
+
+  .glyph-header .label {
+    font-size: 0.5625rem;
+    color: var(--text-4);
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* endpoint cards — StatBead pattern */
+  .endpoint-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     margin-bottom: 3rem;
   }
 
-  table {
-    width: 100%;
-    border-collapse: collapse;
+  .endpoint-card {
+    padding: 16px;
+    position: relative;
+    background: linear-gradient(135deg, rgba(18,18,30,0.6), rgba(12,12,20,0.8));
+    border-left: 2px solid var(--border);
+    transition: background 200ms ease;
   }
 
-  tr { border-bottom: 1px solid var(--border); }
-  tr:last-child { border-bottom: none; }
-
-  td {
-    padding: 0.625rem 0;
-    vertical-align: middle;
+  .endpoint-card:hover {
+    background: linear-gradient(135deg, rgba(20,20,34,0.7), rgba(14,14,24,0.9));
   }
 
-  td:first-child { width: 45%; }
-  td:nth-child(2) { width: 15%; }
-  td:last-child {
-    color: var(--text-3);
-    font-size: 0.75rem;
-    font-weight: 300;
+  .ep-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
   }
 
-  code {
-    color: var(--periwinkle);
+  .ep-glyph {
+    font-size: 0.625rem;
+    opacity: 0.6;
+  }
+
+  .ep-path {
     font-family: inherit;
     font-weight: 500;
+    font-size: 0.875rem;
+  }
+
+  .ep-desc {
+    font-size: 0.5625rem;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding-left: 22px;
   }
 
   .method {
-    font-size: 0.625rem;
-    font-weight: 500;
-    padding: 2px 8px;
-    border-radius: 2px;
-    letter-spacing: 0.05em;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
+    margin-left: auto;
   }
 
   .method.get {
     color: var(--mint);
     background: rgba(160, 216, 200, 0.08);
-    border: 1px solid rgba(160, 216, 200, 0.15);
   }
 
   .method.post {
     color: var(--amber);
-    background: rgba(232, 168, 120, 0.08);
-    border: 1px solid rgba(232, 168, 120, 0.15);
+    background: rgba(224, 148, 82, 0.08);
   }
 
-  /* alpha notice */
+  /* notice — ErrorCard pattern */
   .notice {
-    position: relative;
     padding: 20px 24px;
-    margin-bottom: 3rem;
     font-size: 0.75rem;
     color: var(--text-2);
     line-height: 1.8;
     font-weight: 300;
-  }
-
-  .notice::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 2px;
-    background: linear-gradient(135deg,
-      rgba(204, 168, 232, 0.06) 0%,
-      rgba(160, 216, 200, 0.03) 50%,
-      transparent 100%
-    );
-    z-index: -1;
-  }
-
-  .notice::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 2px;
-    height: 100%;
-    background: linear-gradient(180deg, var(--lavender), transparent);
-    opacity: 0.4;
+    border-left: 2px solid var(--gold);
+    background: linear-gradient(135deg, rgba(217, 179, 77, 0.04), rgba(12,12,20,0.8));
+    margin-bottom: 3rem;
   }
 
   .notice-tag {
-    color: var(--gold);
-    font-size: 0.5625rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
+    font-size: 0.625rem;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--gold);
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+  }
+
+  /* glyph divider */
+  .divider {
+    text-align: center;
+    margin: 24px 0;
+    color: var(--text-4);
+    font-size: 0.5rem;
+    letter-spacing: 0.4em;
   }
 
   /* footer */
@@ -1279,29 +1291,16 @@ func (s *OIDCServer) buildLandingHTML() []byte {
     transition: color 300ms ease;
   }
 
-  .footer a:hover { color: var(--text-2); }
+  .footer a:hover { color: var(--rose); }
 
   .footer-links {
     display: flex;
     gap: 20px;
   }
 
-  /* divider glyph */
-  .divider {
-    text-align: center;
-    color: var(--rose);
-    font-size: 0.625rem;
-    margin: 2rem 0;
-    opacity: 0.5;
-    letter-spacing: 0.5em;
-    text-shadow: 0 0 12px rgba(232, 160, 184, 0.3);
-  }
-
   @media (max-width: 480px) {
     .container { padding: 1.5rem; }
-    td:last-child { display: none; }
-    td:first-child { width: 60%; }
-    td:nth-child(2) { width: 40%; text-align: right; }
+    .ep-desc { display: none; }
   }
 </style>
 </head>
@@ -1312,45 +1311,58 @@ func (s *OIDCServer) buildLandingHTML() []byte {
   <div class="header">
     <div class="stage-marker">
       <span class="stage-bead"></span>
-      <span class="stage-label">authority</span>
+      <span class="stage-label">identity authority</span>
     </div>
-    <div class="title">signet authority</div>
+    <div class="title">signet</div>
     <div class="subtitle">oidc certificate authority for machine identity</div>
     <div class="status-line">
       <span class="status-dot"></span>
-      <span class="status-text">healthy</span>
+      <span class="status-text">live</span>
     </div>
   </div>
 
-  <div class="endpoints">
-    <span class="section-tag">// endpoints</span>
-    <table>
-      <tr>
-        <td><code>/healthz</code></td>
-        <td><span class="method get">get</span></td>
-        <td>health check</td>
-      </tr>
-      <tr>
-        <td><code>/login</code></td>
-        <td><span class="method get">get</span></td>
-        <td>oidc authentication</td>
-      </tr>
-      <tr>
-        <td><code>/callback</code></td>
-        <td><span class="method get">get</span></td>
-        <td>oidc callback</td>
-      </tr>` + exchangeRow + `
-    </table>
+  <div class="glyph-header">
+    <span class="glyph">&#9651;</span>
+    <span class="label">// endpoints</span>
   </div>
 
+  <div class="endpoint-cards">
+    <div class="endpoint-card" style="border-left-color: var(--mint)">
+      <div class="ep-row">
+        <span class="ep-glyph" style="color: var(--mint)">&#9675;</span>
+        <code class="ep-path" style="color: var(--mint)">/healthz</code>
+        <span class="method get">get</span>
+      </div>
+      <div class="ep-desc">health check</div>
+    </div>
+    <div class="endpoint-card" style="border-left-color: var(--periwinkle)">
+      <div class="ep-row">
+        <span class="ep-glyph" style="color: var(--periwinkle)">&#9651;</span>
+        <code class="ep-path" style="color: var(--periwinkle)">/login</code>
+        <span class="method get">get</span>
+      </div>
+      <div class="ep-desc">oidc authentication flow</div>
+    </div>
+    <div class="endpoint-card" style="border-left-color: var(--rose)">
+      <div class="ep-row">
+        <span class="ep-glyph" style="color: var(--rose)">&#9651;</span>
+        <code class="ep-path" style="color: var(--rose)">/callback</code>
+        <span class="method get">get</span>
+      </div>
+      <div class="ep-desc">oidc callback handler</div>
+    </div>` + exchangeCard + `
+  </div>
+
+  <div class="divider">&#9674; &#9674; &#9674;</div>
+
   <div class="notice">
-    <span class="notice-tag">&loz; alpha</span>
+    <span class="notice-tag">// status</span>
     oidc integration and certificate issuance are functional
     but under active development. device key binding, session
     management, and health checks are operational.
   </div>
 
-  <div class="divider">&loz; &loz; &loz;</div>
+  <div class="divider">&#9674; &#9674; &#9674;</div>
 
   <div class="footer">
     <span>signet &mdash; agentic research</span>
