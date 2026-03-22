@@ -136,7 +136,7 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 	// Create HTTP server
 	mux := http.NewServeMux()
 	limiter := newRateLimiter(10, 20)
-	exchangeHandler := rateLimitMiddleware(limiter, server.logger, http.HandlerFunc(server.handleExchangeToken))
+	exchangeHandler := rateLimitMiddleware(limiter, server.logger, "", http.HandlerFunc(server.handleExchangeToken))
 	mux.Handle("/exchange-token", exchangeHandler)
 
 	ts := httptest.NewServer(mux)
@@ -613,7 +613,7 @@ func TestHandleExchangeToken_RateLimiting(t *testing.T) {
 	limiter := newRateLimiter(rate.Limit(1), 1)
 
 	mux := http.NewServeMux()
-	exchangeHandler := rateLimitMiddleware(limiter, server.logger, http.HandlerFunc(server.handleExchangeToken))
+	exchangeHandler := rateLimitMiddleware(limiter, server.logger, "", http.HandlerFunc(server.handleExchangeToken))
 	mux.Handle("/exchange-token", exchangeHandler)
 
 	ts := httptest.NewServer(mux)

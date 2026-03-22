@@ -89,6 +89,27 @@ func (c *LRUCache) Range(f func(key, value interface{}) bool) {
 	}
 }
 
+// GetOrPut atomically checks for a key and inserts it if absent.
+// Returns (existing value, true) if the key existed, or (nil, false) after inserting.
+// This prevents TOCTOU races between separate Get + Put calls.
+func (c *LRUCache) GetOrPut(key, value interface{}) (interface{}, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, ok := c.cache[key]; ok {
+		c.ll.MoveToFront(elem)
+		return elem.Value.(*entry).value, true
+	}
+
+	if c.ll.Len() >= c.capacity {
+		c.evict()
+	}
+
+	elem := c.ll.PushFront(&entry{key, value})
+	c.cache[key] = elem
+	return nil, false
+}
+
 // Delete removes an entry from the cache.
 func (c *LRUCache) Delete(key interface{}) {
 	c.mu.Lock()
