@@ -39,7 +39,7 @@ jobs:
             platform: linux-arm64
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -54,7 +54,7 @@ jobs:
         run: go build -o signet-${{ matrix.platform }} ./cmd/signet/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: signet-${{ matrix.platform }}
           path: signet-${{ matrix.platform }}
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true

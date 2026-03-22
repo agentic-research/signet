@@ -94,7 +94,9 @@ func TestLoadExistingKey_RejectsInsecurePermissions(t *testing.T) {
 	})
 
 	keyPath := filepath.Join(t.TempDir(), "master.key")
-	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o644))
+	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o600))
+	// Use Chmod to set exact permissions (WriteFile is subject to umask)
+	require.NoError(t, os.Chmod(keyPath, 0o644))
 
 	_, _, err = loadExistingKey(keyPath)
 	require.Error(t, err)
@@ -111,7 +113,9 @@ func TestLoadExistingKey_RejectsWorldReadable(t *testing.T) {
 	})
 
 	keyPath := filepath.Join(t.TempDir(), "master.key")
-	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o604))
+	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o600))
+	// Use Chmod to set exact permissions (WriteFile is subject to umask)
+	require.NoError(t, os.Chmod(keyPath, 0o604))
 
 	_, _, err = loadExistingKey(keyPath)
 	require.Error(t, err)
