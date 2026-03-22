@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/agentic-research/signet/pkg/cli/config"
 	"github.com/agentic-research/signet/pkg/cli/styles"
 	"github.com/spf13/cobra"
 )
@@ -23,8 +22,8 @@ func init() {
 }
 
 func runAuthStatus(cmd *cobra.Command, _ []string) error {
-	home := config.GetDefaultHome()
-	mcpDir := filepath.Join(home, "mcp")
+	cfg := getConfig()
+	mcpDir := filepath.Join(cfg.Home, "mcp")
 
 	entries, err := os.ReadDir(mcpDir)
 	if err != nil {

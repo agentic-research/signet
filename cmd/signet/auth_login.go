@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -20,9 +21,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
-	"github.com/agentic-research/signet/pkg/cli/config"
 	"github.com/agentic-research/signet/pkg/cli/styles"
 	"github.com/agentic-research/signet/pkg/crypto/keys"
 	"github.com/spf13/cobra"
@@ -89,6 +90,7 @@ type certMetadata struct {
 }
 
 func runAuthLogin(cmd *cobra.Command, _ []string) error {
+	cfg := getConfig()
 	fmt.Fprintln(os.Stderr)
 
 	// Step 1: Generate ECDSA P-256 keypair
@@ -100,8 +102,14 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "%s Generated ECDSA P-256 keypair\n", styles.Success.Render("✓"))
 
 	// Step 2: OAuth2 + PKCE
-	verifier, challenge := generatePKCE()
-	state := generateRandomString(32)
+	verifier, challenge, err := generatePKCE()
+	if err != nil {
+		return err
+	}
+	state, err := generateRandomString(32)
+	if err != nil {
+		return err
+	}
 
 	// Step 3: Start callback server
 	resultCh := make(chan callbackResult, 1)
@@ -169,7 +177,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(os.Stderr)
 
 	// Step 8: Save cert bundle
-	certDir, err := saveCertBundle(certResp, privPEM)
+	certDir, err := saveCertBundle(cfg.Home, certResp, privPEM)
 	if err != nil {
 		return fmt.Errorf("failed to save certificate: %w", err)
 	}
@@ -228,27 +236,29 @@ func generateClientKeyPair() (pubPEM []byte, privPEM []byte, err error) {
 }
 
 // generatePKCE generates an OAuth2 PKCE code verifier and challenge (RFC 7636).
-func generatePKCE() (verifier, challenge string) {
+func generatePKCE() (verifier, challenge string, err error) {
 	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+	if _, err = rand.Read(buf); err != nil {
+		return "", "", fmt.Errorf("failed to generate PKCE verifier: %w", err)
 	}
 	verifier = base64.RawURLEncoding.EncodeToString(buf)
 	h := sha256.Sum256([]byte(verifier))
 	challenge = base64.RawURLEncoding.EncodeToString(h[:])
-	return verifier, challenge
+	return verifier, challenge, nil
 }
 
-func generateRandomString(n int) string {
+func generateRandomString(n int) (string, error) {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		return "", fmt.Errorf("failed to generate random string: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(buf)
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 // startCallbackServer starts an HTTP server to receive the OAuth2 callback.
+// Only the first callback is recorded; subsequent hits are ignored (sync.Once).
 func startCallbackServer(listener net.Listener, expectedState string, resultCh chan<- callbackResult) *http.Server {
+	var once sync.Once
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
@@ -256,24 +266,33 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 		errParam := r.URL.Query().Get("error")
 
 		if errParam != "" {
-			resultCh <- callbackResult{Err: fmt.Errorf("OAuth error: %s", errParam)}
-			fmt.Fprintf(w, "<html><body><h2>Authentication failed</h2><p>%s</p><p>You can close this tab.</p></body></html>", errParam)
+			once.Do(func() {
+				resultCh <- callbackResult{Err: fmt.Errorf("OAuth error: %s", errParam)}
+			})
+			fmt.Fprintf(w, "<html><body><h2>Authentication failed</h2><p>%s</p><p>You can close this tab.</p></body></html>",
+				html.EscapeString(errParam))
 			return
 		}
 
 		if state != expectedState {
-			resultCh <- callbackResult{Err: fmt.Errorf("state mismatch (possible CSRF)")}
+			once.Do(func() {
+				resultCh <- callbackResult{Err: fmt.Errorf("state mismatch (possible CSRF)")}
+			})
 			http.Error(w, "State mismatch", http.StatusBadRequest)
 			return
 		}
 
 		if code == "" {
-			resultCh <- callbackResult{Err: fmt.Errorf("no authorization code received")}
+			once.Do(func() {
+				resultCh <- callbackResult{Err: fmt.Errorf("no authorization code received")}
+			})
 			http.Error(w, "Missing code", http.StatusBadRequest)
 			return
 		}
 
-		resultCh <- callbackResult{Code: code, State: state}
+		once.Do(func() {
+			resultCh <- callbackResult{Code: code, State: state}
+		})
 		fmt.Fprint(w, "<html><body><h2>Authenticated</h2><p>You can close this tab and return to the terminal.</p></body></html>")
 	})
 
@@ -291,7 +310,8 @@ func exchangeCodeForToken(endpoint, code, redirectURI, codeVerifier string) (str
 		"code_verifier": {codeVerifier},
 	}
 
-	resp, err := http.PostForm(endpoint+"/oauth/token", data)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.PostForm(endpoint+"/oauth/token", data)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -362,10 +382,9 @@ func requestCertificate(endpoint, token string, pubKeyPEM []byte) (*certResponse
 	return &certResp, nil
 }
 
-// saveCertBundle writes the cert and key to ~/.signet/mcp/rosary/.
-func saveCertBundle(certResp *certResponse, privPEM []byte) (string, error) {
-	home := config.GetDefaultHome()
-	certDir := filepath.Join(home, "mcp", "rosary")
+// saveCertBundle writes the cert and key to the configured signet home under mcp/rosary/.
+func saveCertBundle(signetHome string, certResp *certResponse, privPEM []byte) (string, error) {
+	certDir := filepath.Join(signetHome, "mcp", "rosary")
 	if err := os.MkdirAll(certDir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create cert directory: %w", err)
 	}
@@ -389,7 +408,10 @@ func saveCertBundle(certResp *certResponse, privPEM []byte) (string, error) {
 		ExpiresAt: certResp.ExpiresAt,
 		IssuedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
-	metaJSON, _ := json.MarshalIndent(meta, "", "  ")
+	metaJSON, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal metadata: %w", err)
+	}
 	metaPath := filepath.Join(certDir, "metadata.json")
 	if err := os.WriteFile(metaPath, metaJSON, 0o644); err != nil {
 		return "", fmt.Errorf("failed to write metadata: %w", err)
@@ -416,12 +438,12 @@ func configureClaude(mcpURL, certPath, keyPath string) error {
 }
 
 // openBrowser opens the given URL in the default browser.
-func openBrowser(url string) error {
+func openBrowser(rawURL string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", url).Start()
+		return exec.Command("open", rawURL).Start()
 	case "linux":
-		return exec.Command("xdg-open", url).Start()
+		return exec.Command("xdg-open", rawURL).Start()
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
