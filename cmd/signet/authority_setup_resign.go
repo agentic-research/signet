@@ -9,9 +9,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/agentic-research/signet/pkg/cli/styles"
+	"github.com/agentic-research/signet/pkg/crypto/keys"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +58,9 @@ func init() {
 	authorityCmd.AddCommand(setupResignCmd)
 }
 
+// repoPattern validates GitHub owner/repo format: alphanumeric, hyphens, underscores, dots.
+var repoPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)
+
 func runSetupResign(cmd *cobra.Command, _ []string) error {
 	// Check for gh CLI
 	if _, err := exec.LookPath("gh"); err != nil {
@@ -86,6 +91,8 @@ func runSetupResign(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// Zeroize key material when we're done with it
+	defer keys.ZeroizeBytes(keyPEM)
 
 	if setupResignDryRun {
 		fmt.Fprintf(os.Stderr, "\n%s Dry run — no changes made\n", styles.Warning.Render("⚠"))
@@ -121,9 +128,8 @@ func runSetupResign(cmd *cobra.Command, _ []string) error {
 // resolveRepo determines the GitHub repo from --repo flag or git remote.
 func resolveRepo() (string, error) {
 	if setupResignRepo != "" {
-		parts := strings.SplitN(setupResignRepo, "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return "", fmt.Errorf("invalid repo format %q, expected owner/repo", setupResignRepo)
+		if !repoPattern.MatchString(setupResignRepo) {
+			return "", fmt.Errorf("invalid repo format %q, expected owner/repo (alphanumeric, hyphens, underscores, dots)", setupResignRepo)
 		}
 		return setupResignRepo, nil
 	}
@@ -154,6 +160,7 @@ func checkResignWorkflow(repo string) error {
 
 // resolveKey loads an existing key or generates a new one.
 // Returns (PEM bytes, hex-encoded public key, error).
+// The caller must zeroize the returned PEM bytes when done.
 func resolveKey() ([]byte, string, error) {
 	if setupResignKeyFile != "" {
 		return loadExistingKey(setupResignKeyFile)
@@ -162,6 +169,16 @@ func resolveKey() ([]byte, string, error) {
 }
 
 func loadExistingKey(path string) ([]byte, string, error) {
+	// Check file permissions before reading (reject group/other access)
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to stat key file %s: %w", path, err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return nil, "", fmt.Errorf("insecure key file permissions on %s: %v (expected 0600). Fix with: chmod 600 %s",
+			path, info.Mode().Perm(), path)
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read key file %s: %w", path, err)
@@ -169,6 +186,7 @@ func loadExistingKey(path string) ([]byte, string, error) {
 
 	block, _ := pem.Decode(data)
 	if block == nil {
+		keys.ZeroizeBytes(data)
 		return nil, "", fmt.Errorf("no PEM block found in %s", path)
 	}
 
@@ -177,27 +195,40 @@ func loadExistingKey(path string) ([]byte, string, error) {
 	case "ED25519 PRIVATE KEY":
 		// Signet raw seed format
 		if len(block.Bytes) != ed25519.SeedSize {
+			keys.ZeroizeBytes(data)
+			keys.ZeroizeBytes(block.Bytes)
 			return nil, "", fmt.Errorf("invalid seed size in %s", path)
 		}
 		priv := ed25519.NewKeyFromSeed(block.Bytes)
 		pubKey = priv.Public().(ed25519.PublicKey)
+		keys.ZeroizePrivateKey(priv)
 	case "PRIVATE KEY":
 		// PKCS#8 format
 		raw, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err != nil {
+			keys.ZeroizeBytes(data)
+			keys.ZeroizeBytes(block.Bytes)
 			return nil, "", fmt.Errorf("failed to parse PKCS#8 key: %w", err)
 		}
 		edKey, ok := raw.(ed25519.PrivateKey)
 		if !ok {
+			keys.ZeroizeBytes(data)
+			keys.ZeroizeBytes(block.Bytes)
 			return nil, "", fmt.Errorf("key is not Ed25519")
 		}
 		pubKey = edKey.Public().(ed25519.PublicKey)
+		keys.ZeroizePrivateKey(edKey)
 	default:
+		keys.ZeroizeBytes(data)
+		keys.ZeroizeBytes(block.Bytes)
 		return nil, "", fmt.Errorf("unsupported PEM type: %s", block.Type)
 	}
+	// Zeroize decoded DER bytes (data is returned as-is for upload)
+	keys.ZeroizeBytes(block.Bytes)
 
 	pubHex := hex.EncodeToString(pubKey)
 	fmt.Fprintf(os.Stderr, "%s Using existing key from %s\n", styles.Success.Render("✓"), styles.Code.Render(path))
+	// data is returned and must be zeroized by the caller after upload
 	return data, pubHex, nil
 }
 
@@ -206,14 +237,19 @@ func generateKey() ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate key: %w", err)
 	}
+	defer keys.ZeroizePrivateKey(priv)
+
+	seed := priv.Seed()
+	defer keys.ZeroizeBytes(seed)
 
 	keyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "ED25519 PRIVATE KEY",
-		Bytes: priv.Seed(),
+		Bytes: seed,
 	})
 
 	pubHex := hex.EncodeToString(pub)
 	fmt.Fprintf(os.Stderr, "%s Generated new Ed25519 master key\n", styles.Success.Render("✓"))
+	// keyPEM is returned and must be zeroized by the caller after upload
 	return keyPEM, pubHex, nil
 }
 
@@ -227,7 +263,6 @@ func ghSetSecret(repo, name, value string) error {
 
 // ghSetVariable sets or updates a GitHub Actions variable on a repo.
 func ghSetVariable(repo, name, value string) error {
-	// Try set first (creates new variable)
 	cmd := exec.Command("gh", "variable", "set", name, "--repo", repo, "--body", value)
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
