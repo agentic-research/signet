@@ -83,15 +83,30 @@ type certResponse struct {
 
 // certMetadata is persisted alongside the cert for status/refresh.
 type certMetadata struct {
-	Endpoint  string `json:"endpoint"`
-	MCPURL    string `json:"mcp_url"`
-	ExpiresAt string `json:"expires_at"`
-	IssuedAt  string `json:"issued_at"`
+	Endpoint     string `json:"endpoint"`
+	MCPURL       string `json:"mcp_url"`
+	ExpiresAt    string `json:"expires_at"`
+	IssuedAt     string `json:"issued_at"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+// tokenResponse captures access + refresh tokens from the OAuth token endpoint.
+type tokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
 func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	cfg := getConfig()
 	fmt.Fprintln(os.Stderr)
+
+	// Check for existing cert — idempotent behavior
+	certDir := filepath.Join(cfg.Home, "mcp", "rosary")
+	if renewed, err := tryRenewExisting(certDir); err == nil && renewed {
+		return nil
+	}
 
 	// Step 1: Generate ECDSA P-256 keypair
 	pubPEM, privPEM, err := generateClientKeyPair()
@@ -159,14 +174,14 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Step 6: Exchange code for token
-	token, err := exchangeCodeForToken(authEndpoint, result.Code, redirectURI, verifier)
+	tokenResp, err := exchangeCodeForToken(authEndpoint, result.Code, redirectURI, verifier)
 	if err != nil {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "%s Authenticated\n", styles.Success.Render("✓"))
 
 	// Step 7: Request certificate
-	certResp, err := requestCertificate(authEndpoint, token, pubPEM)
+	certResp, err := requestCertificate(authEndpoint+"/api/cert", tokenResp.AccessToken, pubPEM)
 	if err != nil {
 		return fmt.Errorf("certificate request failed: %w", err)
 	}
@@ -176,8 +191,8 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Fprintln(os.Stderr)
 
-	// Step 8: Save cert bundle
-	certDir, err := saveCertBundle(cfg.Home, certResp, privPEM)
+	// Step 8: Save cert bundle (with refresh token for future renewal)
+	certDir, err = saveCertBundle(cfg.Home, authEndpoint, authMCPURL, certResp, privPEM, tokenResp.RefreshToken)
 	if err != nil {
 		return fmt.Errorf("failed to save certificate: %w", err)
 	}
@@ -199,6 +214,105 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprintf(os.Stderr, "\n  Ready! Test with: %s\n\n", styles.Code.Render("claude"))
 	return nil
+}
+
+// tryRenewExisting checks for a valid cert and renews if needed.
+// Returns (true, nil) if cert is valid or was successfully renewed.
+// Returns (false, nil) if no cert exists or renewal failed (caller should do full auth).
+func tryRenewExisting(certDir string) (bool, error) {
+	meta, err := loadMetadata(certDir)
+	if err != nil {
+		return false, nil // no existing cert, proceed with full auth
+	}
+
+	certPath := filepath.Join(certDir, "cert.pem")
+	keyPath := filepath.Join(certDir, "key.pem")
+	if !fileExists(certPath) || !fileExists(keyPath) {
+		return false, nil
+	}
+
+	// Check expiry
+	if meta.ExpiresAt == "" {
+		return false, nil
+	}
+	expiry, err := time.Parse(time.RFC3339, meta.ExpiresAt)
+	if err != nil {
+		return false, nil
+	}
+
+	remaining := time.Until(expiry)
+
+	// Valid and not expiring soon
+	if remaining > 30*24*time.Hour {
+		fmt.Fprintf(os.Stderr, "%s Already authenticated (cert expires: %s)\n",
+			styles.Success.Render("✓"), meta.ExpiresAt)
+		fmt.Fprintf(os.Stderr, "  Cert: %s\n", styles.Code.Render(certPath))
+		fmt.Fprintf(os.Stderr, "  Key:  %s\n\n", styles.Code.Render(keyPath))
+		return true, nil
+	}
+
+	// Expiring soon or expired — try renewal via refresh token
+	if meta.RefreshToken == "" {
+		if remaining > 0 {
+			fmt.Fprintf(os.Stderr, "%s Certificate expiring soon (%s), no refresh token stored. Re-authenticating...\n\n",
+				styles.Warning.Render("⚠"), meta.ExpiresAt)
+		}
+		return false, nil
+	}
+
+	fmt.Fprintf(os.Stderr, "%s Certificate expiring soon, renewing...\n", styles.Subtle.Render("→"))
+
+	// Refresh the access token
+	tokenResp, err := refreshAccessToken(meta.Endpoint, meta.RefreshToken)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Refresh failed: %v. Re-authenticating...\n\n", styles.Warning.Render("⚠"), err)
+		return false, nil
+	}
+
+	// Generate new keypair for the renewed cert
+	pubPEM, privPEM, err := generateClientKeyPair()
+	if err != nil {
+		return false, fmt.Errorf("failed to generate keypair for renewal: %w", err)
+	}
+	defer keys.ZeroizeBytes(privPEM)
+
+	// Request new cert
+	certResp, err := requestCertificate(meta.Endpoint+"/api/cert/renew", tokenResp.AccessToken, pubPEM)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Cert renewal failed: %v. Re-authenticating...\n\n", styles.Warning.Render("⚠"), err)
+		return false, nil
+	}
+
+	// Save renewed cert (with rotated refresh token)
+	refreshToken := tokenResp.RefreshToken
+	if refreshToken == "" {
+		refreshToken = meta.RefreshToken // keep old if server didn't rotate
+	}
+
+	cfg := getConfig()
+	if _, err := saveCertBundle(cfg.Home, meta.Endpoint, meta.MCPURL, certResp, privPEM, refreshToken); err != nil {
+		return false, fmt.Errorf("failed to save renewed certificate: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "%s Certificate renewed", styles.Success.Render("✓"))
+	if certResp.ExpiresAt != "" {
+		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.ExpiresAt)
+	}
+	fmt.Fprintln(os.Stderr)
+	return true, nil
+}
+
+// loadMetadata reads the metadata.json from a cert directory.
+func loadMetadata(certDir string) (*certMetadata, error) {
+	data, err := os.ReadFile(filepath.Join(certDir, "metadata.json"))
+	if err != nil {
+		return nil, err
+	}
+	var meta certMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
 }
 
 func printManualConfig(mcpURL, certPath, keyPath string) {
@@ -301,8 +415,8 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 	return srv
 }
 
-// exchangeCodeForToken exchanges an OAuth2 authorization code for an access token.
-func exchangeCodeForToken(endpoint, code, redirectURI, codeVerifier string) (string, error) {
+// exchangeCodeForToken exchanges an OAuth2 authorization code for access + refresh tokens.
+func exchangeCodeForToken(endpoint, code, redirectURI, codeVerifier string) (*tokenResponse, error) {
 	data := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -313,34 +427,65 @@ func exchangeCodeForToken(endpoint, code, redirectURI, codeVerifier string) (str
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.PostForm(endpoint+"/oauth/token", data)
 	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-	}
+	var result tokenResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse token response: %w", err)
+		return nil, fmt.Errorf("failed to parse token response: %w", err)
 	}
 	if result.AccessToken == "" {
-		return "", fmt.Errorf("empty access token in response")
+		return nil, fmt.Errorf("empty access token in response")
 	}
-	return result.AccessToken, nil
+	return &result, nil
 }
 
-// requestCertificate calls the dashboard /api/cert endpoint to get a signed client cert.
-func requestCertificate(endpoint, token string, pubKeyPEM []byte) (*certResponse, error) {
+// refreshAccessToken uses a stored refresh token to get a new access token.
+func refreshAccessToken(endpoint, refreshToken string) (*tokenResponse, error) {
+	data := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.PostForm(endpoint+"/oauth/token", data)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("refresh failed (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result tokenResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse refresh response: %w", err)
+	}
+	if result.AccessToken == "" {
+		return nil, fmt.Errorf("empty access token in refresh response")
+	}
+	return &result, nil
+}
+
+// requestCertificate calls a cert endpoint with a Bearer token and public key PEM.
+// certURL should be the full URL (e.g., https://rosary.bot/api/cert).
+func requestCertificate(certURL, token string, pubKeyPEM []byte) (*certResponse, error) {
 	reqBody, err := json.Marshal(map[string]string{
 		"public_key": string(pubKeyPEM),
 	})
@@ -348,7 +493,7 @@ func requestCertificate(endpoint, token string, pubKeyPEM []byte) (*certResponse
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, endpoint+"/api/cert",
+	req, err := http.NewRequest(http.MethodPost, certURL,
 		bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
@@ -383,7 +528,9 @@ func requestCertificate(endpoint, token string, pubKeyPEM []byte) (*certResponse
 }
 
 // saveCertBundle writes the cert and key to the configured signet home under mcp/rosary/.
-func saveCertBundle(signetHome string, certResp *certResponse, privPEM []byte) (string, error) {
+// endpoint and mcpURL are passed explicitly (not read from globals) so callers
+// from different commands don't need to mutate shared state.
+func saveCertBundle(signetHome, endpoint, mcpURL string, certResp *certResponse, privPEM []byte, refreshToken string) (string, error) {
 	certDir := filepath.Join(signetHome, "mcp", "rosary")
 	if err := os.MkdirAll(certDir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create cert directory: %w", err)
@@ -401,19 +548,20 @@ func saveCertBundle(signetHome string, certResp *certResponse, privPEM []byte) (
 		return "", fmt.Errorf("failed to write private key: %w", err)
 	}
 
-	// Write metadata
+	// Write metadata (restricted: may contain refresh token)
 	meta := certMetadata{
-		Endpoint:  authEndpoint,
-		MCPURL:    authMCPURL,
-		ExpiresAt: certResp.ExpiresAt,
-		IssuedAt:  time.Now().UTC().Format(time.RFC3339),
+		Endpoint:     endpoint,
+		MCPURL:       mcpURL,
+		ExpiresAt:    certResp.ExpiresAt,
+		IssuedAt:     time.Now().UTC().Format(time.RFC3339),
+		RefreshToken: refreshToken,
 	}
 	metaJSON, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 	metaPath := filepath.Join(certDir, "metadata.json")
-	if err := os.WriteFile(metaPath, metaJSON, 0o644); err != nil {
+	if err := os.WriteFile(metaPath, metaJSON, 0o600); err != nil {
 		return "", fmt.Errorf("failed to write metadata: %w", err)
 	}
 
