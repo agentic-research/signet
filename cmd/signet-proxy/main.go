@@ -31,15 +31,15 @@ import (
 )
 
 var (
-	port              = flag.String("port", "8080", "Port to listen on")
-	githubAPIURL      = flag.String("github-api", "https://api.github.com", "GitHub API base URL")
-	masterKeyHex      = flag.String("master-key", "", "Master public key (hex-encoded Ed25519, or set SIGNET_MASTER_PUBLIC_KEY)")
-	githubToken       = flag.String("github-token", "", "GitHub token for upstream requests (or set GITHUB_TOKEN)")
-	logLevel          = flag.String("log-level", "info", "Log level: debug, info, warn, error")
-	healthCheckPath   = flag.String("health-path", "/healthz", "Health check endpoint path")
-	readTimeout  = flag.Duration("read-timeout", 30*time.Second, "HTTP read timeout")
-	writeTimeout = flag.Duration("write-timeout", 30*time.Second, "HTTP write timeout")
-	idleTimeout  = flag.Duration("idle-timeout", 120*time.Second, "HTTP idle timeout")
+	port            = flag.String("port", "8080", "Port to listen on")
+	githubAPIURL    = flag.String("github-api", "https://api.github.com", "GitHub API base URL")
+	masterKeyHex    = flag.String("master-key", "", "Master public key (hex-encoded Ed25519, or set SIGNET_MASTER_PUBLIC_KEY)")
+	githubToken     = flag.String("github-token", "", "GitHub token for upstream requests (or set GITHUB_TOKEN)")
+	logLevel        = flag.String("log-level", "info", "Log level: debug, info, warn, error")
+	healthCheckPath = flag.String("health-path", "/healthz", "Health check endpoint path")
+	readTimeout     = flag.Duration("read-timeout", 30*time.Second, "HTTP read timeout")
+	writeTimeout    = flag.Duration("write-timeout", 30*time.Second, "HTTP write timeout")
+	idleTimeout     = flag.Duration("idle-timeout", 120*time.Second, "HTTP idle timeout")
 )
 
 func main() {

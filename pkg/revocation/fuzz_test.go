@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/revocation"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 )
 
 // FuzzCABundleSignatureVerification tests the robustness of CA bundle signature verification

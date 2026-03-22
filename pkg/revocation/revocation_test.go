@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/crypto/epr"
 	"github.com/agentic-research/signet/pkg/http/middleware"
 	"github.com/agentic-research/signet/pkg/revocation"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 )
 
 func TestRevocation(t *testing.T) {

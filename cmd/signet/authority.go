@@ -1615,7 +1615,9 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	// 3. Override with policy result (if set)
 	// 4. Cap to OIDC token remaining lifetime (security: cert must not outlive token)
 	validity := time.Duration(s.config.CertificateValidity) * time.Hour
-	if bp, ok := provider.(interface{ Config() oidcprovider.ProviderConfig }); ok {
+	if bp, ok := provider.(interface {
+		Config() oidcprovider.ProviderConfig
+	}); ok {
 		if pv := bp.Config().CertificateValidity; pv > 0 {
 			validity = pv
 		}
