@@ -83,9 +83,7 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(os.Stderr)
 
 	// Save cert bundle (no refresh token for GitHub-based auth)
-	authEndpoint = registerEndpoint
-	authMCPURL = registerMCPURL
-	certDir, err = saveCertBundle(cfg.Home, certResp, privPEM, "")
+	certDir, err = saveCertBundle(cfg.Home, registerEndpoint, registerMCPURL, certResp, privPEM, "")
 	if err != nil {
 		return fmt.Errorf("failed to save certificate: %w", err)
 	}

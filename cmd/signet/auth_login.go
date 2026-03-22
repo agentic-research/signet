@@ -192,7 +192,7 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(os.Stderr)
 
 	// Step 8: Save cert bundle (with refresh token for future renewal)
-	certDir, err = saveCertBundle(cfg.Home, certResp, privPEM, tokenResp.RefreshToken)
+	certDir, err = saveCertBundle(cfg.Home, authEndpoint, authMCPURL, certResp, privPEM, tokenResp.RefreshToken)
 	if err != nil {
 		return fmt.Errorf("failed to save certificate: %w", err)
 	}
@@ -290,7 +290,7 @@ func tryRenewExisting(certDir string) (bool, error) {
 	}
 
 	cfg := getConfig()
-	if _, err := saveCertBundle(cfg.Home, certResp, privPEM, refreshToken); err != nil {
+	if _, err := saveCertBundle(cfg.Home, meta.Endpoint, meta.MCPURL, certResp, privPEM, refreshToken); err != nil {
 		return false, fmt.Errorf("failed to save renewed certificate: %w", err)
 	}
 
@@ -528,7 +528,9 @@ func requestCertificate(certURL, token string, pubKeyPEM []byte) (*certResponse,
 }
 
 // saveCertBundle writes the cert and key to the configured signet home under mcp/rosary/.
-func saveCertBundle(signetHome string, certResp *certResponse, privPEM []byte, refreshToken string) (string, error) {
+// endpoint and mcpURL are passed explicitly (not read from globals) so callers
+// from different commands don't need to mutate shared state.
+func saveCertBundle(signetHome, endpoint, mcpURL string, certResp *certResponse, privPEM []byte, refreshToken string) (string, error) {
 	certDir := filepath.Join(signetHome, "mcp", "rosary")
 	if err := os.MkdirAll(certDir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create cert directory: %w", err)
@@ -546,10 +548,10 @@ func saveCertBundle(signetHome string, certResp *certResponse, privPEM []byte, r
 		return "", fmt.Errorf("failed to write private key: %w", err)
 	}
 
-	// Write metadata (includes refresh token for future renewal)
+	// Write metadata (restricted: may contain refresh token)
 	meta := certMetadata{
-		Endpoint:     authEndpoint,
-		MCPURL:       authMCPURL,
+		Endpoint:     endpoint,
+		MCPURL:       mcpURL,
 		ExpiresAt:    certResp.ExpiresAt,
 		IssuedAt:     time.Now().UTC().Format(time.RFC3339),
 		RefreshToken: refreshToken,
@@ -559,7 +561,7 @@ func saveCertBundle(signetHome string, certResp *certResponse, privPEM []byte, r
 		return "", fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 	metaPath := filepath.Join(certDir, "metadata.json")
-	if err := os.WriteFile(metaPath, metaJSON, 0o644); err != nil {
+	if err := os.WriteFile(metaPath, metaJSON, 0o600); err != nil {
 		return "", fmt.Errorf("failed to write metadata: %w", err)
 	}
 
