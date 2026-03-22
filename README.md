@@ -254,21 +254,41 @@ Produces `./signet` and `./signet-git` binaries.
 
 Signet is a set of cryptographic primitives with tools built on top:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                          Tools                               │
-│  signet-git  │  signet sign  │  signet authority             │
-│  signet auth │  signet-proxy │  sigstore-kms-signet          │
-├──────────────────────────────────────────────────────────────┤
-│                   Middleware / Protocol                       │
-│  HTTP middleware │ Revocation │ OIDC providers │ Policy eval  │
-├──────────────────────────────────────────────────────────────┤
-│                   Core Primitives (pkg/)                      │
-│  CMS (go-cms) │ COSE │ EPR │ Tokens │ LocalCA │ Bridge certs │
-├──────────────────────────────────────────────────────────────┤
-│             Algorithm Registry (pkg/crypto/algorithm)         │
-│             Ed25519 (default)  │  ML-DSA-44 (post-quantum)   │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    block:tools["Tools"]
+        columns 6
+        signetgit["signet-git"]
+        signetsign["signet sign"]
+        signetauth["signet auth"]
+        signetauthority["signet authority"]
+        signetproxy["signet-proxy"]
+        sigstorекмс["sigstore-kms"]
+    end
+    block:middleware["Middleware / Protocol"]
+        columns 4
+        httpmw["HTTP middleware"]
+        revocation["Revocation"]
+        oidc["OIDC providers"]
+        policy["Policy eval"]
+    end
+    block:core["Core Primitives (pkg/)"]
+        columns 6
+        cms["CMS (go-cms)"]
+        cose["COSE"]
+        epr["EPR"]
+        tokens["Tokens"]
+        localca["LocalCA"]
+        bridge["Bridge certs"]
+    end
+    block:algo["Algorithm Registry"]
+        columns 2
+        ed25519["Ed25519 (default)"]
+        mldsa["ML-DSA-44 (post-quantum)"]
+    end
+
+    tools --> middleware --> core --> algo
 ```
 
 All tools share the same master key, certificate authority, and keystore.
