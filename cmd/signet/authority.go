@@ -995,9 +995,6 @@ func (s *OIDCServer) buildLandingHTML() []byte {
 <style>
   :root {
     --void:       #0A0A10;
-    --deep:       #0F0F17;
-    --card:       #141420;
-    --card-hover: #1A1A2A;
     --text:       #E0D9C7;
     --text-2:     #B8A98E;
     --text-3:     #95866E;
@@ -1317,7 +1314,7 @@ func (s *OIDCServer) buildLandingHTML() []byte {
     <div class="subtitle">oidc certificate authority for machine identity</div>
     <div class="status-line">
       <span class="status-dot"></span>
-      <span class="status-text">live</span>
+      <span class="status-text">healthy</span>
     </div>
   </div>
 
