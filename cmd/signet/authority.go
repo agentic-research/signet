@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -385,10 +386,10 @@ func loadAuthorityConfig(path string) (*AuthorityConfig, error) {
 	if config.ListenAddr == "" {
 		config.ListenAddr = ":8080"
 	}
-	if config.MaxCertValidityHours == 0 {
+	if config.MaxCertValidityHours <= 0 {
 		config.MaxCertValidityHours = 24
 	}
-	if config.MaxRateLimiterEntries == 0 {
+	if config.MaxRateLimiterEntries <= 0 {
 		config.MaxRateLimiterEntries = 100000
 	}
 
@@ -491,7 +492,7 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 	notBefore := time.Now()
 	validity := time.Duration(a.config.CertificateValidity) * time.Hour
 	maxHours := a.config.MaxCertValidityHours
-	if maxHours == 0 {
+	if maxHours <= 0 {
 		maxHours = 24
 	}
 	maxValidity := time.Duration(maxHours) * time.Hour
@@ -1677,7 +1678,7 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	}
 	// Hard cap to prevent misconfiguration from issuing long-lived certs
 	maxHours := s.config.MaxCertValidityHours
-	if maxHours == 0 {
+	if maxHours <= 0 {
 		maxHours = 24
 	}
 	maxValidity := time.Duration(maxHours) * time.Hour
@@ -1771,21 +1772,23 @@ type rateLimiterEntry struct {
 
 // rateLimiter implements per-IP rate limiting to prevent abuse
 type rateLimiter struct {
-	limiters   map[string]*rateLimiterEntry
-	mu         sync.RWMutex
-	r          rate.Limit // requests per second
-	b          int        // burst size
-	maxEntries int        // cap to prevent memory exhaustion from spoofed IPs
+	limiters      map[string]*rateLimiterEntry
+	mu            sync.RWMutex
+	r             rate.Limit    // requests per second
+	b             int           // burst size
+	maxEntries    int           // cap to prevent memory exhaustion from spoofed IPs
+	rejectLimiter *rate.Limiter // shared zero-allowance limiter for over-capacity requests
 }
 
 // newRateLimiter creates a new per-IP rate limiter
 // r is the rate (requests per second), b is the burst size
 func newRateLimiter(r rate.Limit, b int) *rateLimiter {
 	return &rateLimiter{
-		limiters:   make(map[string]*rateLimiterEntry),
-		r:          r,
-		b:          b,
-		maxEntries: 100000,
+		limiters:      make(map[string]*rateLimiterEntry),
+		r:             r,
+		b:             b,
+		maxEntries:    100000,
+		rejectLimiter: rate.NewLimiter(0, 0),
 	}
 }
 
@@ -1814,8 +1817,7 @@ func (rl *rateLimiter) getLimiter(ip string) *rate.Limiter {
 
 	// Reject new IPs if the map is at capacity (prevents memory exhaustion)
 	if rl.maxEntries > 0 && len(rl.limiters) >= rl.maxEntries {
-		// Return a zero-allowance limiter that rejects all requests
-		return rate.NewLimiter(0, 0)
+		return rl.rejectLimiter
 	}
 
 	// Create new entry with current timestamp
@@ -1853,10 +1855,16 @@ func getClientIP(r *http.Request, trustedHeader string) string {
 	if trustedHeader != "" {
 		if val := r.Header.Get(trustedHeader); val != "" {
 			// For X-Forwarded-For style headers, take only the first IP
-			if ip, _, found := strings.Cut(val, ","); found {
-				return strings.TrimSpace(ip)
+			raw := val
+			if first, _, found := strings.Cut(val, ","); found {
+				raw = first
 			}
-			return strings.TrimSpace(val)
+			raw = strings.TrimSpace(raw)
+			// Validate it looks like an IP before trusting it
+			if addr, err := netip.ParseAddr(raw); err == nil {
+				return addr.String()
+			}
+			// Malformed header value — fall through to RemoteAddr
 		}
 	}
 
