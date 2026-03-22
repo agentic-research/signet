@@ -2,7 +2,7 @@
 
 Replace bearer tokens with cryptographic proof-of-possession. Signet provides tools for signing commits, files, and HTTP requests using ephemeral certificates with algorithm agility (Ed25519 + ML-DSA-44 post-quantum).
 
-## ⚠️ Status: v0.1.0 Experimental (Alpha)
+## ⚠️ Status: v0.2.0 Experimental (Alpha)
 
 **Security Note:**
 - **Not audited** - use for development only
@@ -112,7 +112,49 @@ export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
 
 See [`cmd/signet/authority.go`](./cmd/signet/authority.go) for configuration details.
 
-### 5. Sigstore KMS Plugin
+### 5. MCP Client Authentication
+
+One-command onboarding for MCP endpoints with mTLS:
+
+```bash
+# Interactive (opens browser for OAuth2 login)
+signet auth login
+
+# Headless (for CI/CD agents)
+signet auth register --github-token $GITHUB_TOKEN
+
+# Check certificate status
+signet auth status
+```
+
+**Features:**
+- OAuth2 + PKCE browser flow with localhost callback (`signet auth login`)
+- GitHub token one-shot registration for headless/CI agents (`signet auth register`)
+- ECDSA P-256 keypair generated locally (private key never leaves machine)
+- For browser login: refresh token stored for automatic cert renewal
+- For register: no refresh token; re-registers when cert is near expiry
+- Auto-configures Claude Code (`claude mcp add`)
+- Idempotent: re-running reuses an existing valid cert or renews when needed
+
+### 6. GHA OIDC Signing (CI/CD)
+
+Sign artifacts in GitHub Actions using ambient OIDC credentials (no secrets needed):
+
+```bash
+# In a GitHub Actions workflow:
+signet authority exchange-github-token \
+  --authority-url http://localhost:8080 \
+  --auto \
+  --output /tmp/bridge-cert.pem
+```
+
+**Features:**
+- Zero secrets stored in repo (uses GHA ambient OIDC identity)
+- Bridge certificates with capability X.509 extensions
+- Policy-based authorization (repo, workflow, ref filtering)
+- Post-merge re-signing workflow (`signet authority setup-resign`)
+
+### Sigstore KMS Plugin
 
 Use Signet keys with the Sigstore ecosystem (cosign, gitsign):
 
@@ -127,7 +169,7 @@ cosign sign-blob --key signet://default --tlog-upload=false artifact.bin > artif
 
 See [`docs/sigstore-integration.md`](./docs/sigstore-integration.md) for full setup.
 
-### 6. Reverse Proxy (signet-proxy)
+### Reverse Proxy (signet-proxy)
 
 Authenticate multiple clients via Signet proofs, forwarding requests with a shared upstream token:
 
@@ -138,7 +180,7 @@ go build -o signet-proxy ./cmd/signet-proxy
 
 See [`cmd/signet-proxy/README.md`](./cmd/signet-proxy/README.md) for details.
 
-### 7. Token Revocation System
+### Token Revocation System
 
 SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
 
@@ -214,21 +256,41 @@ Produces `./signet` and `./signet-git` binaries.
 
 Signet is a set of cryptographic primitives with tools built on top:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Tools                                │
-│  signet-git  │  signet sign  │  signet authority             │
-│  signet-proxy│  sigstore-kms-signet                          │
-├─────────────────────────────────────────────────────────────┤
-│                    Middleware / Protocol                      │
-│  HTTP middleware  │  Revocation  │  OIDC bridge              │
-├─────────────────────────────────────────────────────────────┤
-│                    Core Primitives (pkg/)                     │
-│  CMS (go-cms)  │  COSE  │  EPR  │  Tokens  │  LocalCA       │
-├─────────────────────────────────────────────────────────────┤
-│              Algorithm Registry (pkg/crypto/algorithm)        │
-│              Ed25519 (default)  │  ML-DSA-44 (post-quantum)  │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    block:tools["Tools"]
+        columns 6
+        signetgit["signet-git"]
+        signetsign["signet sign"]
+        signetauth["signet auth"]
+        signetauthority["signet authority"]
+        signetproxy["signet-proxy"]
+        sigstorекмс["sigstore-kms"]
+    end
+    block:middleware["Middleware / Protocol"]
+        columns 4
+        httpmw["HTTP middleware"]
+        revocation["Revocation"]
+        oidc["OIDC providers"]
+        policy["Policy eval"]
+    end
+    block:core["Core Primitives (pkg/)"]
+        columns 6
+        cms["CMS (go-cms)"]
+        cose["COSE"]
+        epr["EPR"]
+        tokens["Tokens"]
+        localca["LocalCA"]
+        bridge["Bridge certs"]
+    end
+    block:algo["Algorithm Registry"]
+        columns 2
+        ed25519["Ed25519 (default)"]
+        mldsa["ML-DSA-44 (post-quantum)"]
+    end
+
+    tools --> middleware --> core --> algo
 ```
 
 All tools share the same master key, certificate authority, and keystore.
@@ -257,15 +319,22 @@ make fmt lint
 
 ## Roadmap
 
-Signet is in **alpha** (v0.1.0).
+Signet is in **alpha** (v0.2.0).
 
-**Current focus:** Hardening core primitives, Sigstore ecosystem integration.
+**Recent (v0.2.0):**
+- ✅ GHA OIDC end-to-end signing flow (ambient identity, bridge certs, policy)
+- ✅ Cloudflare Access OIDC provider
+- ✅ MCP client authentication (`signet auth login/register`)
+- ✅ Post-merge re-signing workflow
+- ✅ Security audit: 7 findings fixed (JTI race, serial collision, rate limiter hardening)
+- ✅ Authority landing page
 
-**Critical gaps before v1.0:**
+**Current focus:** MCP auth convergence, Cloudflare deployment.
+
+**Gaps before v1.0:**
 - Security audit (required before production use)
-- Complete key storage migration (some features still use plaintext fallback)
 - Signature verification CLI (`signet verify`)
-- ~~Algorithm agility~~ ✅ Implemented (Ed25519 + ML-DSA-44 via cloudflare/circl)
+- signet-core in Rust/WASM for edge deployment (ADR in progress)
 
 ## Contributing
 

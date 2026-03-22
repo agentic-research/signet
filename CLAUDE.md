@@ -42,8 +42,11 @@ make docker-shell           # Interactive shell for debugging
 **Test Scope by Feature**:
 - ✅ **Git commit signing** (`signet-git`) - test_integration.sh
 - ✅ **Stdout purity** (Git SHA corruption prevention) - test_integration.sh
-- ❌ **File signing** (`signet sign`) - NO TEST (alpha gap)
-- 🔮 **Authority minting** (`signet authority`) - FUTURE
+- ✅ **OIDC token exchange** (`signet authority`) - authority_oidc_test.go + oidc-signing.yml (GHA e2e)
+- ✅ **Setup-resign command** - authority_setup_resign_test.go
+- ✅ **LRU cache** (incl. GetOrPut atomicity) - lru_test.go
+- ⚠️ **File signing** (`signet sign`) - PARTIAL (sign_test.go regression tests, no integration)
+- ❌ **Auth login/register** (`signet auth`) - NO TEST (requires live OAuth)
 - 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)
 
 **Test Separation**:
@@ -69,6 +72,18 @@ make security              # Security scan (requires gosec)
 | `signet-agent` | `cmd/signet-agent/` | gRPC agent for key operations |
 | `sigstore-kms-signet` | `cmd/sigstore-kms-signet/` | Sigstore KMS plugin (cosign/gitsign bridge) |
 
+## CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `signet sign` | Sign files with ephemeral certificates |
+| `signet authority` | Run OIDC certificate authority server |
+| `signet authority exchange-github-token` | Exchange GHA OIDC token for bridge cert (CI/CD) |
+| `signet authority setup-resign` | Configure GHA post-merge re-signing (sets secrets + variables via `gh`) |
+| `signet auth login` | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow) |
+| `signet auth register` | Register agent with GitHub token (headless, no browser) |
+| `signet auth status` | Show MCP certificate status and expiry |
+
 ## Key Packages
 
 | Package | Purpose |
@@ -85,7 +100,9 @@ make security              # Security scan (requires gosec)
 | `pkg/agent/` | gRPC agent server/client for key operations |
 | `pkg/lifecycle/` | Loan-pattern memory zeroization (`SecureValue[T]`) |
 | `pkg/errors/` | Structured error codes (`CodedError[T]`) |
-| `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`) |
+| `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`, `LRUCache` with atomic `GetOrPut`) |
+| `pkg/oidc/` | Pluggable OIDC provider abstraction (GitHub Actions, Cloudflare Access) |
+| `pkg/policy/` | Policy evaluation interface for OIDC subject authorization |
 | `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
 External: [github.com/agentic-research/go-cms](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), used for both git signing and file signing.
