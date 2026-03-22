@@ -45,7 +45,7 @@ make docker-shell           # Interactive shell for debugging
 - ✅ **OIDC token exchange** (`signet authority`) - authority_oidc_test.go + oidc-signing.yml (GHA e2e)
 - ✅ **Setup-resign command** - authority_setup_resign_test.go
 - ✅ **LRU cache** (incl. GetOrPut atomicity) - lru_test.go
-- ❌ **File signing** (`signet sign`) - NO TEST (alpha gap)
+- ⚠️ **File signing** (`signet sign`) - PARTIAL (sign_test.go regression tests, no integration)
 - ❌ **Auth login/register** (`signet auth`) - NO TEST (requires live OAuth)
 - 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)
 

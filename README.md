@@ -128,11 +128,13 @@ signet auth status
 ```
 
 **Features:**
-- OAuth2 + PKCE browser flow with localhost callback
+- OAuth2 + PKCE browser flow with localhost callback (`signet auth login`)
+- GitHub token one-shot registration for headless/CI agents (`signet auth register`)
 - ECDSA P-256 keypair generated locally (private key never leaves machine)
-- Refresh token stored for automatic cert renewal
+- For browser login: refresh token stored for automatic cert renewal
+- For register: no refresh token; re-registers when cert is near expiry
 - Auto-configures Claude Code (`claude mcp add`)
-- Idempotent: re-running checks existing cert, renews if expiring
+- Idempotent: re-running reuses an existing valid cert or renews when needed
 
 ### 6. GHA OIDC Signing (CI/CD)
 
