@@ -14,9 +14,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -195,10 +195,12 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	// Create rate limiter: 10 requests per second with burst of 20
 	// This prevents brute-force attacks on authentication endpoints
 	limiter := newRateLimiter(10, 20)
+	limiter.maxEntries = config.MaxRateLimiterEntries
 
 	// Apply rate limiting to authentication endpoints only
-	loginHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleLogin))
-	callbackHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleCallback))
+	proxyHeader := config.TrustedProxyHeader
+	loginHandler := rateLimitMiddleware(limiter, logger, proxyHeader, http.HandlerFunc(server.handleLogin))
+	callbackHandler := rateLimitMiddleware(limiter, logger, proxyHeader, http.HandlerFunc(server.handleCallback))
 
 	mux.Handle("/login", loginHandler)
 	mux.Handle("/callback", callbackHandler)
@@ -207,7 +209,7 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 
 	// OIDC token exchange endpoint (for CI/CD platforms)
 	if authority.providerRegistry != nil {
-		exchangeHandler := rateLimitMiddleware(limiter, logger, http.HandlerFunc(server.handleExchangeToken))
+		exchangeHandler := rateLimitMiddleware(limiter, logger, proxyHeader, http.HandlerFunc(server.handleExchangeToken))
 		mux.Handle("/exchange-token", exchangeHandler)
 		fmt.Println(styles.Info.Render("→") + " OIDC token exchange enabled at /exchange-token")
 	}
@@ -331,6 +333,21 @@ type AuthorityConfig struct {
 	// Session secrets MUST be provided via SIGNET_SESSION_SECRET environment variable
 	// This field is deprecated and will be ignored if present in config
 	SessionSecret string `json:"session_secret,omitempty"`
+
+	// TrustedProxyHeader specifies which header to use for client IP extraction.
+	// Set to "CF-Connecting-IP" behind Cloudflare, "X-Real-IP" behind nginx,
+	// or empty to use RemoteAddr only (safest when not behind a proxy).
+	// Default: "" (RemoteAddr only — does not trust any forwarded headers).
+	TrustedProxyHeader string `json:"trusted_proxy_header,omitempty"`
+
+	// MaxCertValidityHours is the hard upper bound for any certificate validity.
+	// Prevents misconfiguration from issuing long-lived certs.
+	// Default: 24 hours. Set to 0 to use default.
+	MaxCertValidityHours int `json:"max_cert_validity_hours,omitempty"`
+
+	// MaxRateLimiterEntries caps the per-IP rate limiter map size to prevent
+	// memory exhaustion from spoofed IPs. Default: 100000.
+	MaxRateLimiterEntries int `json:"max_rate_limiter_entries,omitempty"`
 }
 
 func loadAuthorityConfig(path string) (*AuthorityConfig, error) {
@@ -368,6 +385,12 @@ func loadAuthorityConfig(path string) (*AuthorityConfig, error) {
 	}
 	if config.ListenAddr == "" {
 		config.ListenAddr = ":8080"
+	}
+	if config.MaxCertValidityHours <= 0 {
+		config.MaxCertValidityHours = 24
+	}
+	if config.MaxRateLimiterEntries <= 0 {
+		config.MaxRateLimiterEntries = 100000
 	}
 
 	return &config, nil
@@ -465,13 +488,26 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 		"subject", claims.Subject,
 	)
 
-	// Calculate certificate validity
+	// Calculate certificate validity, capped to max
 	notBefore := time.Now()
-	notAfter := notBefore.Add(time.Duration(a.config.CertificateValidity) * time.Hour)
+	validity := time.Duration(a.config.CertificateValidity) * time.Hour
+	maxHours := a.config.MaxCertValidityHours
+	if maxHours <= 0 {
+		maxHours = 24
+	}
+	maxValidity := time.Duration(maxHours) * time.Hour
+	if validity > maxValidity {
+		validity = maxValidity
+	}
+	notAfter := notBefore.Add(validity)
 
 	// Create certificate template
+	serial, err := attestx509.GenerateSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate certificate serial number: %w", err)
+	}
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().Unix()),
+		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:         claims.Email,
 			Organization:       []string{"Signet Authority"},
@@ -539,15 +575,12 @@ func newTokenCache() *TokenCache {
 	}
 }
 
-// checkAndMark checks if a JTI has been used and marks it as used if not.
+// checkAndMark atomically checks if a JTI has been used and marks it if not.
 // Returns true if the JTI was already used (replay attack detected).
+// Uses GetOrPut to prevent TOCTOU races between concurrent requests.
 func (tc *TokenCache) checkAndMark(jti string, expiresAt time.Time) bool {
-	_, existed := tc.used.Get(jti)
-	if existed {
-		return true
-	}
-	tc.used.Put(jti, expiresAt)
-	return false
+	_, existed := tc.used.GetOrPut(jti, expiresAt)
+	return existed
 }
 
 // cleanup removes expired JTIs from the cache to prevent unbounded memory growth
@@ -872,7 +905,7 @@ func (s *OIDCServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   isSecure,
-		SameSite: http.SameSiteStrictMode, // Match the strictness of initial cookie
+		SameSite: http.SameSiteLaxMode, // Must match the SameSite mode used when setting the cookie
 	}
 	http.SetCookie(w, clearCookie)
 
@@ -1624,7 +1657,9 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	// 3. Override with policy result (if set)
 	// 4. Cap to OIDC token remaining lifetime (security: cert must not outlive token)
 	validity := time.Duration(s.config.CertificateValidity) * time.Hour
-	if bp, ok := provider.(interface{ Config() oidcprovider.ProviderConfig }); ok {
+	if bp, ok := provider.(interface {
+		Config() oidcprovider.ProviderConfig
+	}); ok {
 		if pv := bp.Config().CertificateValidity; pv > 0 {
 			validity = pv
 		}
@@ -1640,6 +1675,16 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	}
 	if validity > tokenRemaining {
 		validity = tokenRemaining
+	}
+	// Hard cap to prevent misconfiguration from issuing long-lived certs
+	maxHours := s.config.MaxCertValidityHours
+	if maxHours <= 0 {
+		maxHours = 24
+	}
+	maxValidity := time.Duration(maxHours) * time.Hour
+	if validity > maxValidity {
+		s.logger.Warn("certificate validity capped", "requested", validity, "max", maxValidity)
+		validity = maxValidity
 	}
 
 	// Mint bridge certificate
@@ -1727,19 +1772,23 @@ type rateLimiterEntry struct {
 
 // rateLimiter implements per-IP rate limiting to prevent abuse
 type rateLimiter struct {
-	limiters map[string]*rateLimiterEntry
-	mu       sync.RWMutex
-	r        rate.Limit // requests per second
-	b        int        // burst size
+	limiters      map[string]*rateLimiterEntry
+	mu            sync.RWMutex
+	r             rate.Limit    // requests per second
+	b             int           // burst size
+	maxEntries    int           // cap to prevent memory exhaustion from spoofed IPs
+	rejectLimiter *rate.Limiter // shared zero-allowance limiter for over-capacity requests
 }
 
 // newRateLimiter creates a new per-IP rate limiter
 // r is the rate (requests per second), b is the burst size
 func newRateLimiter(r rate.Limit, b int) *rateLimiter {
 	return &rateLimiter{
-		limiters: make(map[string]*rateLimiterEntry),
-		r:        r,
-		b:        b,
+		limiters:      make(map[string]*rateLimiterEntry),
+		r:             r,
+		b:             b,
+		maxEntries:    100000,
+		rejectLimiter: rate.NewLimiter(0, 0),
 	}
 }
 
@@ -1764,6 +1813,11 @@ func (rl *rateLimiter) getLimiter(ip string) *rate.Limiter {
 	if entry, exists := rl.limiters[ip]; exists {
 		entry.lastAccess = time.Now()
 		return entry.limiter
+	}
+
+	// Reject new IPs if the map is at capacity (prevents memory exhaustion)
+	if rl.maxEntries > 0 && len(rl.limiters) >= rl.maxEntries {
+		return rl.rejectLimiter
 	}
 
 	// Create new entry with current timestamp
@@ -1791,41 +1845,41 @@ func (rl *rateLimiter) cleanup() {
 	}
 }
 
-// getClientIP extracts the real client IP from the request, accounting for proxy headers
-// WARNING: Only trust X-Forwarded-For and X-Real-IP when behind a trusted reverse proxy
-// In production, validate that requests come from trusted proxy IPs before using these headers
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (standard for proxies/load balancers)
-	// Format: "client, proxy1, proxy2" - we want the leftmost (original client) IP
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take only the first IP (client IP, before any proxies)
-		if ips := strings.Split(xff, ","); len(ips) > 0 {
-			clientIP := strings.TrimSpace(ips[0])
-			if clientIP != "" {
-				return clientIP
+// getClientIP extracts the client IP using the configured trusted proxy header.
+// If no trusted header is configured, falls back to RemoteAddr (safest default).
+// Configure trusted_proxy_header in authority config:
+//   - "CF-Connecting-IP" for Cloudflare
+//   - "X-Real-IP" for nginx
+//   - "" (default) for direct connections
+func getClientIP(r *http.Request, trustedHeader string) string {
+	if trustedHeader != "" {
+		if val := r.Header.Get(trustedHeader); val != "" {
+			// For X-Forwarded-For style headers, take only the first IP
+			raw := val
+			if first, _, found := strings.Cut(val, ","); found {
+				raw = first
 			}
+			raw = strings.TrimSpace(raw)
+			// Validate it looks like an IP before trusting it
+			if addr, err := netip.ParseAddr(raw); err == nil {
+				return addr.String()
+			}
+			// Malformed header value — fall through to RemoteAddr
 		}
-	}
-
-	// Check X-Real-IP header (used by some proxies like nginx)
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
 	}
 
 	// Fall back to direct connection IP
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		// If we can't parse the IP, use the whole RemoteAddr
 		return r.RemoteAddr
 	}
 	return ip
 }
 
 // rateLimitMiddleware applies per-IP rate limiting to HTTP handlers
-func rateLimitMiddleware(rl *rateLimiter, logger *slog.Logger, next http.Handler) http.Handler {
+func rateLimitMiddleware(rl *rateLimiter, logger *slog.Logger, trustedProxyHeader string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Extract IP address from request (handles proxy headers)
-		ip := getClientIP(r)
+		ip := getClientIP(r, trustedProxyHeader)
 
 		// Check if request is allowed
 		limiter := rl.getLimiter(ip)
