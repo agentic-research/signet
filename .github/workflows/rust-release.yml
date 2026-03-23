@@ -78,7 +78,7 @@ jobs:
 
       - name: Build Wasm
         working-directory: rs
-        run: cargo build -p signet-sign --lib --release --target wasm32-unknown-unknown
+        run: cargo build -p signet-sign --features ffi --lib --release --target wasm32-unknown-unknown
 
       - name: Package
         run: |
