@@ -2,17 +2,39 @@
 //!
 //! Buffer-based API, return conventions:
 //! - `>= 0`: bytes written to output buffer
-//! - `-1`: error (signing/verification failed, buffer too small)
+//! - `-1`: error (signing/verification failed, buffer too small, null pointer)
 
 use crate::cms;
 
-/// Helper: write bytes into an output buffer, returning byte count or -1 if too large.
+/// Build a slice from a pointer + length, returning an empty slice for zero-length inputs.
+/// Returns `None` if the pointer is null with a non-zero length.
+unsafe fn safe_slice<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+    if len == 0 {
+        return Some(&[]);
+    }
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { std::slice::from_raw_parts(ptr, len) })
+}
+
+/// Helper: write bytes into an output buffer, returning byte count or -1 on error.
 unsafe fn write_out(data: &[u8], out_buf: *mut u8, out_len: usize) -> i32 {
-    if data.len() > out_len {
+    let len = data.len();
+    if len > out_len {
         return -1;
     }
-    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), out_buf, data.len()) };
-    data.len() as i32
+    if len == 0 {
+        return 0;
+    }
+    if len > i32::MAX as usize {
+        return -1;
+    }
+    if out_buf.is_null() {
+        return -1;
+    }
+    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), out_buf, len) };
+    len as i32
 }
 
 /// Sign data with CMS/PKCS#7 using Ed25519 and signed attributes.
@@ -32,18 +54,21 @@ pub unsafe extern "C" fn signet_sign_data(
     out_buf: *mut u8,
     out_len: usize,
 ) -> i32 {
-    let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
-    let cert_der = unsafe { std::slice::from_raw_parts(cert_der_ptr, cert_der_len) };
-    let key_slice = unsafe { std::slice::from_raw_parts(private_key_ptr, 64) };
-    let key: [u8; 64] = match key_slice.try_into() {
+    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else { return -1 };
+    let Some(cert_der) = (unsafe { safe_slice(cert_der_ptr, cert_der_len) }) else { return -1 };
+    let Some(key_slice) = (unsafe { safe_slice(private_key_ptr, 64) }) else { return -1 };
+    let mut key: [u8; 64] = match key_slice.try_into() {
         Ok(k) => k,
         Err(_) => return -1,
     };
 
-    match cms::sign_data(data, cert_der, &key) {
+    let result = match cms::sign_data(data, cert_der, &key) {
         Ok(sig) => unsafe { write_out(&sig, out_buf, out_len) },
         Err(_) => -1,
-    }
+    };
+    // Zeroize the key copy before returning
+    key.fill(0);
+    result
 }
 
 /// Sign data with CMS/PKCS#7 using Ed25519 PureEdDSA (no signed attributes).
@@ -63,18 +88,20 @@ pub unsafe extern "C" fn signet_sign_data_without_attributes(
     out_buf: *mut u8,
     out_len: usize,
 ) -> i32 {
-    let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
-    let cert_der = unsafe { std::slice::from_raw_parts(cert_der_ptr, cert_der_len) };
-    let key_slice = unsafe { std::slice::from_raw_parts(private_key_ptr, 64) };
-    let key: [u8; 64] = match key_slice.try_into() {
+    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else { return -1 };
+    let Some(cert_der) = (unsafe { safe_slice(cert_der_ptr, cert_der_len) }) else { return -1 };
+    let Some(key_slice) = (unsafe { safe_slice(private_key_ptr, 64) }) else { return -1 };
+    let mut key: [u8; 64] = match key_slice.try_into() {
         Ok(k) => k,
         Err(_) => return -1,
     };
 
-    match cms::sign_data_without_attributes(data, cert_der, &key) {
+    let result = match cms::sign_data_without_attributes(data, cert_der, &key) {
         Ok(sig) => unsafe { write_out(&sig, out_buf, out_len) },
         Err(_) => -1,
-    }
+    };
+    key.fill(0);
+    result
 }
 
 /// Verify a CMS/PKCS#7 detached signature.
@@ -93,8 +120,8 @@ pub unsafe extern "C" fn signet_verify(
     cert_out_buf: *mut u8,
     cert_out_len: usize,
 ) -> i32 {
-    let cms_sig = unsafe { std::slice::from_raw_parts(cms_sig_ptr, cms_sig_len) };
-    let data = unsafe { std::slice::from_raw_parts(data_ptr, data_len) };
+    let Some(cms_sig) = (unsafe { safe_slice(cms_sig_ptr, cms_sig_len) }) else { return -1 };
+    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else { return -1 };
 
     match cms::verify(cms_sig, data, &cms::VerifyOptions::default()) {
         Ok(cert_der) => unsafe { write_out(&cert_der, cert_out_buf, cert_out_len) },

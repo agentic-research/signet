@@ -112,8 +112,12 @@ impl Default for VerifyOptions {
 pub fn verify(
     cms_signature: &[u8],
     detached_data: &[u8],
-    _opts: &VerifyOptions,
+    opts: &VerifyOptions,
 ) -> Result<Vec<u8>, VerifyError> {
+    if !opts.skip_chain_validation {
+        return Err(VerifyError::InvalidSignature);
+    }
+
     // Parse outer ContentInfo
     let (content_oid, signed_data_bytes) =
         parse_content_info(cms_signature).map_err(VerifyError::DerError)?;
@@ -204,14 +208,22 @@ pub fn verify(
 
 fn encode_der_length(len: usize) -> Vec<u8> {
     if len < 0x80 {
-        vec![len as u8]
-    } else if len < 0x100 {
-        vec![0x81, len as u8]
-    } else if len < 0x10000 {
-        vec![0x82, (len >> 8) as u8, len as u8]
-    } else {
-        vec![0x83, (len >> 16) as u8, (len >> 8) as u8, len as u8]
+        return vec![len as u8];
     }
+    // Minimal big-endian representation of len
+    let mut tmp = [0u8; std::mem::size_of::<usize>()];
+    let mut value = len;
+    let mut i = tmp.len();
+    while value > 0 {
+        i -= 1;
+        tmp[i] = (value & 0xFF) as u8;
+        value >>= 8;
+    }
+    let num_octets = tmp.len() - i;
+    let mut out = Vec::with_capacity(1 + num_octets);
+    out.push(0x80 | (num_octets as u8));
+    out.extend_from_slice(&tmp[i..]);
+    out
 }
 
 fn encode_tlv(tag: u8, content: &[u8]) -> Vec<u8> {
@@ -254,11 +266,50 @@ fn encode_set(contents: &[u8]) -> Vec<u8> {
 }
 
 fn encode_utc_time_now() -> Vec<u8> {
-    // Fixed time for deterministic output in tests; real usage could use current time.
     // UTCTime format: YYMMDDHHMMSSZ
-    // Use 250101000000Z (2025-01-01T00:00:00Z) as a reasonable fixed time.
-    let time_str = b"250101000000Z";
-    encode_tlv(0x17, time_str)
+    #[cfg(not(test))]
+    {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        // Convert to broken-down time (UTC)
+        let days = secs / 86400;
+        let time_of_day = secs % 86400;
+        let hours = time_of_day / 3600;
+        let minutes = (time_of_day % 3600) / 60;
+        let seconds = time_of_day % 60;
+        // Days since 1970-01-01 to (year, month, day)
+        let (year, month, day) = civil_from_days(days as i64);
+        let yy = (year % 100) as u8;
+        let time_str = format!(
+            "{yy:02}{:02}{:02}{:02}{:02}{:02}Z",
+            month, day, hours, minutes, seconds
+        );
+        encode_tlv(0x17, time_str.as_bytes())
+    }
+    #[cfg(test)]
+    {
+        // Fixed time for deterministic test output
+        encode_tlv(0x17, b"250101000000Z")
+    }
+}
+
+/// Convert days since Unix epoch to (year, month, day). Civil calendar algorithm.
+#[cfg(not(test))]
+fn civil_from_days(days: i64) -> (i64, u8, u8) {
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u8;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u8;
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
 }
 
 /// Build a CMS Attribute: SEQUENCE { OID, SET { value } }
@@ -404,7 +455,7 @@ fn parse_der_length(data: &[u8]) -> Result<(usize, usize), String> {
         Ok((first as usize, 1))
     } else {
         let num_bytes = (first & 0x7F) as usize;
-        if num_bytes == 0 || num_bytes > 3 || data.len() < 1 + num_bytes {
+        if num_bytes == 0 || num_bytes > std::mem::size_of::<usize>() || data.len() < 1 + num_bytes {
             return Err("invalid DER length".into());
         }
         let mut len = 0usize;
@@ -633,9 +684,10 @@ fn reject_weak_algorithm(oid_bytes: &[u8]) -> Result<(), VerifyError> {
 fn find_signer_cert(certs: &[Vec<u8>], issuer_der: &[u8], serial_bytes: &[u8]) -> Option<Vec<u8>> {
     for cert_der in certs {
         if let Ok(cert) = cert::parse_cert(cert_der) {
-            let (cert_issuer, cert_serial) = cert::signer_identifier(&cert).ok()?;
-            if cert_issuer == issuer_der && cert_serial == serial_bytes {
-                return Some(cert_der.clone());
+            if let Ok((cert_issuer, cert_serial)) = cert::signer_identifier(&cert) {
+                if cert_issuer == issuer_der && cert_serial == serial_bytes {
+                    return Some(cert_der.clone());
+                }
             }
         }
     }

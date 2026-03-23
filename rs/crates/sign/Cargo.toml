@@ -12,7 +12,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []
-ffi = ["libc"]
+ffi = []
 
 [dependencies]
 cms = { version = "0.2", default-features = false }
@@ -24,7 +24,6 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 sha2 = "0.10"
 thiserror = "1.0"
 log = "0.4"
-libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 rand = "0.8"
