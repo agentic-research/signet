@@ -938,7 +938,11 @@ func (s *OIDCServer) handleLanding(w http.ResponseWriter, r *http.Request) {
 		s.serveLandingMarkdown(w)
 	default:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(s.landingHTML)
+		if html, err := os.ReadFile("/app/static/auth-landing.html"); err == nil {
+			w.Write(html)
+		} else {
+			w.Write(s.landingHTML)
+		}
 	}
 }
 
