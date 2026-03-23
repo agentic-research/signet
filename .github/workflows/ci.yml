@@ -31,6 +31,11 @@ jobs:
         with:
           version: 3.x
 
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
+          golangci-lint --version
+
       - name: Install dependencies
         run: |
           go mod download

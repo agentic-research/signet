@@ -455,7 +455,8 @@ fn parse_der_length(data: &[u8]) -> Result<(usize, usize), String> {
         Ok((first as usize, 1))
     } else {
         let num_bytes = (first & 0x7F) as usize;
-        if num_bytes == 0 || num_bytes > std::mem::size_of::<usize>() || data.len() < 1 + num_bytes {
+        if num_bytes == 0 || num_bytes > std::mem::size_of::<usize>() || data.len() < 1 + num_bytes
+        {
             return Err("invalid DER length".into());
         }
         let mut len = 0usize;
