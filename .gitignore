@@ -100,6 +100,9 @@ signet-git
 _agent_logs/
 /sigstore-kms-signet
 
+# Rust build artifacts
+rs/target/
+
 # Dolt database files (added by bd init)
 .dolt/
 *.db

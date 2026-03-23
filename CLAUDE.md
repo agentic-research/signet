@@ -10,26 +10,40 @@ For project overview, architecture, and feature list, see [README.md](README.md)
 
 ```bash
 # Build the unified binary
-make build                    # Creates ./signet binary
+task build                    # Creates ./signet binary
 go build -o signet ./cmd/signet
 
 # Run tests
-make test                     # Unit tests
-go test -v ./...             # Unit tests with verbose output
+task test                     # Go unit tests
+go test -v ./...             # Go unit tests with verbose output
 
 # Integration testing
-make integration-test         # Run in Docker (recommended)
+task integration-test         # Run in Docker (recommended)
 ./scripts/testing/test_integration.sh  # Run locally (requires permissions)
 
 # Quick development cycle
-make clean build test        # Clean, rebuild, and test
+task clean && task build && task test
+
+# Build and test everything (Go + Rust)
+task all
+```
+
+### Rust (signet-sign crate)
+
+```bash
+task rs:build                 # Build signet-sign (debug)
+task rs:test                  # Run signet-sign tests (10 tests)
+task rs:test-ffi              # Run with FFI feature (12 tests)
+task rs:fmt                   # Format Rust code
+task rs:lint                  # Clippy
+task rs:wasm                  # Build wasm32-unknown-unknown target
 ```
 
 ### Docker Testing Environment
 
 ```bash
-make docker-test             # Run full test suite in Docker
-make docker-shell           # Interactive shell for debugging
+task docker-test             # Run full test suite in Docker
+task docker-shell           # Interactive shell for debugging
 ```
 
 ### Test Coverage Matrix
@@ -57,9 +71,9 @@ make docker-shell           # Interactive shell for debugging
 ### Code Quality
 
 ```bash
-make fmt                     # Format code
-make lint                   # Run linters (requires golangci-lint)
-make security              # Security scan (requires gosec)
+task fmt                      # Format code (gofumpt)
+task lint                     # Run linters (requires golangci-lint)
+task security                 # Security scan (requires gosec)
 ```
 
 ## Binaries
@@ -105,7 +119,13 @@ make security              # Security scan (requires gosec)
 | `pkg/policy/` | Policy evaluation interface for OIDC subject authorization |
 | `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
-External: [github.com/agentic-research/go-cms](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), used for both git signing and file signing.
+### Rust (signet-sign)
+
+| Crate | Purpose |
+|-------|---------|
+| `rs/crates/sign/` | Ed25519 CMS/PKCS#7 signing + verification (RFC 5652 + RFC 8419). Rust implementation parallel to go-cms. Targets: rlib (Rust consumers), cdylib/staticlib (C FFI, behind `ffi` feature), wasm32-unknown-unknown (CF Workers). Apache-2.0 OR MIT. |
+
+External: [github.com/agentic-research/go-cms](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), pure Go implementation used for git signing and file signing.
 
 ## Implementation Patterns
 
