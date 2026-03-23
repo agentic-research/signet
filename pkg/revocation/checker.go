@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 	"github.com/agentic-research/signet/pkg/crypto/keys"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 )
 
 const (

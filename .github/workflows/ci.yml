@@ -45,7 +45,7 @@ jobs:
         run: task test
 
       - name: Run linters
-        run: golangci-lint run --new-from-rev=origin/main ./...
+        run: task lint
 
       - name: Build binaries
         run: |

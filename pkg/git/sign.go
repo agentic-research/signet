@@ -89,8 +89,8 @@ func signWithBridgeCert(id *Identity, data []byte, validity time.Duration, statu
 
 // signAndOutput creates a CMS signature and writes it to stdout.
 func signAndOutput(data []byte, cert *x509.Certificate, privateKey ed25519.PrivateKey,
-	intermediateCerts []*x509.Certificate, statusFd int) error {
-
+	intermediateCerts []*x509.Certificate, statusFd int,
+) error {
 	emitStatus(statusFd, "[GNUPG:] BEGIN_SIGNING")
 
 	opts := cms.SignOptions{

@@ -242,17 +242,17 @@ func NewECDSAP256Signer(privateKey *ecdsa.PrivateKey) (*GenericSigner[*ecdsa.Pri
 
 				// While public key components aren't secret, we zero them for defense-in-depth
 				// This prevents any potential side-channel analysis of the key structure
-				if (*key).PublicKey.X != nil {
-					(*key).PublicKey.X.SetInt64(0)
-					(*key).PublicKey.X = nil
+				if (*key).X != nil {
+					(*key).X.SetInt64(0)
+					(*key).X = nil
 				}
-				if (*key).PublicKey.Y != nil {
-					(*key).PublicKey.Y.SetInt64(0)
-					(*key).PublicKey.Y = nil
+				if (*key).Y != nil {
+					(*key).Y.SetInt64(0)
+					(*key).Y = nil
 				}
 
 				// Clear the curve reference (not secret, but good hygiene)
-				(*key).PublicKey.Curve = nil
+				(*key).Curve = nil
 
 				// Finally, nil out the entire key
 				*key = nil

@@ -159,7 +159,7 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check response
 	if resp.StatusCode != http.StatusOK {
@@ -221,7 +221,7 @@ func TestHandleExchangeToken_MethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status 405, got %d", resp.StatusCode)
@@ -261,7 +261,7 @@ func TestHandleExchangeToken_MissingToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -297,7 +297,7 @@ func TestHandleExchangeToken_MissingEphemeralKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -334,7 +334,7 @@ func TestHandleExchangeToken_InvalidEphemeralKeyFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -374,7 +374,7 @@ func TestHandleExchangeToken_InvalidEphemeralKeySize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -424,7 +424,7 @@ func TestHandleExchangeToken_NoProviderRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("Expected status 503, got %d", resp.StatusCode)
@@ -465,7 +465,7 @@ func TestHandleExchangeToken_UnknownProviderHint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status 400, got %d", resp.StatusCode)
@@ -512,7 +512,7 @@ func TestHandleExchangeToken_TokenVerificationFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("Expected status 401, got %d", resp.StatusCode)
@@ -579,7 +579,7 @@ func TestHandleExchangeToken_AutoDetectProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
@@ -634,7 +634,7 @@ func TestHandleExchangeToken_RateLimiting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("First request failed: %v", err)
 	}
-	resp1.Body.Close()
+	_ = resp1.Body.Close()
 
 	if resp1.StatusCode != http.StatusOK {
 		t.Errorf("Expected first request to succeed with 200, got %d", resp1.StatusCode)
@@ -645,7 +645,7 @@ func TestHandleExchangeToken_RateLimiting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Second request failed: %v", err)
 	}
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 
 	if resp2.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("Expected second request to be rate limited with 429, got %d", resp2.StatusCode)

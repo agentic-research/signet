@@ -99,7 +99,7 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("authority unreachable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -119,12 +119,12 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 
 	// Ensure output directory exists
 	outDir := filepath.Dir(exchangeOutput)
-	if err := os.MkdirAll(outDir, 0700); err != nil {
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	// Write certificate
-	if err := os.WriteFile(exchangeOutput, certPEM, 0600); err != nil {
+	if err := os.WriteFile(exchangeOutput, certPEM, 0o600); err != nil {
 		return fmt.Errorf("failed to write certificate: %w", err)
 	}
 
@@ -135,7 +135,7 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 	}
 	// Ensure key output directory exists (may differ from cert output dir)
 	if keyDir := filepath.Dir(keyPath); keyDir != outDir {
-		if err := os.MkdirAll(keyDir, 0700); err != nil {
+		if err := os.MkdirAll(keyDir, 0o700); err != nil {
 			return fmt.Errorf("failed to create key output directory: %w", err)
 		}
 	}
@@ -143,7 +143,7 @@ func runExchangeGitHubToken(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal ephemeral key: %w", err)
 	}
-	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		return fmt.Errorf("failed to write ephemeral key: %w", err)
 	}
 	// Zeroize PEM bytes after writing
@@ -193,7 +193,7 @@ func resolveOIDCToken() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch OIDC token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("OIDC token request failed (HTTP %d)", resp.StatusCode)

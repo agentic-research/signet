@@ -158,13 +158,13 @@ func TestMandatoryZeroizer(t *testing.T) {
 		}
 
 		// Verify the public key components were also zeroized
-		if privKey.PublicKey.X != nil {
+		if privKey.X != nil {
 			t.Error("ECDSA public key X should be nil after Destroy()")
 		}
-		if privKey.PublicKey.Y != nil {
+		if privKey.Y != nil {
 			t.Error("ECDSA public key Y should be nil after Destroy()")
 		}
-		if privKey.PublicKey.Curve != nil {
+		if privKey.Curve != nil {
 			t.Error("ECDSA curve should be nil after Destroy()")
 		}
 

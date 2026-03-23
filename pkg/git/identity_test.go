@@ -32,7 +32,7 @@ func setupTestHome(t *testing.T) (*config.Config, ed25519.PrivateKey) {
 		Type:  "ED25519 PRIVATE KEY",
 		Bytes: masterPriv.Seed(),
 	})
-	if err := os.WriteFile(filepath.Join(home, "master.key"), keyPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "master.key"), keyPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +45,7 @@ func setupTestHome(t *testing.T) (*config.Config, ed25519.PrivateKey) {
 func writeBridgeCert(t *testing.T, cfg *config.Config, masterPriv ed25519.PrivateKey, email string) {
 	t.Helper()
 	gitDir := filepath.Join(cfg.Home, "git")
-	if err := os.MkdirAll(gitDir, 0700); err != nil {
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +92,7 @@ func writeBridgeCert(t *testing.T, cfg *config.Config, masterPriv ed25519.Privat
 
 	// Write bridge cert PEM
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), certPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), certPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,7 +102,7 @@ func writeBridgeCert(t *testing.T, cfg *config.Config, masterPriv ed25519.Privat
 		t.Fatal(err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Key})
-	if err := os.WriteFile(filepath.Join(gitDir, "bridge-key.pem"), keyPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(gitDir, "bridge-key.pem"), keyPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -162,16 +162,16 @@ func TestLoadIdentity_KeyZeroizedOnBridgeError(t *testing.T) {
 
 	// Create git dir with cert but corrupt key file
 	gitDir := filepath.Join(cfg.Home, "git")
-	if err := os.MkdirAll(gitDir, 0700); err != nil {
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	// Write a valid-looking cert file (will parse)
 	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"),
-		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-a-cert")}), 0600); err != nil {
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-a-cert")}), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(gitDir, "bridge-key.pem"),
-		[]byte("not-valid-pem"), 0600); err != nil {
+		[]byte("not-valid-pem"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,10 +207,10 @@ func TestLoadIdentity_PartialBridgeFiles(t *testing.T) {
 
 	// Create git dir with only cert, no key
 	gitDir := filepath.Join(cfg.Home, "git")
-	if err := os.MkdirAll(gitDir, 0700); err != nil {
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), []byte("cert"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), []byte("cert"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// No bridge-key.pem — should fall back to Level 0

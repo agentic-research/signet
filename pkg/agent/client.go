@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -49,18 +48,10 @@ func NewClient(ctx context.Context) (*AgentClient, error) {
 		return nil, fmt.Errorf("agent not running: SIGNET_AUTH_SOCK environment variable not set")
 	}
 
-	// Use a context with a short timeout for the initial connection only.
-	// This does NOT affect individual RPC timeouts.
-	connCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(
-		connCtx,
+	conn, err := grpc.NewClient(
 		"unix://"+socketPath,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(), // Block until the connection is established.
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to signet agent: %w", err)
 	}

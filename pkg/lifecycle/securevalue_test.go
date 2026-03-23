@@ -30,7 +30,6 @@ func TestSecureValue_BasicUsage(t *testing.T) {
 		copy(sawValue, *value)
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("Use() before Destroy() failed: %v", err)
 	}
@@ -184,7 +183,6 @@ func TestSecureValue_Ed25519Key(t *testing.T) {
 		signature = ed25519.Sign(*key, message)
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("Use() failed: %v", err)
 	}
@@ -259,7 +257,6 @@ func TestSecureValue_StructType(t *testing.T) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("Use() failed: %v", err)
 	}
@@ -355,7 +352,6 @@ func TestSecureValue_NoMemoryLeakWithPointer(t *testing.T) {
 		// DON'T do this: leaked := *k (creates a copy)
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("Use() failed: %v", err)
 	}
@@ -414,7 +410,6 @@ func TestSecureValue_AttackMemoryLeakByValue(t *testing.T) {
 			leaked = *k // This line demonstrates the exact behavior the pointer API is designed to make explicit: callers can still leak data by dereferencing and copying, but this action is now explicit and reviewable, not implicit or accidental.
 			return nil
 		})
-
 		if err != nil {
 			t.Fatalf("Use() failed: %v", err)
 		}
@@ -457,7 +452,6 @@ func TestSecureValue_AttackMemoryLeakByValue(t *testing.T) {
 			hashComputed = len(*k) == 6
 			return nil
 		})
-
 		if err != nil {
 			t.Fatalf("Use() failed: %v", err)
 		}
@@ -556,7 +550,6 @@ func TestWithSecureValue_BasicUsage(t *testing.T) {
 		copy(sawValue, *value)
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("WithSecureValue failed: %v", err)
 	}
@@ -583,7 +576,6 @@ func TestWithSecureValue_AutomaticCleanup(t *testing.T) {
 	err := lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
 		return nil
 	})
-
 	if err != nil {
 		t.Fatalf("WithSecureValue failed: %v", err)
 	}
@@ -662,7 +654,6 @@ func TestWithSecureValueResult_BasicUsage(t *testing.T) {
 			return total, nil
 		},
 	)
-
 	if err != nil {
 		t.Fatalf("WithSecureValueResult failed: %v", err)
 	}
@@ -695,7 +686,6 @@ func TestWithSecureValueResult_Ed25519Signing(t *testing.T) {
 			return sig, nil
 		},
 	)
-
 	if err != nil {
 		t.Fatalf("Signing failed: %v", err)
 	}
@@ -750,7 +740,7 @@ func TestWithSecureValue_NoLeakOnPanic(t *testing.T) {
 	// This should panic but still clean up
 	func() {
 		defer func() {
-			recover() // Catch the panic
+			_ = recover() // Catch the panic
 		}()
 
 		_ = lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
@@ -901,7 +891,6 @@ func TestSecureValue_StressConcurrency(t *testing.T) {
 			err := lifecycle.WithSecureValue(key, zeroizer, func(value *[]byte) error {
 				return nil
 			})
-
 			if err != nil {
 				t.Fatalf("Cycle %d failed: %v", i, err)
 			}
@@ -976,7 +965,7 @@ func TestSecureValue_PanicDuringUseStillZeroizes(t *testing.T) {
 		// Panic should be handled by Use(), then defer Destroy() runs (idempotent)
 		func() {
 			defer func() {
-				recover() // Catch the panic
+				_ = recover() // Catch the panic
 			}()
 
 			_ = secure.Use(func(value *[]byte) error {

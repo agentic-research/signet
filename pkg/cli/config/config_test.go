@@ -176,7 +176,7 @@ func TestSymlinkAttacks(t *testing.T) {
 		if err := os.Symlink("/etc", linkPath); err != nil {
 			t.Skip("Cannot create symlinks, skipping test")
 		}
-		defer os.Remove(linkPath)
+		defer func() { _ = os.Remove(linkPath) }()
 
 		cfg := New(linkPath)
 		err := cfg.ValidateHomePathRuntime()
@@ -193,12 +193,12 @@ func TestSymlinkAttacks(t *testing.T) {
 		if err := os.Symlink("/etc", link2); err != nil {
 			t.Skip("Cannot create symlinks, skipping test")
 		}
-		defer os.Remove(link2)
+		defer func() { _ = os.Remove(link2) }()
 
 		if err := os.Symlink(link2, link1); err != nil {
 			t.Skip("Cannot create nested symlinks, skipping test")
 		}
-		defer os.Remove(link1)
+		defer func() { _ = os.Remove(link1) }()
 
 		cfg := New(link1)
 		err := cfg.ValidateHomePathRuntime()
@@ -213,7 +213,7 @@ func TestSymlinkAttacks(t *testing.T) {
 		if err := os.Symlink("/tmp", linkPath); err != nil {
 			t.Skip("Cannot create symlinks, skipping test")
 		}
-		defer os.Remove(linkPath)
+		defer func() { _ = os.Remove(linkPath) }()
 
 		cfg := New(linkPath)
 		err := cfg.ValidateHomePathRuntime()
@@ -236,12 +236,12 @@ func TestTOCTOUAttack(t *testing.T) {
 	}
 
 	testDir := filepath.Join(homeDir, ".signet-test-toctou")
-	defer os.RemoveAll(testDir)
+	defer func() { _ = os.RemoveAll(testDir) }()
 
 	safePath := filepath.Join(testDir, "safe-dir")
 
 	// Create a safe directory first
-	if err := os.MkdirAll(safePath, 0755); err != nil {
+	if err := os.MkdirAll(safePath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,7 +258,7 @@ func TestTOCTOUAttack(t *testing.T) {
 	if err := os.Symlink("/etc", safePath); err != nil {
 		t.Skip("Cannot create symlinks, skipping TOCTOU test")
 	}
-	defer os.Remove(safePath)
+	defer func() { _ = os.Remove(safePath) }()
 
 	// Now when the application uses the path, it's actually pointing to /etc
 	// This demonstrates the TOCTOU vulnerability:

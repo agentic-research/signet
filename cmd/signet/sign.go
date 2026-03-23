@@ -198,7 +198,7 @@ func runSign(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write signature to file
-	if err := os.WriteFile(outputFile, signature, 0644); err != nil {
+	if err := os.WriteFile(outputFile, signature, 0o644); err != nil {
 		return fmt.Errorf("failed to write signature: %w", err)
 	}
 

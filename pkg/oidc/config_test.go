@@ -28,7 +28,7 @@ providers:
       enabled: true
 `
 
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestLoadProvidersFromFile_JSON(t *testing.T) {
   ]
 }`
 
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestLoadProvidersFromFile_InvalidFormat(t *testing.T) {
 
 	configContent := `invalid content`
 
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
@@ -147,7 +147,7 @@ providers:
       invalid yaml structure [[[
 `
 
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
@@ -166,20 +166,20 @@ func TestLoadProvidersFromEnv(t *testing.T) {
 	originalAudience := os.Getenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 
 	// Set environment variables
-	os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", "true")
-	os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", "https://test.example.com")
+	_ = os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", "true")
+	_ = os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", "https://test.example.com")
 
 	// Restore env vars after test
 	defer func() {
 		if originalEnabled == "" {
-			os.Unsetenv("SIGNET_GITHUB_ACTIONS_ENABLED")
+			_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_ENABLED")
 		} else {
-			os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", originalEnabled)
+			_ = os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", originalEnabled)
 		}
 		if originalAudience == "" {
-			os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
+			_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 		} else {
-			os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", originalAudience)
+			_ = os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", originalAudience)
 		}
 	}()
 
@@ -208,20 +208,20 @@ func TestLoadProvidersFromEnv_MissingAudience(t *testing.T) {
 	originalAudience := os.Getenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 
 	// Set only enabled flag
-	os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", "true")
-	os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
+	_ = os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", "true")
+	_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 
 	// Restore env vars after test
 	defer func() {
 		if originalEnabled == "" {
-			os.Unsetenv("SIGNET_GITHUB_ACTIONS_ENABLED")
+			_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_ENABLED")
 		} else {
-			os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", originalEnabled)
+			_ = os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", originalEnabled)
 		}
 		if originalAudience == "" {
-			os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
+			_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 		} else {
-			os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", originalAudience)
+			_ = os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", originalAudience)
 		}
 	}()
 
@@ -245,16 +245,16 @@ func TestLoadProvidersFromEnv_NotEnabled(t *testing.T) {
 	originalAudience := os.Getenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 
 	// Ensure env vars are not set
-	os.Unsetenv("SIGNET_GITHUB_ACTIONS_ENABLED")
-	os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
+	_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_ENABLED")
+	_ = os.Unsetenv("SIGNET_GITHUB_ACTIONS_AUDIENCE")
 
 	// Restore env vars after test
 	defer func() {
 		if originalEnabled != "" {
-			os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", originalEnabled)
+			_ = os.Setenv("SIGNET_GITHUB_ACTIONS_ENABLED", originalEnabled)
 		}
 		if originalAudience != "" {
-			os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", originalAudience)
+			_ = os.Setenv("SIGNET_GITHUB_ACTIONS_AUDIENCE", originalAudience)
 		}
 	}()
 

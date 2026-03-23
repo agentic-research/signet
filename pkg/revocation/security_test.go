@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/revocation"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 )
 
 // TestSignatureVerification_InvalidSignature verifies that bundles with invalid signatures are rejected
@@ -52,7 +52,7 @@ func TestSignatureVerification_InvalidSignature(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 
@@ -96,7 +96,7 @@ func TestSignatureVerification_MissingSignature(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 
@@ -159,7 +159,7 @@ func TestSignatureVerification_WrongKey(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 
@@ -219,7 +219,7 @@ func TestSignatureVerification_ValidSignature(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 

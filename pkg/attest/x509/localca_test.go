@@ -77,7 +77,6 @@ func TestCertificateChainValidation(t *testing.T) {
 		Roots:     roots,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
 	})
-
 	// Regression test: Verify CA cert properly validates chains (no ExtKeyUsage conflicts)
 	// Previously failed when CA cert incorrectly had ExtKeyUsage: [CodeSigning]
 	if err != nil {

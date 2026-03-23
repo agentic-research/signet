@@ -256,7 +256,6 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		canonical,
 		proof.Signature,
 	)
-
 	if err != nil {
 		h.config.Logger.Debug("cryptographic verification failed", "token_id", tokenID, "error", err)
 		h.config.Observer.OnAuthFailure(ctx, err, "signature_verification")

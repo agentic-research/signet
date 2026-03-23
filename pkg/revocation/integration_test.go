@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/crypto/epr"
 	"github.com/agentic-research/signet/pkg/http/middleware"
 	"github.com/agentic-research/signet/pkg/revocation"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +58,7 @@ func TestRevocationIntegration_ValidToken(t *testing.T) {
 	// Handler that should be called
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 
 	// Execute request
@@ -155,7 +155,7 @@ func TestRevocationIntegration_GracePeriod(t *testing.T) {
 	// Handler that SHOULD be called (grace period)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 
 	// Execute request
@@ -218,7 +218,7 @@ func TestRevocationIntegration_RollbackProtection(t *testing.T) {
 		bundleMu.Lock()
 		defer bundleMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(currentBundle)
+		_ = json.NewEncoder(w).Encode(currentBundle)
 	}))
 	defer bundleServer.Close()
 
@@ -267,7 +267,7 @@ func TestRevocationIntegration_RollbackProtection(t *testing.T) {
 	rr1 := httptest.NewRecorder()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 	mw(handler).ServeHTTP(rr1, req1)
 	assert.Equal(t, http.StatusOK, rr1.Code, "First request should succeed")
@@ -320,7 +320,7 @@ func setupBundleServer(t *testing.T, epoch, seqno uint64, keyID, prevKeyID strin
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 
 	return server, bundlePub, bundlePriv

@@ -556,7 +556,7 @@ func TestProofExpirationBoundary(t *testing.T) {
 
 		// Test with current time (should pass as signature is valid)
 		currentTime := time.Now().Unix()
-		err = verifier.VerifyBinding(ctx, proofResponse.Proof, masterPub, currentTime+3600, "test-boundary")
+		_ = verifier.VerifyBinding(ctx, proofResponse.Proof, masterPub, currentTime+3600, "test-boundary")
 
 		// This will fail because the signature won't match (different expiresAt in binding)
 		// This demonstrates that we can't test expiration without knowing the exact expiresAt

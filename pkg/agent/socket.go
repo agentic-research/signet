@@ -31,7 +31,7 @@ func DefaultSocketDir() (string, error) {
 	}
 
 	// Create the directory with user-only permissions (0700).
-	if err := os.MkdirAll(baseDir, 0700); err != nil {
+	if err := os.MkdirAll(baseDir, 0o700); err != nil {
 		return "", fmt.Errorf("cannot create socket directory %s: %w", baseDir, err)
 	}
 
@@ -43,7 +43,7 @@ func DefaultSocketDir() (string, error) {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("socket directory %s is a symlink (possible attack)", baseDir)
 	}
-	if perm := info.Mode().Perm(); perm&0077 != 0 {
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
 		return "", fmt.Errorf("socket directory %s has insecure permissions %o (expected 0700)", baseDir, perm)
 	}
 

@@ -90,7 +90,7 @@ func New(home string) *Config {
 
 // EnsureHome creates the .signet directory if it doesn't exist
 func (c *Config) EnsureHome() error {
-	if err := os.MkdirAll(c.Home, 0700); err != nil {
+	if err := os.MkdirAll(c.Home, 0o700); err != nil {
 		return fmt.Errorf("failed to create signet directory: %w", err)
 	}
 	return nil

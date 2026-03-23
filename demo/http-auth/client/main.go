@@ -52,7 +52,7 @@ func requestToken(purpose string) (*TokenInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to request token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -171,7 +171,7 @@ func makeAuthenticatedRequest(tokenInfo *TokenInfo, timestamp int64, attempt int
 		fmt.Printf("  ❌ Attempt %d failed: %v\n", attempt, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 
@@ -203,7 +203,6 @@ func verifyLocalBinding(tokenInfo *TokenInfo) error {
 		tokenInfo.Token.ExpiresAt,
 		tokenInfo.Purpose,
 	)
-
 	if err != nil {
 		return fmt.Errorf("binding verification failed: %w", err)
 	}
@@ -235,7 +234,7 @@ func main() {
 	// Wait for server to be ready (important in Docker)
 	for i := 0; i < 30; i++ {
 		if resp, err := http.Get(serverURL + "/health"); err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 		if i == 29 {
@@ -252,7 +251,7 @@ func main() {
 		fmt.Println("Please start the server first: go run demo/http-auth/server/main.go")
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	fmt.Println("✅ Server is healthy")
 	fmt.Println()
 

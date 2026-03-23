@@ -133,7 +133,7 @@ func readSeedFromPEM(keyPath string, checkPermissions bool) ([]byte, error) {
 		}
 
 		mode := info.Mode()
-		if mode.Perm()&0077 != 0 { // Check group/other bits are zero
+		if mode.Perm()&0o077 != 0 { // Check group/other bits are zero
 			return nil, fmt.Errorf("insecure key file permissions: %v (expected 0600)", mode.Perm())
 		}
 	}
@@ -355,7 +355,7 @@ func DeleteMasterKeySecure() error {
 // Only supports Ed25519 (file-based storage is for testing/fallback).
 func InitializeInsecure(signetPath string, force bool) error {
 	// Create directory with restricted permissions
-	if err := os.MkdirAll(signetPath, 0700); err != nil {
+	if err := os.MkdirAll(signetPath, 0o700); err != nil {
 		return fmt.Errorf("failed to create signet directory: %w", err)
 	}
 
@@ -385,7 +385,7 @@ func InitializeInsecure(signetPath string, force bool) error {
 	}
 
 	// Write key with restricted permissions
-	keyFile, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	keyFile, err := os.OpenFile(keyPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create key file: %w", err)
 	}

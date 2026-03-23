@@ -2,9 +2,7 @@ package revocation_test
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/revocation"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,7 +41,7 @@ func TestCacheRaceCondition_MultipleFetchesPrevented(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 
@@ -110,7 +108,7 @@ func TestSignatureEncoding_JSONTransportCBORVerification(t *testing.T) {
 	// Server returns JSON (simulating real HTTP transport)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 
@@ -215,7 +213,6 @@ func TestSignatureFields_AllFieldsIncluded(t *testing.T) {
 func TestFirstRequestEdgeCase_StorageFailureVsNotFound(t *testing.T) {
 	// Create a custom storage that simulates failures
 	type failingStorage struct {
-		shouldFail bool
 		cabundle.MemoryStorage
 	}
 
@@ -224,17 +221,8 @@ func TestFirstRequestEdgeCase_StorageFailureVsNotFound(t *testing.T) {
 	}
 
 	// Override GetLastSeenSeqno to simulate different scenarios
-	var getLastSeenSeqnoFunc func(ctx context.Context, issuerID string) (uint64, error)
-
-	// Test scenario 1: First request (not found)
-	getLastSeenSeqnoFunc = func(ctx context.Context, issuerID string) (uint64, error) {
-		return 0, fmt.Errorf("key not found")
-	}
-
-	// We need a way to distinguish this from...
-
-	// Test scenario 2: Storage failure
-	getLastSeenSeqnoFunc = func(ctx context.Context, issuerID string) (uint64, error) {
+	// Test scenario 2: Storage failure (overwrites scenario 1)
+	getLastSeenSeqnoFunc := func(ctx context.Context, issuerID string) (uint64, error) {
 		return 0, fmt.Errorf("database connection failed")
 	}
 
@@ -335,7 +323,7 @@ func TestIntegration_CompleteRevocationFlow(t *testing.T) {
 	// Create server that returns bundle
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(bundle)
+		_ = json.NewEncoder(w).Encode(bundle)
 	}))
 	defer server.Close()
 
@@ -414,7 +402,7 @@ func TestRevocationIntegration(t *testing.T) {
 		// Handler that should be called
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("success"))
+			_, _ = w.Write([]byte("success"))
 		})
 
 		// Execute request
@@ -500,7 +488,7 @@ func TestRevocationIntegration(t *testing.T) {
 			bundleMu.Lock()
 			defer bundleMu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(currentBundle)
+			_ = json.NewEncoder(w).Encode(currentBundle)
 		}))
 		defer bundleServer.Close()
 
@@ -521,7 +509,7 @@ func TestRevocationIntegration(t *testing.T) {
 		rr1 := httptest.NewRecorder()
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("success"))
+			_, _ = w.Write([]byte("success"))
 		})
 		mw(handler).ServeHTTP(rr1, req1)
 		assert.Equal(t, http.StatusOK, rr1.Code, "Token should be valid initially")
@@ -586,21 +574,4 @@ func TestRevocationIntegration(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		assert.Contains(t, rr.Body.String(), "internal server error")
 	})
-}
-
-// Mock implementations for testing middleware
-type mockKeyProvider struct {
-	masterPub crypto.PublicKey
-}
-
-func (m *mockKeyProvider) GetMasterKey(ctx context.Context, issuerID string) (crypto.PublicKey, error) {
-	if m.masterPub == nil {
-		pub, _, _ := ed25519.GenerateKey(rand.Reader)
-		return pub, nil
-	}
-	return m.masterPub, nil
-}
-
-func (m *mockKeyProvider) RefreshKeys(ctx context.Context) error {
-	return nil
 }

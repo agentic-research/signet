@@ -23,7 +23,7 @@ func TestReproIssue62_MLDSA44_Signing(t *testing.T) {
 	// 3. Create a dummy file to sign
 	tmpDir := t.TempDir()
 	inputFile := filepath.Join(tmpDir, "test.txt")
-	err = os.WriteFile(inputFile, []byte("test data"), 0644)
+	err = os.WriteFile(inputFile, []byte("test data"), 0o644)
 	require.NoError(t, err)
 
 	// 4. Setup global flags for runSign

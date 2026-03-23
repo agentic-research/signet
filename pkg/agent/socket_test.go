@@ -28,7 +28,7 @@ func TestDefaultSocketDir(t *testing.T) {
 	if !info.IsDir() {
 		t.Fatalf("socket path %s is not a directory", dir)
 	}
-	if perm := info.Mode().Perm(); perm&0077 != 0 {
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
 		t.Errorf("socket directory has permissions %o, want 0700", perm)
 	}
 }
@@ -75,7 +75,7 @@ func TestDefaultSocketDirRejectsSymlink(t *testing.T) {
 	realDir := filepath.Join(tmpDir, "real")
 	symlinkDir := filepath.Join(tmpDir, "fake-home")
 
-	if err := os.MkdirAll(realDir, 0700); err != nil {
+	if err := os.MkdirAll(realDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(realDir, symlinkDir); err != nil {

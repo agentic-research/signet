@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/agentic-research/signet/pkg/revocation"
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -257,7 +257,7 @@ func TestCABundleChecker_RollbackAttack_Detected(t *testing.T) {
 	checker = revocation.NewCABundleChecker(fetcher, storage, cache, trustPub)
 
 	// Test - should detect rollback
-	revoked, err = checker.IsRevoked(context.Background(), token)
+	_, err = checker.IsRevoked(context.Background(), token)
 
 	// Assert
 	assert.Error(t, err)
