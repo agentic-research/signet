@@ -26,64 +26,30 @@ jobs:
           go-version: '1.23'
           cache: true
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
       - name: Install dependencies
         run: |
           go mod download
           go mod verify
 
       - name: Run unit tests
-        run: |
-          set -euo pipefail
-
-          # Get list of packages excluding demo directories
-          PKGS="$(go list ./... | grep -v '/demo/' || true)"
-
-          if [ -z "${PKGS}" ]; then
-            echo "No packages to test."
-            exit 0
-          fi
-
-          # Create empty coverage file with header
-          echo "mode: atomic" > coverage.out
-
-          # Test each package individually and merge coverage
-          echo "${PKGS}" | while read -r pkg; do
-            if [ -n "$pkg" ]; then
-              echo "Testing ${pkg}..."
-              # Check if package has test files
-              if go list -f '{{.TestGoFiles}}' "$pkg" | grep -q '\[.*\.go\]'; then
-                go test -v -race -coverprofile=tmp.out -covermode=atomic "$pkg"
-                # Merge coverage data (skip mode line)
-                if [ -f tmp.out ]; then
-                  grep -h -v "^mode:" tmp.out >> coverage.out 2>/dev/null || true
-                  rm tmp.out
-                fi
-              else
-                echo "  No test files found, skipping..."
-              fi
-            fi
-          done
-
-          # Display coverage report
-          go tool cover -func=coverage.out
+        run: task test
 
       - name: Run linters
-        run: |
-          go fmt ./...
-          go vet ./...
-          test -z "$(gofmt -l .)" || (echo "Please run go fmt" && exit 1)
+        run: task lint
 
       - name: Build binaries
         run: |
-          go build -o signet ./cmd/signet
-          go build -o signet-git ./cmd/signet-git
+          task build
           ./signet --help || echo "signet binary built successfully"
           ./signet-git --help || echo "signet-git binary built successfully"
 
       - name: Run Docker integration tests
-        run: |
-          docker build -t signet-test -f scripts/testing/Dockerfile.test .
-          docker run --rm signet-test
+        run: task integration-test
 
       - name: Build HTTP demo binaries
         run: |
@@ -113,6 +79,11 @@ jobs:
           go-version: '1.23'
           cache: true
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
       - name: Install SoftHSM and build dependencies
         run: |
           sudo apt-get update
@@ -124,45 +95,11 @@ jobs:
           go mod verify
 
       - name: Run unit tests with pkcs11 tag
-        run: |
-          set -euo pipefail
-
-          # Get list of packages excluding demo directories
-          PKGS="$(go list ./... | grep -v '/demo/' || true)"
-
-          if [ -z "${PKGS}" ]; then
-            echo "No packages to test."
-            exit 0
-          fi
-
-          # Create empty coverage file with header
-          echo "mode: atomic" > coverage-pkcs11.out
-
-          # Test each package individually with pkcs11 tag and merge coverage
-          echo "${PKGS}" | while read -r pkg; do
-            if [ -n "$pkg" ]; then
-              echo "Testing ${pkg} with pkcs11 tag..."
-              # Check if package has test files
-              if go list -f '{{.TestGoFiles}}' "$pkg" | grep -q '\[.*\.go\]'; then
-                go test -v -race -tags=pkcs11 -coverprofile=tmp.out -covermode=atomic "$pkg"
-                # Merge coverage data (skip mode line)
-                if [ -f tmp.out ]; then
-                  grep -h -v "^mode:" tmp.out >> coverage-pkcs11.out 2>/dev/null || true
-                  rm tmp.out
-                fi
-              else
-                echo "  No test files found, skipping..."
-              fi
-            fi
-          done
-
-          # Display coverage report
-          go tool cover -func=coverage-pkcs11.out
+        run: task test TAGS=pkcs11
 
       - name: Build binaries with pkcs11 tag
         run: |
-          go build -tags=pkcs11 -o signet ./cmd/signet
-          go build -tags=pkcs11 -o signet-git ./cmd/signet-git
+          task build TAGS=pkcs11
           ./signet --help || echo "signet binary built successfully with PKCS#11 support"
           ./signet-git --help || echo "signet-git binary built successfully with PKCS#11 support"
 
