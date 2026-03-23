@@ -54,9 +54,15 @@ pub unsafe extern "C" fn signet_sign_data(
     out_buf: *mut u8,
     out_len: usize,
 ) -> i32 {
-    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else { return -1 };
-    let Some(cert_der) = (unsafe { safe_slice(cert_der_ptr, cert_der_len) }) else { return -1 };
-    let Some(key_slice) = (unsafe { safe_slice(private_key_ptr, 64) }) else { return -1 };
+    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else {
+        return -1;
+    };
+    let Some(cert_der) = (unsafe { safe_slice(cert_der_ptr, cert_der_len) }) else {
+        return -1;
+    };
+    let Some(key_slice) = (unsafe { safe_slice(private_key_ptr, 64) }) else {
+        return -1;
+    };
     let mut key: [u8; 64] = match key_slice.try_into() {
         Ok(k) => k,
         Err(_) => return -1,
@@ -88,9 +94,15 @@ pub unsafe extern "C" fn signet_sign_data_without_attributes(
     out_buf: *mut u8,
     out_len: usize,
 ) -> i32 {
-    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else { return -1 };
-    let Some(cert_der) = (unsafe { safe_slice(cert_der_ptr, cert_der_len) }) else { return -1 };
-    let Some(key_slice) = (unsafe { safe_slice(private_key_ptr, 64) }) else { return -1 };
+    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else {
+        return -1;
+    };
+    let Some(cert_der) = (unsafe { safe_slice(cert_der_ptr, cert_der_len) }) else {
+        return -1;
+    };
+    let Some(key_slice) = (unsafe { safe_slice(private_key_ptr, 64) }) else {
+        return -1;
+    };
     let mut key: [u8; 64] = match key_slice.try_into() {
         Ok(k) => k,
         Err(_) => return -1,
@@ -120,8 +132,12 @@ pub unsafe extern "C" fn signet_verify(
     cert_out_buf: *mut u8,
     cert_out_len: usize,
 ) -> i32 {
-    let Some(cms_sig) = (unsafe { safe_slice(cms_sig_ptr, cms_sig_len) }) else { return -1 };
-    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else { return -1 };
+    let Some(cms_sig) = (unsafe { safe_slice(cms_sig_ptr, cms_sig_len) }) else {
+        return -1;
+    };
+    let Some(data) = (unsafe { safe_slice(data_ptr, data_len) }) else {
+        return -1;
+    };
 
     match cms::verify(cms_sig, data, &cms::VerifyOptions::default()) {
         Ok(cert_der) => unsafe { write_out(&cert_der, cert_out_buf, cert_out_len) },

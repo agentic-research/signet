@@ -75,13 +75,15 @@ jobs:
 
       - name: Build binaries
         run: |
-          make build
+          go build -o signet ./cmd/signet
+          go build -o signet-git ./cmd/signet-git
           ./signet --help || echo "signet binary built successfully"
           ./signet-git --help || echo "signet-git binary built successfully"
 
       - name: Run Docker integration tests
         run: |
-          make integration-test
+          docker build -t signet-test -f scripts/testing/Dockerfile.test .
+          docker run --rm signet-test
 
       - name: Build HTTP demo binaries
         run: |
@@ -159,7 +161,8 @@ jobs:
 
       - name: Build binaries with pkcs11 tag
         run: |
-          make build TAGS=pkcs11
+          go build -tags=pkcs11 -o signet ./cmd/signet
+          go build -tags=pkcs11 -o signet-git ./cmd/signet-git
           ./signet --help || echo "signet binary built successfully with PKCS#11 support"
           ./signet-git --help || echo "signet-git binary built successfully with PKCS#11 support"
 
