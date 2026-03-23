@@ -24,10 +24,7 @@ type VerificationResult struct {
 }
 
 // ProofVerifier provides comprehensive proof verification
-type ProofVerifier struct {
-	// options for verification
-	options *VerificationOptions
-}
+type ProofVerifier struct{}
 
 // NewProofVerifier creates a new proof verifier with options
 func NewProofVerifier(options *VerificationOptions) *ProofVerifier {
@@ -51,9 +48,7 @@ func (pv *ProofVerifier) Verify(ctx context.Context, proof *EphemeralProof, mast
 }
 
 // BatchVerifier verifies multiple proofs efficiently
-type BatchVerifier struct {
-	verifier *ProofVerifier
-}
+type BatchVerifier struct{}
 
 // NewBatchVerifier creates a new batch verifier
 func NewBatchVerifier(options *VerificationOptions) *BatchVerifier {

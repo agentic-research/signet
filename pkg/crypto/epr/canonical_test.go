@@ -340,7 +340,7 @@ func BenchmarkSign(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Sign(privateKey, message)
+		_, _ = Sign(privateKey, message)
 	}
 }
 

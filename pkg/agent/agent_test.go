@@ -19,14 +19,14 @@ import (
 func TestListIdentities(t *testing.T) {
 	// Create a temporary socket path for this test
 	socketPath := fmt.Sprintf("/tmp/signet-agent-test-%d.sock", os.Getpid())
-	defer os.RemoveAll(socketPath)
+	defer func() { _ = os.RemoveAll(socketPath) }()
 
 	// Start the gRPC server
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("failed to listen on socket: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	grpcServer := grpc.NewServer()
 	server := agent.NewServerForTesting()
@@ -44,19 +44,14 @@ func TestListIdentities(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Connect to the server
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(
-		ctx,
+	conn, err := grpc.NewClient(
 		"unix://"+socketPath,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		t.Fatalf("failed to connect to agent: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := pb.NewSignetAgentClient(conn)
 

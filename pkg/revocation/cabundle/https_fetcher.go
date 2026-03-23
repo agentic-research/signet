@@ -45,7 +45,7 @@ func (f *HTTPSFetcher) Fetch(ctx context.Context, issuerID string) (*types.CABun
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch CA bundle: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch CA bundle: status code %d", resp.StatusCode)

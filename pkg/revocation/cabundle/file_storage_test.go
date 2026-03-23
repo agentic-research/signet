@@ -108,7 +108,7 @@ func TestFileStorage_TamperDetection(t *testing.T) {
 	// Flip a bit in the seqno (first byte)
 	data[0] ^= 0xff
 
-	if err := os.WriteFile(filePath, data, 0600); err != nil {
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		t.Fatalf("failed to tamper with file: %v", err)
 	}
 

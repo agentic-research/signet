@@ -141,13 +141,13 @@ func createUserAttribution(homePath, issuerDID, email string, validityDays int) 
 
 	// Create git directory
 	gitDir := filepath.Join(homePath, "git")
-	if err := os.MkdirAll(gitDir, 0700); err != nil {
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create git directory: %w", err)
 	}
 
 	// Write bridge cert
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
-	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), certPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(gitDir, "bridge-cert.pem"), certPEM, 0o600); err != nil {
 		return fmt.Errorf("failed to write bridge cert: %w", err)
 	}
 
@@ -161,7 +161,7 @@ func createUserAttribution(homePath, issuerDID, email string, validityDays int) 
 	for i := range pkcs8Key {
 		pkcs8Key[i] = 0
 	}
-	if err := os.WriteFile(filepath.Join(gitDir, "bridge-key.pem"), keyPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(gitDir, "bridge-key.pem"), keyPEM, 0o600); err != nil {
 		return fmt.Errorf("failed to write bridge key: %w", err)
 	}
 	// Zeroize PEM bytes after writing

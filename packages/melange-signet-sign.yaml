@@ -1,0 +1,63 @@
+# melange-signet-sign.yaml — package signet-sign Rust artifacts as APK
+#
+# Downloads pre-built artifacts from GitHub release:
+#   - libsignet_sign.a (native staticlib for cgo linking)
+#   - signet_sign.wasm (Wasm module for CF Workers)
+#
+# Usage: melange build packages/melange-signet-sign.yaml --arch x86_64 --signing-key melange.rsa --out-dir ./out
+
+package:
+  name: signet-sign
+  version: 0.1.0
+  epoch: 0
+  description: "signet-sign — Ed25519 CMS/PKCS#7 signing (Rust staticlib + Wasm)"
+  copyright:
+    - license: Apache-2.0 OR MIT
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - ca-certificates-bundle
+      - curl
+
+vars:
+  sign-version: "0.1.0"
+
+pipeline:
+  - runs: |
+      ARCH=$(uname -m)
+      if [ "$ARCH" = "x86_64" ]; then SUFFIX="x86_64-unknown-linux-musl"; fi
+      if [ "$ARCH" = "aarch64" ]; then SUFFIX="aarch64-unknown-linux-musl"; fi
+
+      # Native staticlib
+      curl -fsSL "https://github.com/agentic-research/signet/releases/download/rs-v${{vars.sign-version}}/libsignet_sign-${SUFFIX}.a" \
+        -o /tmp/libsignet_sign.a
+      install -Dm644 /tmp/libsignet_sign.a "${{targets.destdir}}/usr/lib/libsignet_sign.a"
+
+      # C header
+      curl -fsSL "https://github.com/agentic-research/signet/releases/download/rs-v${{vars.sign-version}}/signet_sign.h" \
+        -o /tmp/signet_sign.h
+      install -Dm644 /tmp/signet_sign.h "${{targets.destdir}}/usr/include/signet_sign.h"
+
+      rm /tmp/libsignet_sign.a /tmp/signet_sign.h
+
+subpackages:
+  - name: signet-sign-wasm
+    description: "signet-sign Wasm module for CF Workers"
+    pipeline:
+      - runs: |
+          curl -fsSL "https://github.com/agentic-research/signet/releases/download/rs-v${{vars.sign-version}}/signet_sign.wasm" \
+            -o /tmp/signet_sign.wasm
+          install -Dm644 /tmp/signet_sign.wasm "${{targets.subpkgdir}}/usr/share/signet/signet_sign.wasm"
+          rm /tmp/signet_sign.wasm
+
+test:
+  pipeline:
+    - runs: |
+        test -f /usr/lib/libsignet_sign.a
+        test -f /usr/include/signet_sign.h

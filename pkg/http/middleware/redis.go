@@ -12,9 +12,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
 	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 	"github.com/agentic-research/signet/pkg/signet"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
 )
 
 // RedisClient defines the minimal Redis interface needed by the middleware.

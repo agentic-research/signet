@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -13,8 +14,6 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"crypto/rand"
 
 	"github.com/agentic-research/signet/pkg/crypto/cose"
 	"github.com/agentic-research/signet/pkg/crypto/epr"
@@ -324,7 +323,6 @@ func protectedHandler(w http.ResponseWriter, r *http.Request) {
 		canonical,
 		proof.Signature,
 	)
-
 	if err != nil {
 		log.Printf("❌ Cryptographic verification failed for token %s: %v", tokenID, err)
 		http.Error(w, `{"error": "Invalid signature"}`, http.StatusUnauthorized)

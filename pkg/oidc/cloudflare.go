@@ -108,7 +108,7 @@ func (p *CloudflareAccessProvider) Verify(ctx context.Context, rawToken string) 
 	}
 
 	if err := p.validateClaims(&cfClaims); err != nil {
-		return nil, fmt.Errorf("Cloudflare Access claims validation failed: %w", err)
+		return nil, fmt.Errorf("cloudflare access claims validation failed: %w", err)
 	}
 
 	// Synthesize JTI from token hash if identity_nonce is absent.

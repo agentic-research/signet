@@ -383,7 +383,7 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 			once.Do(func() {
 				resultCh <- callbackResult{Err: fmt.Errorf("OAuth error: %s", errParam)}
 			})
-			fmt.Fprintf(w, "<html><body><h2>Authentication failed</h2><p>%s</p><p>You can close this tab.</p></body></html>",
+			_, _ = fmt.Fprintf(w, "<html><body><h2>Authentication failed</h2><p>%s</p><p>You can close this tab.</p></body></html>",
 				html.EscapeString(errParam))
 			return
 		}
@@ -407,7 +407,7 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 		once.Do(func() {
 			resultCh <- callbackResult{Code: code, State: state}
 		})
-		fmt.Fprint(w, "<html><body><h2>Authenticated</h2><p>You can close this tab and return to the terminal.</p></body></html>")
+		_, _ = fmt.Fprint(w, "<html><body><h2>Authenticated</h2><p>You can close this tab and return to the terminal.</p></body></html>")
 	})
 
 	srv := &http.Server{Handler: mux}
@@ -429,7 +429,7 @@ func exchangeCodeForToken(endpoint, code, redirectURI, codeVerifier string) (*to
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -462,7 +462,7 @@ func refreshAccessToken(endpoint, refreshToken string) (*tokenResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -506,7 +506,7 @@ func requestCertificate(certURL, token string, pubKeyPEM []byte) (*certResponse,
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {

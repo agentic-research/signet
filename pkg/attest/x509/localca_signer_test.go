@@ -324,7 +324,7 @@ func TestLocalCA_ECDSA_Support(t *testing.T) {
 		if cert == nil {
 			t.Fatal("Certificate is nil")
 		}
-		if certDER == nil || len(certDER) == 0 {
+		if len(certDER) == 0 {
 			t.Fatal("Certificate DER is empty")
 		}
 

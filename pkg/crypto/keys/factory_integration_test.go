@@ -27,7 +27,7 @@ func testKeyFactoryProducesCryptoSigner(t *testing.T, alg algorithm.Algorithm) {
 	}
 
 	// Verify it implements crypto.Signer
-	var _ crypto.Signer = signer
+	_ = signer
 
 	pub := signer.Public()
 	if pub == nil {

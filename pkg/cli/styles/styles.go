@@ -30,7 +30,6 @@ var (
 	// Base colors
 	gray   = lipgloss.Color("240")
 	dimmed = lipgloss.Color("245")
-	normal = lipgloss.Color("252")
 
 	// Semantic colors
 	green  = lipgloss.Color("42")  // Success

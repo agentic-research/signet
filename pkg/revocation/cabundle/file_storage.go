@@ -15,10 +15,8 @@ import (
 	"github.com/agentic-research/signet/pkg/revocation/types"
 )
 
-var (
-	// ErrStorageCorrupted indicates that the persistent storage HMAC verification failed
-	ErrStorageCorrupted = errors.New("storage: HMAC verification failed (file may be corrupted or tampered)")
-)
+// ErrStorageCorrupted indicates that the persistent storage HMAC verification failed
+var ErrStorageCorrupted = errors.New("storage: HMAC verification failed (file may be corrupted or tampered)")
 
 // FileStorage is a persistent, tamper-evident storage for sequence numbers.
 // It uses HMAC-SHA256 to detect tampering and prevent rollback attacks.
@@ -49,7 +47,7 @@ func NewFileStorage(dir string, hmacKey []byte) (*FileStorage, error) {
 	}
 
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
@@ -133,12 +131,12 @@ func (s *FileStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID st
 
 	// Write atomically: write to temp file, then rename
 	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write seqno file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, filePath); err != nil {
-		os.Remove(tmpPath) // Clean up temp file on error
+		_ = os.Remove(tmpPath) // Clean up temp file on error
 		return fmt.Errorf("failed to rename seqno file: %w", err)
 	}
 

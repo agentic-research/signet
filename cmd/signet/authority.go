@@ -10,9 +10,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"errors"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -949,7 +949,7 @@ func (s *OIDCServer) handleLanding(w http.ResponseWriter, r *http.Request) {
 		s.serveLandingMarkdown(w)
 	default:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(s.landingHTML)
+		_, _ = w.Write(s.landingHTML)
 	}
 }
 
@@ -1011,7 +1011,7 @@ func (s *OIDCServer) serveLandingMarkdown(w http.ResponseWriter) {
 		b.WriteString("| `/exchange-token` | POST | CI/CD token exchange |\n")
 	}
 	b.WriteString("\n## Status\n\nHealthy\n")
-	fmt.Fprint(w, b.String())
+	_, _ = fmt.Fprint(w, b.String())
 }
 
 func (s *OIDCServer) buildLandingHTML() []byte {
@@ -1559,8 +1559,8 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	// Validate JTI contains only safe characters (alphanumeric, hyphen, underscore, dot)
 	// This prevents injection attacks and ensures cache key safety
 	for _, c := range jti {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+			(c < '0' || c > '9') && c != '-' && c != '_' && c != '.' {
 			s.logger.Warn("JTI contains invalid characters",
 				"jti", jti,
 				"provider", provider.Name(),

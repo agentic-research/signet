@@ -31,7 +31,7 @@ func main() {
 
 	// Set umask to ensure socket is created with secure permissions (0600)
 	// This prevents a race condition between Listen() and Chmod()
-	oldMask := syscall.Umask(0077)
+	oldMask := syscall.Umask(0o077)
 	defer syscall.Umask(oldMask)
 
 	// Create the Unix domain socket listener
@@ -54,7 +54,7 @@ func main() {
 				}
 			} else {
 				// Another agent is running
-				testConn.Close()
+				_ = testConn.Close()
 				log.Fatalf("another signet-agent is already running on %s", socketPath)
 			}
 		} else {
@@ -65,20 +65,20 @@ func main() {
 	// Verify socket permissions immediately after listen (before accepting connections)
 	info, err := os.Stat(socketPath)
 	if err != nil {
-		listener.Close()
+		_ = listener.Close()
 		log.Fatalf("failed to stat socket: %v", err)
 	}
 	mode := info.Mode().Perm()
-	if mode != 0600 {
-		listener.Close()
-		os.Remove(socketPath)
+	if mode != 0o600 {
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
 		log.Fatalf("socket has incorrect permissions %o (expected 0600)", mode)
 	}
 
 	// Ensure socket and listener are cleaned up on exit
 	defer func() {
-		listener.Close()
-		os.Remove(socketPath)
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
 	}()
 
 	// Create gRPC server with security-focused settings

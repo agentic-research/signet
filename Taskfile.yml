@@ -1,0 +1,148 @@
+version: '3'
+
+vars:
+  # Build tags for optional features (e.g., TAGS=pkcs11 for hardware signer support)
+  TAGS: '{{.TAGS | default ""}}'
+  BUILD_FLAGS: '{{if .TAGS}}-tags={{.TAGS}}{{end}}'
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # --------------------------------------------------------------------------
+  # Go
+  # --------------------------------------------------------------------------
+  build:
+    desc: Build the signet Go binaries
+    cmds:
+      - go build {{.BUILD_FLAGS}} -o signet ./cmd/signet
+      - go build {{.BUILD_FLAGS}} -o signet-git ./cmd/signet-git
+
+  test:
+    desc: Run Go unit tests
+    cmds:
+      - go test -v {{.BUILD_FLAGS}} ./...
+
+  fmt:
+    desc: Format Go code (gofumpt)
+    cmds:
+      - gofumpt -w .
+
+  lint:
+    desc: Run Go linters
+    cmds:
+      - golangci-lint run ./...
+
+  security:
+    desc: Run Go security scan
+    cmds:
+      - gosec ./...
+
+  install:
+    desc: Install signet binaries to /usr/local/bin
+    deps: [build]
+    cmds:
+      - sudo cp signet /usr/local/bin/
+      - sudo cp signet-git /usr/local/bin/
+      - echo "Installed signet and signet-git"
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f signet signet-git
+      - rm -rf /tmp/signet-test-*
+      - rm -rf /tmp/verify-test*
+      - rm -rf /tmp/test-verify*
+      - rm -rf /tmp/gitsign-test
+
+  # --------------------------------------------------------------------------
+  # Docker / Integration
+  # --------------------------------------------------------------------------
+  docker-build:
+    desc: Build Docker test image
+    cmds:
+      - docker build -t signet-test -f scripts/testing/Dockerfile.test .
+
+  docker-test:
+    desc: Run integration tests in Docker
+    deps: [docker-build]
+    cmds:
+      - docker run --rm signet-test
+
+  docker-shell:
+    desc: Interactive shell in test container
+    deps: [docker-build]
+    cmds:
+      - docker run --rm -it -v "{{.ROOT_DIR}}:/workspace" -w /workspace signet-test bash
+
+  integration-test:
+    desc: Run integration test in Docker
+    deps: [docker-build]
+    cmds:
+      - docker run --rm signet-test
+
+  # --------------------------------------------------------------------------
+  # Rust / signet-sign
+  # --------------------------------------------------------------------------
+  rs:build:
+    desc: Build signet-sign Rust crate (debug)
+    dir: rs
+    cmds:
+      - cargo build -p signet-sign
+
+  rs:release:
+    desc: Build signet-sign Rust crate (release)
+    dir: rs
+    cmds:
+      - cargo build -p signet-sign --release
+
+  rs:test:
+    desc: Run signet-sign Rust tests
+    dir: rs
+    cmds:
+      - cargo test -p signet-sign
+
+  rs:test-ffi:
+    desc: Run signet-sign Rust tests with FFI feature
+    dir: rs
+    cmds:
+      - cargo test -p signet-sign --features ffi
+
+  rs:fmt:
+    desc: Format Rust code
+    dir: rs
+    cmds:
+      - cargo fmt
+
+  rs:lint:
+    desc: Run Clippy on Rust code
+    dir: rs
+    deps: [rs:fmt]
+    cmds:
+      - cargo clippy --workspace -- -D warnings
+
+  rs:wasm:
+    desc: Build signet-sign as Wasm (wasm32-unknown-unknown)
+    dir: rs
+    cmds:
+      - cargo build --target wasm32-unknown-unknown -p signet-sign --lib --release
+
+  # --------------------------------------------------------------------------
+  # Combined
+  # --------------------------------------------------------------------------
+  all:
+    desc: Build and test everything (Go + Rust)
+    cmds:
+      - task: build
+      - task: test
+      - task: rs:build
+      - task: rs:test
+
+  quick:
+    desc: Clean, rebuild, and integration test
+    cmds:
+      - task: clean
+      - task: build
+      - task: integration-test

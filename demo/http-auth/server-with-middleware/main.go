@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -12,8 +13,6 @@ import (
 	"log"
 	"net/http"
 	"time"
-
-	"crypto/rand"
 
 	"github.com/agentic-research/signet/pkg/crypto/epr"
 	"github.com/agentic-research/signet/pkg/http/middleware"

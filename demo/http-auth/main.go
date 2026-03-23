@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -66,18 +65,8 @@ func (nt *NonceTracker) CheckMonotonic(jti string, timestamp time.Time) error {
 
 // Simple in-memory key storage for demo
 var (
-	// Master key that would normally be in secure storage
-	masterPriv, masterPub = generateKeys()
-	nonceTracker          = NewNonceTracker()
+	nonceTracker = NewNonceTracker()
 )
-
-func generateKeys() (ed25519.PrivateKey, ed25519.PublicKey) {
-	pub, priv, err := ed25519.GenerateKey(nil)
-	if err != nil {
-		panic(err)
-	}
-	return priv, pub
-}
 
 func protectedHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse the Signet-Proof header
