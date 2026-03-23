@@ -1,0 +1,61 @@
+name: Rust CI (signet-sign)
+
+on:
+  push:
+    branches: [main]
+    paths: ['rs/**']
+  pull_request:
+    paths: ['rs/**']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests
+        working-directory: rs
+        run: cargo test -p signet-sign
+
+      - name: Run tests with FFI
+        working-directory: rs
+        run: cargo test -p signet-sign --features ffi
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Check formatting
+        working-directory: rs
+        run: cargo fmt -- --check
+      - name: Clippy
+        working-directory: rs
+        run: cargo clippy --workspace -- -D warnings
+
+  wasm:
+    name: Wasm build check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Build Wasm
+        working-directory: rs
+        run: cargo build -p signet-sign --lib --release --target wasm32-unknown-unknown
+      - name: Check size
+        run: |
+          SIZE=$(wc -c < rs/target/wasm32-unknown-unknown/release/signet_sign.wasm)
+          echo "Wasm size: ${SIZE} bytes"
+          if [ "$SIZE" -gt 500000 ]; then
+            echo "ERROR: Wasm binary exceeds 500KB budget"
+            exit 1
+          fi

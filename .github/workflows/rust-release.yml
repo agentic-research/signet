@@ -1,0 +1,137 @@
+name: Rust Release (signet-sign)
+
+on:
+  push:
+    tags:
+      - 'rs-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. rs-v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build-native:
+    name: Build staticlib (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            suffix: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            suffix: aarch64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools (Linux)
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build staticlib
+        working-directory: rs
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: cargo build -p signet-sign --features ffi --release --target "$BUILD_TARGET"
+
+      - name: Package artifacts
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: cp "rs/target/${BUILD_TARGET}/release/libsignet_sign.a" "libsignet_sign-${SUFFIX}.a"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: staticlib-${{ matrix.suffix }}
+          path: libsignet_sign-${{ matrix.suffix }}.a
+
+  build-wasm:
+    name: Build Wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build Wasm
+        working-directory: rs
+        run: cargo build -p signet-sign --lib --release --target wasm32-unknown-unknown
+
+      - name: Package
+        run: |
+          cp rs/target/wasm32-unknown-unknown/release/signet_sign.wasm signet_sign.wasm
+          wc -c signet_sign.wasm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: signet_sign.wasm
+
+  build-header:
+    name: Generate C header
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust + cbindgen
+        uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cbindgen
+
+      - name: Generate header
+        working-directory: rs/crates/sign
+        run: cbindgen --config cbindgen.toml --crate signet-sign --output signet_sign.h
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: header
+          path: rs/crates/sign/signet_sign.h
+
+  release:
+    name: Create Release
+    needs: [build-native, build-wasm, build-header]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum * > checksums-sha256.txt
+
+      - name: Create GitHub Release
+        env:
+          RELEASE_TAG: ${{ env.TAG }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: signet-sign ${{ env.TAG }}
+          generate_release_notes: true
+          files: release-assets/*
