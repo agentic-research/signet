@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"errors"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -704,6 +705,16 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		policyEvaluator: &policy.StaticPolicyEvaluator{},
 	}
 	server.landingHTML = server.buildLandingHTML()
+
+	// Prefer static file injected by container build; fall back to inline HTML.
+	const staticLandingPath = "/app/static/auth-landing.html"
+	if html, err := os.ReadFile(staticLandingPath); err == nil {
+		server.landingHTML = html
+		logger.Info("serving landing page from static file", "path", staticLandingPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		logger.Warn("failed to read static landing page, using inline fallback", "path", staticLandingPath, "error", err)
+	}
+
 	return server, nil
 }
 
@@ -938,11 +949,7 @@ func (s *OIDCServer) handleLanding(w http.ResponseWriter, r *http.Request) {
 		s.serveLandingMarkdown(w)
 	default:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if html, err := os.ReadFile("/app/static/auth-landing.html"); err == nil {
-			w.Write(html)
-		} else {
-			w.Write(s.landingHTML)
-		}
+		w.Write(s.landingHTML)
 	}
 }
 
