@@ -28,7 +28,7 @@
 // # Example Usage
 //
 //	// Extract context from a signet token
-//	provider := basic.NewProvider()
+//	provider := basic.NewProvider(issuerSecret)
 //	ctx, err := provider.ExtractContext(signetToken)
 //	if err != nil {
 //	    log.Fatal(err)

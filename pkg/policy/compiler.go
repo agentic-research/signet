@@ -93,7 +93,7 @@ func (c *Compiler) DefineGroup(name string, capTokens []uint64, maxCertTTL uint6
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.groups[name] = &Group{
-		CapTokens:  capTokens,
+		CapTokens:  append([]uint64(nil), capTokens...), // defensive copy
 		MaxCertTTL: maxCertTTL,
 	}
 }

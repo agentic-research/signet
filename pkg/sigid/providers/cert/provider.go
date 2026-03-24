@@ -17,11 +17,10 @@ import (
 	"github.com/agentic-research/signet/pkg/sigid"
 )
 
-// Signet X.509 extension OIDs (private enterprise arc).
-// These match the Go authority and signet-edge.ts in rig.
+// OIDs sourced from pkg/sigid/identity.go — single source of truth.
 var (
-	oidSubject      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
-	oidIssuanceTime = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
+	oidSubject      = asn1.ObjectIdentifier(sigid.OIDSubject)
+	oidIssuanceTime = asn1.ObjectIdentifier(sigid.OIDIssuanceTime)
 )
 
 // Provider extracts identity context from X.509 bridge certificates.

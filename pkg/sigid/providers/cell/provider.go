@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/agentic-research/signet/pkg/sigid"
@@ -102,15 +103,8 @@ func (p *CellProvider) buildContext(chain []sigid.SignetAuthCell, environment *s
 	// Extract provenance from the final cell in the chain
 	provenance := p.extractProvenance(chain)
 
-	// Use provided environment or create empty one
-	if environment == nil {
-		environment = &sigid.Environment{}
-	}
-
-	// Use provided boundary or create empty one
-	if boundary == nil {
-		boundary = &sigid.Boundary{}
-	}
+	// nil Environment/Boundary is valid — consistent with cert provider
+	// (means "not provided", not "empty")
 
 	// Build context
 	ctx := &sigid.Context{
@@ -360,7 +354,11 @@ func (p *CellProvider) validateBoundary(boundary *sigid.Boundary, request *http.
 	// Validate domain boundary (if specified)
 	if boundary.Domain != "" {
 		actualDomain := request.Host
-		if actualDomain != boundary.Domain {
+		// Strip port if present (Host can be "example.com:443")
+		if h, _, err := net.SplitHostPort(actualDomain); err == nil {
+			actualDomain = h
+		}
+		if !strings.EqualFold(actualDomain, boundary.Domain) {
 			return fmt.Errorf("domain mismatch: claimed %s, actual %s", boundary.Domain, actualDomain)
 		}
 	}
