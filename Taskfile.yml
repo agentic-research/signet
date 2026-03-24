@@ -127,7 +127,7 @@ tasks:
     desc: Build signet-sign as Wasm (wasm32-unknown-unknown)
     dir: rs
     cmds:
-      - cargo build --target wasm32-unknown-unknown -p signet-sign --lib --release
+      - cargo build --target wasm32-unknown-unknown -p signet-sign --features ffi --lib --release
 
   # --------------------------------------------------------------------------
   # Combined
