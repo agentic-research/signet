@@ -98,6 +98,10 @@ func (b *TrustPolicyBundle) signingPayload() ([]byte, error) {
 // Sign signs the bundle with the given Ed25519 private key.
 // Sets the Signature field on the bundle.
 func (b *TrustPolicyBundle) Sign(key ed25519.PrivateKey) error {
+	if len(key) != ed25519.PrivateKeySize {
+		return fmt.Errorf("invalid Ed25519 private key size: %d (expected %d)", len(key), ed25519.PrivateKeySize)
+	}
+
 	payload, err := b.signingPayload()
 	if err != nil {
 		return fmt.Errorf("compute signing payload: %w", err)

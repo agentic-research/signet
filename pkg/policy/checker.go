@@ -78,9 +78,14 @@ func (c *PolicyChecker) CheckSubject(ctx context.Context, subjectID string) (*Su
 }
 
 // ResolveCapabilities returns the capability set for a subject.
+// In bootstrap mode with a fetch failure, returns nil capabilities (allow-all
+// with no specific grants) to align with CheckSubject's bootstrap behavior.
 func (c *PolicyChecker) ResolveCapabilities(ctx context.Context, subject *Subject) ([]uint64, error) {
-	bundle, _, err := c.getBundle(ctx)
+	bundle, bootstrapFallback, err := c.getBundle(ctx)
 	if err != nil {
+		if bootstrapFallback {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return bundle.ResolveCapabilities(subject), nil
@@ -100,9 +105,13 @@ func (c *PolicyChecker) IsBootstrap() bool {
 func (c *PolicyChecker) getBundle(ctx context.Context) (*TrustPolicyBundle, bool, error) {
 	c.mu.RLock()
 	if c.cached != nil && time.Since(c.cachedAt) < c.cacheTTL {
-		bundle := c.cached
-		c.mu.RUnlock()
-		return bundle, false, nil
+		// Also check bundle age on cache hit to enforce freshness
+		bundleAge := time.Since(time.Unix(int64(c.cached.IssuedAt), 0))
+		if bundleAge <= maxPolicyBundleAge {
+			bundle := c.cached
+			c.mu.RUnlock()
+			return bundle, false, nil
+		}
 	}
 	bootstrap := c.bootstrapOK
 	c.mu.RUnlock()

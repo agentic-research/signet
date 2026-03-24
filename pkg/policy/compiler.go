@@ -40,7 +40,7 @@ func (c *Compiler) AddSubject(subjectID string, groups []string) {
 	defer c.mu.Unlock()
 	c.subjects[subjectID] = &Subject{
 		Active: true,
-		Groups: groups,
+		Groups: append([]string(nil), groups...), // defensive copy
 	}
 }
 
@@ -67,7 +67,7 @@ func (c *Compiler) SetSubjectGroups(subjectID string, groups []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s, ok := c.subjects[subjectID]; ok {
-		s.Groups = groups
+		s.Groups = append([]string(nil), groups...) // defensive copy
 	}
 }
 
