@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/url"
 	"time"
@@ -343,7 +344,11 @@ func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePubl
 	}
 
 	// Add Subject Key Identifier for the device key
-	template.SubjectKeyId = generateSubjectKeyID(devicePublicKey)
+	ski := generateSubjectKeyID(devicePublicKey)
+	if ski == nil {
+		return nil, fmt.Errorf("unsupported public key type %T for Subject Key Identifier", devicePublicKey)
+	}
+	template.SubjectKeyId = ski
 
 	// Add Authority Key Identifier (points to master key)
 	issuerTemplate.SubjectKeyId = generateSubjectKeyID(ca.masterKey.Public())
