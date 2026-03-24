@@ -306,3 +306,27 @@ For initial sigpol implementation, the work naturally phases:
 - Observability (metrics, audit logging)
 - Rate limiting for SCIM endpoints
 - Bundle schema versioning design
+
+## 7. Future: Policy Translation via Mache Schema Projection
+
+ADR-010 §6 specifies "Policy Language Engines" as extension points — the protocol is agnostic to the policy source. A key insight: **policy is already codified in existing systems**. Rather than writing sigpol policies from scratch, we can translate them automatically using mache's structural code intelligence.
+
+### Translation Sources
+
+| Source | Format | Mache Projection | Sigpol Mapping |
+|--------|--------|-------------------|----------------|
+| SELinux | `.te` type enforcement → `.pp` compiled modules | tree-sitter AST → nodes table (type→permission→domain) | Group{CapTokens} from permission sets |
+| k8s RBAC | Role/RoleBinding YAML | schema projection → role→verb→resource graph | Subject{Groups} from RoleBindings, Group{CapTokens} from Roles |
+| Docker/cgroups | seccomp profiles, AppArmor policies | JSON/YAML projection → syscall→action constraints | Boundary claims from container constraints |
+| OPA/Rego | `.rego` policy files | Rego AST projection → rule→input→decision graph | Subject/group mappings from policy rules |
+| AWS IAM | Policy JSON documents | JSON projection → action→resource→condition | Direct 1:1 mapping to ADR-010 four pillars |
+
+### How It Works
+
+mache already turns structured data into queryable `nodes` tables via tree-sitter grammars. If you project an SELinux policy through mache, you get a structured graph of type→permission→domain relationships. The sigpol compiler can consume this graph and produce capability tokens automatically.
+
+This gives "free translations" — the user brings their existing policy (SELinux, k8s RBAC, IAM), mache projects it, sigpol compiles it into a signed trust bundle. No manual policy authoring required.
+
+### Priority
+
+Phase 3+ (after SCIM ingestion works). The foundation (mache projection + sigpol compiler) must exist first. But this is the differentiator: sigpol doesn't compete with OPA/Cedar — it consumes them as inputs and produces a universal, signed, edge-distributed output.
