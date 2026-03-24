@@ -424,6 +424,7 @@ func validateAuthorityConfig(c *AuthorityConfig) error {
 // Authority manages certificate issuance for the Signet Authority service
 type Authority struct {
 	ca               *attestx509.LocalCA
+	publicKey        ed25519.PublicKey // trust anchor for policy bundle verification
 	logger           *slog.Logger
 	config           *AuthorityConfig
 	providerRegistry *oidcprovider.Registry
@@ -472,6 +473,7 @@ func newAuthority(config *AuthorityConfig, logger *slog.Logger, registry *oidcpr
 
 	return &Authority{
 		ca:               ca,
+		publicKey:        ed25519Key.Public().(ed25519.PublicKey),
 		logger:           logger,
 		config:           config,
 		providerRegistry: registry,
@@ -612,6 +614,15 @@ func parsePublicKeyBytes(data []byte) (crypto.PublicKey, error) {
 	}
 }
 
+// noopBundleFetcher always returns an error, keeping the PolicyChecker in bootstrap mode
+// until a real bundle server is configured. This is the safe default — bootstrap mode
+// allows all subjects, matching pre-policy behavior.
+type noopBundleFetcher struct{}
+
+func (f *noopBundleFetcher) Fetch(_ context.Context) (*policy.TrustPolicyBundle, error) {
+	return nil, fmt.Errorf("no policy bundle server configured")
+}
+
 // TokenCache tracks used JTI (JWT ID) claims to prevent token replay attacks.
 // SECURITY: OIDC tokens can be replayed within their validity period (typically 5-10 minutes)
 // to obtain multiple bridge certificates. This cache prevents that by tracking used token IDs.
@@ -659,7 +670,8 @@ type OIDCServer struct {
 	config          *AuthorityConfig
 	tokenCache      *TokenCache // Prevents token replay attacks
 	policyEvaluator policy.PolicyEvaluator
-	landingHTML     []byte // Precomputed HTML landing page
+	policyChecker   *policy.PolicyChecker // Trust policy bundle checker (ADR-011)
+	landingHTML     []byte                // Precomputed HTML landing page
 }
 
 type SessionData struct {
@@ -746,6 +758,17 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		Scopes:       []string{oidc.ScopeOpenID, "email", "profile"},
 	}
 
+	// PolicyChecker starts in bootstrap mode — allows all subjects until the
+	// first trust policy bundle is observed, then permanently fails closed.
+	// BundleFetcher is nil for now (no bundle server configured), so bootstrap
+	// mode persists until a fetcher is wired in via config.
+	policyChecker := policy.NewPolicyChecker(
+		&noopBundleFetcher{}, // bootstrap mode — replaced when bundle server is configured
+		authority.publicKey,
+		30*time.Second,
+		policy.WithLogger(logger),
+	)
+
 	server := &OIDCServer{
 		provider:        provider,
 		verifier:        verifier,
@@ -755,6 +778,7 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 		config:          config,
 		tokenCache:      newTokenCache(),
 		policyEvaluator: &policy.StaticPolicyEvaluator{},
+		policyChecker:   policyChecker,
 	}
 	server.landingHTML = server.buildLandingHTML()
 
@@ -944,6 +968,19 @@ func (s *OIDCServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("Failed to parse device key from session", "error", err)
 		http.Error(w, "Invalid device key in session", http.StatusInternalServerError)
+		return
+	}
+
+	// Check trust policy bundle (ADR-011)
+	// In bootstrap mode (no bundle configured), this allows all subjects.
+	// Once a bundle server is configured, this enforces provisioning + active status.
+	if _, err := s.policyChecker.CheckSubject(ctx, claims.Subject); err != nil {
+		s.logger.Warn("Policy check denied certificate",
+			"subject", claims.Subject,
+			"email", claims.Email,
+			"error", err,
+		)
+		http.Error(w, "Denied by policy", http.StatusForbidden)
 		return
 	}
 
