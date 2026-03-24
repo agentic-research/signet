@@ -4,8 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/agentic-research/signet/pkg/revocation/types"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -24,31 +28,57 @@ type BundleFetcher interface {
 //
 // The checker caches the bundle with a configurable TTL and verifies
 // signature, seqno monotonicity, and bundle age on each fetch.
+// Uses singleflight to deduplicate concurrent fetch requests (same pattern
+// as cabundle.BundleCache).
 type PolicyChecker struct {
 	fetcher     BundleFetcher
+	storage     types.Storage // persists lastSeqno across restarts (reuses revocation.types)
 	trustAnchor ed25519.PublicKey
 	cacheTTL    time.Duration
+	logger      *slog.Logger
 
 	mu          sync.RWMutex
 	cached      *TrustPolicyBundle
 	cachedAt    time.Time
-	lastSeqno   uint64
 	bootstrapOK bool // true until first bundle is observed
+	group       singleflight.Group
+}
+
+// PolicyCheckerOption configures a PolicyChecker.
+type PolicyCheckerOption func(*PolicyChecker)
+
+// WithStorage sets persistent seqno storage (reuses types.Storage from pkg/revocation).
+// Without this, seqno resets to 0 on restart — rollback protection is weakened.
+func WithStorage(s types.Storage) PolicyCheckerOption {
+	return func(c *PolicyChecker) { c.storage = s }
+}
+
+// WithLogger sets a structured logger for the checker.
+func WithLogger(l *slog.Logger) PolicyCheckerOption {
+	return func(c *PolicyChecker) { c.logger = l }
 }
 
 // NewPolicyChecker creates a new PolicyChecker.
 // Starts in bootstrap mode: if no bundle has been fetched, all subjects are allowed.
 // Once the first bundle is observed, bootstrap mode is permanently disabled.
-func NewPolicyChecker(fetcher BundleFetcher, trustAnchor ed25519.PublicKey, cacheTTL time.Duration) *PolicyChecker {
+func NewPolicyChecker(fetcher BundleFetcher, trustAnchor ed25519.PublicKey, cacheTTL time.Duration, opts ...PolicyCheckerOption) *PolicyChecker {
 	if cacheTTL == 0 {
 		cacheTTL = 30 * time.Second
 	}
-	return &PolicyChecker{
+	c := &PolicyChecker{
 		fetcher:     fetcher,
 		trustAnchor: trustAnchor,
 		cacheTTL:    cacheTTL,
 		bootstrapOK: true,
+		logger:      slog.Default(),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	if c.storage == nil {
+		c.logger.Warn("PolicyChecker: no persistent storage configured — seqno rollback protection resets on restart")
+	}
+	return c
 }
 
 // CheckSubject verifies a subject is provisioned and active.
@@ -102,10 +132,13 @@ func (c *PolicyChecker) IsBootstrap() bool {
 // The second return value indicates whether bootstrap fallback is appropriate:
 // true only when the fetcher itself fails (network error), NOT when validation
 // (signature, staleness, rollback) fails.
+//
+// Uses singleflight to deduplicate concurrent fetch requests, fixing the TOCTOU
+// race where multiple goroutines could read bootstrapOK=true between the first
+// bundle install and their own fetch completion.
 func (c *PolicyChecker) getBundle(ctx context.Context) (*TrustPolicyBundle, bool, error) {
 	c.mu.RLock()
 	if c.cached != nil && time.Since(c.cachedAt) < c.cacheTTL {
-		// Also check bundle age on cache hit to enforce freshness
 		bundleAge := time.Since(time.Unix(int64(c.cached.IssuedAt), 0))
 		if bundleAge <= maxPolicyBundleAge {
 			bundle := c.cached
@@ -113,43 +146,86 @@ func (c *PolicyChecker) getBundle(ctx context.Context) (*TrustPolicyBundle, bool
 			return bundle, false, nil
 		}
 	}
-	bootstrap := c.bootstrapOK
 	c.mu.RUnlock()
 
-	// Cache miss — fetch fresh bundle
-	bundle, err := c.fetcher.Fetch(ctx)
+	// Singleflight deduplicates concurrent fetches (same pattern as cabundle.BundleCache)
+	v, err, _ := c.group.Do("policy-bundle", func() (any, error) {
+		// Double-check cache inside singleflight
+		c.mu.RLock()
+		if c.cached != nil && time.Since(c.cachedAt) < c.cacheTTL {
+			bundleAge := time.Since(time.Unix(int64(c.cached.IssuedAt), 0))
+			if bundleAge <= maxPolicyBundleAge {
+				bundle := c.cached
+				c.mu.RUnlock()
+				return bundle, nil
+			}
+		}
+		c.mu.RUnlock()
+
+		bundle, err := c.fetcher.Fetch(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Verify signature
+		if err := bundle.Verify(c.trustAnchor); err != nil {
+			return nil, fmt.Errorf("bundle signature invalid: %w", err)
+		}
+
+		// Check bundle age
+		bundleAge := time.Since(time.Unix(int64(bundle.IssuedAt), 0))
+		if bundleAge > maxPolicyBundleAge {
+			return nil, fmt.Errorf("bundle too stale: %v old (max %v)", bundleAge, maxPolicyBundleAge)
+		}
+
+		// Monotonic seqno check — use persistent storage if available
+		lastSeqno, err := c.getLastSeqno(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get last seqno: %w", err)
+		}
+		if bundle.Seqno < lastSeqno {
+			return nil, fmt.Errorf("bundle seqno %d < last seen %d (rollback attack?)", bundle.Seqno, lastSeqno)
+		}
+
+		// Persist seqno before installing bundle
+		if err := c.setSeqno(ctx, bundle.Seqno); err != nil {
+			return nil, fmt.Errorf("persist seqno: %w", err)
+		}
+
+		// Install bundle and permanently disable bootstrap (under write lock)
+		c.mu.Lock()
+		c.bootstrapOK = false
+		c.cached = bundle
+		c.cachedAt = time.Now()
+		c.mu.Unlock()
+
+		return bundle, nil
+	})
+
 	if err != nil {
-		// Fetch failure (network) — bootstrap fallback eligible
+		// Check bootstrap AFTER singleflight completes — this is now race-free
+		// because bootstrap is only read here, and only written inside singleflight
+		c.mu.RLock()
+		bootstrap := c.bootstrapOK
+		c.mu.RUnlock()
 		return nil, bootstrap, fmt.Errorf("fetch policy bundle: %w", err)
 	}
 
-	// From here, we have a bundle — validation failures are NOT bootstrap-eligible
-	// (a tampered/stale bundle is worse than no bundle)
+	return v.(*TrustPolicyBundle), false, nil
+}
 
-	// Verify signature
-	if err := bundle.Verify(c.trustAnchor); err != nil {
-		return nil, false, fmt.Errorf("bundle signature invalid: %w", err)
+// getLastSeqno reads from persistent storage if configured, else returns 0.
+func (c *PolicyChecker) getLastSeqno(ctx context.Context) (uint64, error) {
+	if c.storage == nil {
+		return 0, nil
 	}
+	return c.storage.GetLastSeenSeqno(ctx, "policy-bundle")
+}
 
-	// Check bundle age
-	bundleAge := time.Since(time.Unix(int64(bundle.IssuedAt), 0))
-	if bundleAge > maxPolicyBundleAge {
-		return nil, false, fmt.Errorf("bundle too stale: %v old (max %v)", bundleAge, maxPolicyBundleAge)
+// setSeqno persists to storage if configured.
+func (c *PolicyChecker) setSeqno(ctx context.Context, seqno uint64) error {
+	if c.storage == nil {
+		return nil
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Monotonic seqno check
-	if bundle.Seqno < c.lastSeqno {
-		return nil, false, fmt.Errorf("bundle seqno %d < last seen %d (rollback attack?)", bundle.Seqno, c.lastSeqno)
-	}
-
-	// Permanently disable bootstrap mode
-	c.bootstrapOK = false
-	c.cached = bundle
-	c.cachedAt = time.Now()
-	c.lastSeqno = bundle.Seqno
-
-	return bundle, false, nil
+	return c.storage.SetLastSeenSeqnoIfGreater(ctx, "policy-bundle", seqno)
 }

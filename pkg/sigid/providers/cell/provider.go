@@ -16,6 +16,11 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+// cellDomainPrefix prevents cross-protocol signature attacks.
+// Cell signatures are prefixed with this before verification, so a valid cell
+// signature cannot be replayed as a valid bundle signature or vice versa.
+const cellDomainPrefix = "sigid-cell-v1:"
+
 // CellProvider implements ContextProvider by evaluating chains of SignetAuthCell structures.
 type CellProvider struct {
 	// issuerSecret is used for HMAC-SHA256 PPID derivation
@@ -252,7 +257,8 @@ func (p *CellProvider) verifyCell(cell *sigid.SignetAuthCell, signerPubKey []byt
 	cellForVerification := *cell
 	cellForVerification.Signature = []byte{}
 
-	// Marshal to canonical CBOR
+	// Marshal to canonical CBOR with domain separation prefix
+	// (prevents cross-protocol signature attacks — same pattern as sigpol bundles)
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
 	if err != nil {
 		return fmt.Errorf("create CBOR encoder: %w", err)
@@ -261,10 +267,12 @@ func (p *CellProvider) verifyCell(cell *sigid.SignetAuthCell, signerPubKey []byt
 	if err != nil {
 		return fmt.Errorf("marshal cell: %w", err)
 	}
+	// Domain separation: prepend prefix so cell signatures can't be confused with other signet structures
+	prefixed := append([]byte(cellDomainPrefix), data...)
 
 	// Verify Ed25519 signature
 	pubKey := ed25519.PublicKey(signerPubKey)
-	if !ed25519.Verify(pubKey, data, cell.Signature) {
+	if !ed25519.Verify(pubKey, prefixed, cell.Signature) {
 		return fmt.Errorf("signature verification failed")
 	}
 

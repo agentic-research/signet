@@ -24,12 +24,12 @@ var (
 
 // TestGoldenPath_AuthIdentityPolicy exercises the full chain:
 //
-//	1. Authority mints bridge cert (Ed25519 CA signs P-256 client key)
-//	2. Cert carries OID extensions (subject, issuance time)
-//	3. Policy compiler produces signed trust bundle
-//	4. Policy checker verifies subject is provisioned and active
-//	5. Capabilities resolved from group membership
-//	6. Subject deactivation is enforced
+//  1. Authority mints bridge cert (Ed25519 CA signs P-256 client key)
+//  2. Cert carries OID extensions (subject, issuance time)
+//  3. Policy compiler produces signed trust bundle
+//  4. Policy checker verifies subject is provisioned and active
+//  5. Capabilities resolved from group membership
+//  6. Subject deactivation is enforced
 //
 // This is the regression safety net for the sigid/sigpol refactor.
 func TestGoldenPath_AuthIdentityPolicy(t *testing.T) {

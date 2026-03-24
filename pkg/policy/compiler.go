@@ -5,7 +5,16 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/agentic-research/signet/pkg/lifecycle"
 )
+
+// ed25519Zeroizer securely zeros an Ed25519 private key.
+var ed25519Zeroizer = func(key *ed25519.PrivateKey) {
+	for i := range *key {
+		(*key)[i] = 0
+	}
+}
 
 // Compiler maintains staging state and produces signed trust policy bundles.
 // SCIM events (or direct API calls) mutate the staging state, then Compile()
@@ -13,25 +22,33 @@ import (
 //
 // The staging state is NOT the source of truth — the signed bundle is.
 // If staging is lost, the IdP performs a full SCIM sync to reconstruct it.
+//
+// The signing key is wrapped in lifecycle.SecureValue for zeroization on Destroy().
 type Compiler struct {
 	mu      sync.RWMutex
 	epoch   uint64
 	seqno   uint64
-	signKey ed25519.PrivateKey
+	signKey *lifecycle.SecureValue[ed25519.PrivateKey]
 
 	subjects map[string]*Subject
 	groups   map[string]*Group
 }
 
 // NewCompiler creates a new bundle compiler with the given signing key.
+// Call Destroy() when done to zeroize the key material.
 func NewCompiler(signKey ed25519.PrivateKey) *Compiler {
 	return &Compiler{
-		signKey:  signKey,
+		signKey:  lifecycle.New(signKey, ed25519Zeroizer),
 		epoch:    1,
 		seqno:    0,
 		subjects: make(map[string]*Subject),
 		groups:   make(map[string]*Group),
 	}
+}
+
+// Destroy zeroizes the signing key. The compiler cannot sign after this.
+func (c *Compiler) Destroy() {
+	c.signKey.Destroy()
 }
 
 // AddSubject provisions a subject (SCIM POST /Users equivalent).
@@ -119,7 +136,12 @@ func (c *Compiler) Compile() (*TrustPolicyBundle, error) {
 		IssuedAt: uint64(time.Now().Unix()),
 	}
 
-	if err := bundle.Sign(c.signKey); err != nil {
+	// Sign using the loan pattern — key never escapes SecureValue
+	var signErr error
+	if err := c.signKey.Use(func(key *ed25519.PrivateKey) error {
+		signErr = bundle.Sign(*key)
+		return signErr
+	}); err != nil {
 		return nil, fmt.Errorf("sign bundle: %w", err)
 	}
 

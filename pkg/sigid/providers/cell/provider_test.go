@@ -49,8 +49,9 @@ func signCell(t *testing.T, cell *sigid.SignetAuthCell, key *testKey) []byte {
 		t.Fatalf("failed to marshal cell for signing: %v", err)
 	}
 
-	// Sign the data
-	signature := ed25519.Sign(key.Private, data)
+	// Sign with domain separation prefix (must match verifyCell)
+	prefixed := append([]byte(cellDomainPrefix), data...)
+	signature := ed25519.Sign(key.Private, prefixed)
 	return signature
 }
 

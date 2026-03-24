@@ -86,11 +86,19 @@ func (p *Provider) ExtractContext(cert *x509.Certificate) (*sigid.Context, error
 	}, nil
 }
 
+// maxExtensionBytes limits the size of OID extension values we'll parse.
+// Prevents oversized identity strings from flowing into maps/logs/hashes.
+// Ed25519 subject IDs are typically <100 bytes; 512 is generous headroom.
+const maxExtensionBytes = 512
+
 // extractExtensionString reads a signet OID extension value as a string.
 // The value is ASN.1 DER-encoded — typically a UTF8String (tag 0x0C).
 func extractExtensionString(cert *x509.Certificate, oid asn1.ObjectIdentifier) string {
 	for _, ext := range cert.Extensions {
 		if ext.Id.Equal(oid) {
+			if len(ext.Value) > maxExtensionBytes {
+				return "" // reject oversized extensions
+			}
 			// Try ASN.1 UTF8String decode first
 			var s string
 			if rest, err := asn1.Unmarshal(ext.Value, &s); err == nil && len(rest) == 0 {
