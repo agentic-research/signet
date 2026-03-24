@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 )
 
 // mockFetcher implements BundleFetcher for testing.
@@ -118,17 +120,21 @@ func TestPolicyChecker_RollbackProtection(t *testing.T) {
 	bundle2 := newSignedBundle(t, priv, 5, subjects, groups) // lower seqno
 
 	fetcher := &mockFetcher{bundle: bundle1}
-	checker := NewPolicyChecker(fetcher, pub, 0) // no cache
+	storage := cabundle.NewMemoryStorage()
+	checker := NewPolicyChecker(fetcher, pub, 1*time.Millisecond,
+		WithStorage(storage)) // persistent seqno for rollback detection
 
-	// First fetch succeeds
+	// First fetch succeeds — disables bootstrap, persists seqno=10
 	_, err := checker.CheckSubject(context.Background(), "user")
 	if err != nil {
 		t.Fatalf("first fetch: %v", err)
 	}
 
+	// Wait for cache to expire
+	time.Sleep(5 * time.Millisecond)
+
 	// Serve a bundle with lower seqno (rollback)
 	fetcher.bundle = bundle2
-	checker.cachedAt = time.Time{} // force re-fetch
 
 	_, err = checker.CheckSubject(context.Background(), "user")
 	if err == nil {
@@ -138,37 +144,66 @@ func TestPolicyChecker_RollbackProtection(t *testing.T) {
 
 func TestPolicyChecker_RejectsStaleBundle(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	bundle := &TrustPolicyBundle{
+
+	// First: install a valid bundle to disable bootstrap
+	goodBundle := newSignedBundle(t, priv, 1,
+		map[string]*Subject{"user": {Active: true}},
+		map[string]*Group{},
+	)
+	fetcher := &mockFetcher{bundle: goodBundle}
+	checker := NewPolicyChecker(fetcher, pub, 1*time.Millisecond)
+
+	_, err := checker.CheckSubject(context.Background(), "user")
+	if err != nil {
+		t.Fatalf("good bundle: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+
+	// Now serve a stale bundle
+	staleBundle := &TrustPolicyBundle{
 		Epoch:    1,
-		Seqno:    1,
+		Seqno:    2,
 		IssuedAt: uint64(time.Now().Add(-2 * time.Hour).Unix()), // 2 hours old
 		Subjects: map[string]*Subject{"user": {Active: true}},
 		Groups:   map[string]*Group{},
 	}
-	_ = bundle.Sign(priv)
+	_ = staleBundle.Sign(priv)
+	fetcher.bundle = staleBundle
 
-	fetcher := &mockFetcher{bundle: bundle}
-	checker := NewPolicyChecker(fetcher, pub, 0)
-
-	_, err := checker.CheckSubject(context.Background(), "user")
+	_, err = checker.CheckSubject(context.Background(), "user")
 	if err == nil {
 		t.Fatal("expected stale bundle rejection")
 	}
 }
 
 func TestPolicyChecker_RejectsInvalidSignature(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	_, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
 
-	bundle := newSignedBundle(t, priv, 1,
+	// First: install a valid bundle to disable bootstrap
+	goodBundle := newSignedBundle(t, priv, 1,
 		map[string]*Subject{"user": {Active: true}},
 		map[string]*Group{},
 	)
-
-	fetcher := &mockFetcher{bundle: bundle}
-	checker := NewPolicyChecker(fetcher, otherPub, 0) // wrong trust anchor
+	fetcher := &mockFetcher{bundle: goodBundle}
+	checker := NewPolicyChecker(fetcher, pub, 1*time.Millisecond)
 
 	_, err := checker.CheckSubject(context.Background(), "user")
+	if err != nil {
+		t.Fatalf("good bundle: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+
+	// Now serve a bundle signed with wrong key
+	badBundle := newSignedBundle(t, wrongPriv, 2,
+		map[string]*Subject{"user": {Active: true}},
+		map[string]*Group{},
+	)
+	fetcher.bundle = badBundle
+
+	_, err = checker.CheckSubject(context.Background(), "user")
 	if err == nil {
 		t.Fatal("expected signature rejection")
 	}
