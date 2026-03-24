@@ -335,7 +335,7 @@ func EncodeDIDAsSubject(did string) pkix.Name {
 
 // IssueClientCertificate creates a client identity certificate
 // signed by the master key for the provided device public key
-func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePublicKey ed25519.PublicKey) (*x509.Certificate, error) {
+func (ca *LocalCA) IssueClientCertificate(template *x509.Certificate, devicePublicKey crypto.PublicKey) (*x509.Certificate, error) {
 	// Create CA (issuer) certificate template
 	issuerTemplate := ca.CreateCACertificateTemplate()
 	if issuerTemplate == nil {

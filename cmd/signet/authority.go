@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -483,7 +485,7 @@ type Claims struct {
 	Name    string `json:"name"`
 }
 
-func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519.PublicKey) ([]byte, error) {
+func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey crypto.PublicKey) ([]byte, error) {
 	a.logger.Info("Minting client certificate",
 		"email", claims.Email,
 		"subject", claims.Subject,
@@ -520,7 +522,6 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		IsCA:           false,
 		MaxPathLen:     -1,
-		SubjectKeyId:   devicePublicKey[:20],
 		EmailAddresses: []string{claims.Email},
 		ExtraExtensions: []pkix.Extension{
 			{
@@ -538,7 +539,7 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 		},
 	}
 
-	// Issue the certificate
+	// Issue the certificate (SubjectKeyId computed by IssueClientCertificate from the public key)
 	cert, err := a.ca.IssueClientCertificate(template, devicePublicKey)
 	if err != nil {
 		a.logger.Error("Failed to issue certificate", "email", claims.Email, "error", err)
@@ -558,6 +559,31 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey ed25519
 	)
 
 	return certPEM, nil
+}
+
+// parsePublicKeyBytes interprets raw bytes as a public key. It tries:
+//  1. Ed25519 (exactly 32 bytes → raw Ed25519 public key)
+//  2. SPKI/DER (PKIX-encoded public key — works for ECDSA P-256, Ed25519, etc.)
+//
+// This allows callers to provide either a raw Ed25519 key (legacy)
+// or a standard SPKI-encoded key (browser WebCrypto, OpenSSL).
+func parsePublicKeyBytes(data []byte) (crypto.PublicKey, error) {
+	if len(data) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(data), nil
+	}
+
+	// Try SPKI/DER (SubjectPublicKeyInfo)
+	pub, err := x509.ParsePKIXPublicKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported key format (not Ed25519 raw or SPKI/DER): %w", err)
+	}
+
+	switch pub.(type) {
+	case ed25519.PublicKey, *ecdsa.PublicKey:
+		return pub, nil
+	default:
+		return nil, fmt.Errorf("unsupported key type: %T (expected Ed25519 or ECDSA P-256)", pub)
+	}
 }
 
 // TokenCache tracks used JTI (JWT ID) claims to prevent token replay attacks.
@@ -733,11 +759,13 @@ func (s *OIDCServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(deviceKeyBytes) != ed25519.PublicKeySize {
-		s.logger.Error("Invalid device key size", "size", len(deviceKeyBytes))
-		http.Error(w, "Invalid device_key size", http.StatusBadRequest)
+	devicePublicKey, err := parsePublicKeyBytes(deviceKeyBytes)
+	if err != nil {
+		s.logger.Error("Invalid device key", "error", err, "size", len(deviceKeyBytes))
+		http.Error(w, "Invalid device_key: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	_ = devicePublicKey // used in session via raw bytes
 
 	stateBytes := make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
@@ -886,7 +914,12 @@ func (s *OIDCServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	devicePublicKey := ed25519.PublicKey(deviceKeyBytes)
+	devicePublicKey, err := parsePublicKeyBytes(deviceKeyBytes)
+	if err != nil {
+		s.logger.Error("Failed to parse device key from session", "error", err)
+		http.Error(w, "Invalid device key in session", http.StatusInternalServerError)
+		return
+	}
 
 	certPEM, err := s.authority.mintClientCertificate(
 		Claims{
@@ -1610,18 +1643,18 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if len(ephemeralKeyBytes) != ed25519.PublicKeySize {
-		s.logger.Error("Invalid ephemeral key size", "size", len(ephemeralKeyBytes))
-		http.Error(w, "Invalid ephemeral_key size", http.StatusBadRequest)
+	ephemeralKey, err := parsePublicKeyBytes(ephemeralKeyBytes)
+	if err != nil {
+		s.logger.Error("Invalid ephemeral key", "error", err, "size", len(ephemeralKeyBytes))
+		http.Error(w, "Invalid ephemeral_key: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// SECURITY FIX #5: Validate ephemeral key quality (reject weak keys)
-	ephemeralKey := ed25519.PublicKey(ephemeralKeyBytes)
-
-	// Reject all-zero keys
+	// SECURITY: Validate ephemeral key quality (reject weak keys)
+	// Reject all-zero keys (marshal to SPKI bytes for the check)
+	ephemeralKeyRaw, _ := x509.MarshalPKIXPublicKey(ephemeralKey)
 	allZero := true
-	for _, b := range ephemeralKey {
+	for _, b := range ephemeralKeyRaw {
 		if b != 0 {
 			allZero = false
 			break
