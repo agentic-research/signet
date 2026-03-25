@@ -760,13 +760,14 @@ func newOIDCServer(config *AuthorityConfig, authority *Authority, logger *slog.L
 
 	// PolicyChecker starts in bootstrap mode — allows all subjects until the
 	// first trust policy bundle is observed, then permanently fails closed.
-	// BundleFetcher is nil for now (no bundle server configured), so bootstrap
-	// mode persists until a fetcher is wired in via config.
+	// A noopBundleFetcher is used (always returns error), which keeps the checker
+	// in bootstrap mode until a real bundle server URL is configured.
 	policyChecker := policy.NewPolicyChecker(
-		&noopBundleFetcher{}, // bootstrap mode — replaced when bundle server is configured
+		&noopBundleFetcher{},
 		authority.publicKey,
 		30*time.Second,
 		policy.WithLogger(logger),
+		// TODO(signet-142fe6): add WithStorage() for persistent seqno rollback protection
 	)
 
 	server := &OIDCServer{
