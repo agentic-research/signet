@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"log/slog"
@@ -126,12 +127,12 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey crypto.
 		ExtraExtensions: []pkix.Extension{
 			{
 				// Signet Subject OID — canonical source: pkg/sigid/identity.go
-				Id:    sigid.OIDSubject,
+				Id:    asn1.ObjectIdentifier(sigid.OIDSubject),
 				Value: []byte(claims.Subject),
 			},
 			{
 				// Signet Issuance Time OID — canonical source: pkg/sigid/identity.go
-				Id:    sigid.OIDIssuanceTime,
+				Id:    asn1.ObjectIdentifier(sigid.OIDIssuanceTime),
 				Value: []byte(notBefore.Format(time.RFC3339)),
 			},
 		},
@@ -218,5 +219,3 @@ type noopBundleFetcher struct{}
 func (f *noopBundleFetcher) Fetch(_ context.Context) (*policy.TrustPolicyBundle, error) {
 	return nil, fmt.Errorf("no policy bundle server configured")
 }
-
-// TokenCache tracks used JTI (JWT ID) claims to prevent token replay attacks.

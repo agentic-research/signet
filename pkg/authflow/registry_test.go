@@ -15,7 +15,7 @@ func (f *mockFlow) Routes() []Route { return f.routes }
 
 func TestRegistry_RegisterAndBuild(t *testing.T) {
 	r := NewRegistry()
-	r.Register("test-flow", func(deps Deps) (Flow, error) {
+	err := r.Register("test-flow", func(deps Deps) (Flow, error) {
 		return &mockFlow{
 			name: "test-flow",
 			routes: []Route{
@@ -23,6 +23,9 @@ func TestRegistry_RegisterAndBuild(t *testing.T) {
 			},
 		}, nil
 	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 
 	flows, err := r.Build(Deps{})
 	if err != nil {
@@ -40,10 +43,22 @@ func TestRegistry_RegisterAndBuild(t *testing.T) {
 	}
 }
 
+func TestRegistry_DuplicateRegister(t *testing.T) {
+	r := NewRegistry()
+	factory := func(deps Deps) (Flow, error) { return &mockFlow{name: "a"}, nil }
+
+	if err := r.Register("a", factory); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	if err := r.Register("a", factory); err == nil {
+		t.Fatal("expected error on duplicate register")
+	}
+}
+
 func TestRegistry_List(t *testing.T) {
 	r := NewRegistry()
-	r.Register("a", func(deps Deps) (Flow, error) { return &mockFlow{name: "a"}, nil })
-	r.Register("b", func(deps Deps) (Flow, error) { return &mockFlow{name: "b"}, nil })
+	_ = r.Register("a", func(deps Deps) (Flow, error) { return &mockFlow{name: "a"}, nil })
+	_ = r.Register("b", func(deps Deps) (Flow, error) { return &mockFlow{name: "b"}, nil })
 
 	names := r.List()
 	if len(names) != 2 {

@@ -45,8 +45,7 @@ func (tc *TokenCache) checkAndMark(jti string, expiresAt time.Time) bool {
 	return existed
 }
 
-// cleanup removes expired JTIs from the cache to prevent unbounded memory growth
-// RESOURCE MANAGEMENT: Updates atomic counter to reflect removed entries.
+// cleanup removes expired JTIs from the cache to prevent unbounded memory growth.
 func (tc *TokenCache) cleanup() {
 	now := time.Now()
 	tc.used.Range(func(key, value interface{}) bool {
@@ -957,7 +956,8 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Check if error is due to size limit
-		if err.Error() == "http: request body too large" {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
 			s.logger.Warn("Request body too large", "remote_addr", r.RemoteAddr)
 			http.Error(w, "Request too large", http.StatusRequestEntityTooLarge)
 			return

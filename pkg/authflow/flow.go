@@ -5,8 +5,8 @@
 // registered flows onto its HTTP mux at startup.
 //
 // Adding a new flow: create a new package under pkg/authflow/, implement the Flow
-// interface, and call DefaultRegistry.Register() in init(). Import the package in
-// cmd/signet/authority_flows.go for side effects.
+// interface, and call DefaultRegistry.Register() in init(). Import the package
+// in the authority command for side effects (blank import).
 package authflow
 
 import "net/http"

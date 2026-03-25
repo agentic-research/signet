@@ -23,19 +23,30 @@ func NewRegistry() *Registry {
 }
 
 // Register adds a flow factory to the registry.
-func (r *Registry) Register(name string, factory FlowFactory) {
+// Returns an error if a factory with the same name is already registered.
+func (r *Registry) Register(name string, factory FlowFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, exists := r.factories[name]; exists {
+		return fmt.Errorf("flow %q already registered", name)
+	}
 	r.factories[name] = factory
+	return nil
 }
 
 // Build instantiates all registered flows with the given dependencies.
+// Copies the factory map under lock, then calls factories without holding the lock
+// (prevents deadlock if a factory indirectly calls Register).
 func (r *Registry) Build(deps Deps) ([]Flow, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	snapshot := make(map[string]FlowFactory, len(r.factories))
+	for k, v := range r.factories {
+		snapshot[k] = v
+	}
+	r.mu.RUnlock()
 
-	flows := make([]Flow, 0, len(r.factories))
-	for name, factory := range r.factories {
+	flows := make([]Flow, 0, len(snapshot))
+	for name, factory := range snapshot {
 		flow, err := factory(deps)
 		if err != nil {
 			return nil, fmt.Errorf("flow %q: %w", name, err)
