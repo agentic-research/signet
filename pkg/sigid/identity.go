@@ -63,16 +63,3 @@ func MachineFingerprint(pub crypto.PublicKey) (string, error) {
 	hash := sha256.Sum256(der)
 	return hex.EncodeToString(hash[:]), nil
 }
-
-// oidEqual checks if two ASN.1 Object Identifiers are equal.
-func oidEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}

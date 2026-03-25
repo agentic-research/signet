@@ -57,8 +57,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+
       - name: Build signet
-        run: make build
+        run: task build
 
       - name: Setup signet identity
         env:
