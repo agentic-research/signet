@@ -1739,6 +1739,20 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Trust policy bundle check (ADR-011) — same gate as /callback handler.
+	// In bootstrap mode (no bundle configured), this allows all subjects.
+	// The evaluator above handles CI/CD-specific allowlists (repos, workflows).
+	// This checker handles organizational provisioning (is this subject active?).
+	if _, err := s.policyChecker.CheckSubject(ctx, claims.Subject); err != nil {
+		s.logger.Warn("Trust policy denied token exchange",
+			"provider", provider.Name(),
+			"subject", claims.Subject,
+			"error", err,
+		)
+		http.Error(w, "Denied by policy", http.StatusForbidden)
+		return
+	}
+
 	// Use policy-granted capabilities (may differ from provider-mapped ones)
 	grantedCaps := evalResult.Capabilities
 	if grantedCaps == nil {

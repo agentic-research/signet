@@ -96,6 +96,23 @@ func createTestAuthority(t *testing.T, providers ...oidcprovider.Provider) (*Aut
 	return authority, registry
 }
 
+// createTestOIDCServer builds an OIDCServer for tests with a bootstrap PolicyChecker.
+func createTestOIDCServer(t *testing.T, authority *Authority) *OIDCServer {
+	t.Helper()
+	return &OIDCServer{
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{},
+		policyChecker: policy.NewPolicyChecker(
+			&noopBundleFetcher{},
+			authority.publicKey,
+			time.Second,
+		),
+	}
+}
+
 // TestPolicyGate_BootstrapAllows verifies that the policy checker in bootstrap
 // mode does not block cert issuance (matching pre-policy behavior).
 func TestPolicyGate_BootstrapAllows(t *testing.T) {
@@ -172,6 +189,82 @@ func (f *staticBundleFetcher) Fetch(_ context.Context) (*policy.TrustPolicyBundl
 	return f.bundle, nil
 }
 
+// TestExchangeToken_PolicyCheckerDeniesDeactivated verifies that /exchange-token
+// calls PolicyChecker.CheckSubject and denies deactivated subjects even when
+// the static PolicyEvaluator would allow them (unified policy gate).
+func TestExchangeToken_PolicyCheckerDeniesDeactivated(t *testing.T) {
+	mockProvider := &mockOIDCProvider{
+		name: "test-provider",
+		verifyFunc: func(_ context.Context, _ string) (*oidcprovider.Claims, error) {
+			return &oidcprovider.Claims{
+				Subject:   "fired-user",
+				Issuer:    "https://test.example.com",
+				Audience:  []string{"test-audience"},
+				ExpiresAt: time.Now().Add(5 * time.Minute),
+				IssuedAt:  time.Now(),
+				Extra: map[string]any{
+					"repository": "test/repo",
+					"jti":        "test-jti-policy-deny",
+				},
+			}, nil
+		},
+	}
+
+	authority, _ := createTestAuthority(t, mockProvider)
+
+	// Create a bundle where "fired-user" is deactivated
+	_, bundlePriv, _ := ed25519.GenerateKey(rand.Reader)
+	bundlePub := bundlePriv.Public().(ed25519.PublicKey)
+	compiler := policy.NewCompiler(bundlePriv)
+	defer compiler.Destroy()
+	compiler.AddSubject("active-user", []string{})
+	compiler.AddSubject("fired-user", []string{})
+	compiler.DeactivateSubject("fired-user")
+	bundle, err := compiler.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// PolicyChecker with real bundle (not bootstrap)
+	server := &OIDCServer{
+		authority:       authority,
+		logger:          authority.logger,
+		config:          authority.config,
+		tokenCache:      newTokenCache(),
+		policyEvaluator: &policy.StaticPolicyEvaluator{}, // allows everything
+		policyChecker: policy.NewPolicyChecker(
+			&staticBundleFetcher{bundle: bundle},
+			bundlePub,
+			time.Second,
+		),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	ephemeralPub, _, _ := ed25519.GenerateKey(nil)
+	ephemeralKeyB64 := base64.RawURLEncoding.EncodeToString(ephemeralPub)
+
+	reqBody := map[string]any{
+		"token":         "test-valid-token",
+		"ephemeral_key": ephemeralKeyB64,
+		"provider_hint": "test-provider",
+	}
+	reqJSON, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post(ts.URL+"/exchange-token", "application/json", bytes.NewBuffer(reqJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for deactivated subject, got %d", resp.StatusCode)
+	}
+}
+
 // TestHandleExchangeToken_Success tests successful token exchange
 func TestHandleExchangeToken_Success(t *testing.T) {
 	// Create mock provider
@@ -202,13 +295,7 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 	authority, _ := createTestAuthority(t, mockProvider)
 
 	// Create test server
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	// Create HTTP server
 	mux := http.NewServeMux()
@@ -279,13 +366,7 @@ func TestHandleExchangeToken_MethodNotAllowed(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -310,13 +391,7 @@ func TestHandleExchangeToken_MissingToken(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -350,13 +425,7 @@ func TestHandleExchangeToken_MissingEphemeralKey(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -386,13 +455,7 @@ func TestHandleExchangeToken_InvalidEphemeralKeyFormat(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -423,13 +486,7 @@ func TestHandleExchangeToken_InvalidEphemeralKeySize(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -473,13 +530,7 @@ func TestHandleExchangeToken_NoProviderRegistry(t *testing.T) {
 		},
 	}
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -513,13 +564,7 @@ func TestHandleExchangeToken_UnknownProviderHint(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -560,13 +605,7 @@ func TestHandleExchangeToken_TokenVerificationFailure(t *testing.T) {
 
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -627,13 +666,7 @@ func TestHandleExchangeToken_AutoDetectProvider(t *testing.T) {
 
 	authority, _ := createTestAuthority(t, provider1, provider2)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/exchange-token", server.handleExchangeToken)
@@ -678,13 +711,7 @@ func TestHandleExchangeToken_RateLimiting(t *testing.T) {
 	mockProvider := &mockOIDCProvider{name: "test-provider"}
 	authority, _ := createTestAuthority(t, mockProvider)
 
-	server := &OIDCServer{
-		authority:       authority,
-		logger:          authority.logger,
-		config:          authority.config,
-		tokenCache:      newTokenCache(),
-		policyEvaluator: &policy.StaticPolicyEvaluator{},
-	}
+	server := createTestOIDCServer(t, authority)
 
 	// Create a very restrictive rate limiter (1 request per second, burst of 1)
 	limiter := newRateLimiter(rate.Limit(1), 1)
