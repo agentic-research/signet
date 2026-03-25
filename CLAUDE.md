@@ -60,7 +60,11 @@ task docker-shell           # Interactive shell for debugging
 - ✅ **Setup-resign command** - authority_setup_resign_test.go
 - ✅ **LRU cache** (incl. GetOrPut atomicity) - lru_test.go
 - ⚠️ **File signing** (`signet sign`) - PARTIAL (sign_test.go regression tests, no integration)
-- ❌ **Auth login/register** (`signet auth`) - NO TEST (requires live OAuth)
+- ✅ **Auth login** (`signet auth login`) - DOGFOODED (real cert minted 2026-03-24)
+- ✅ **Cert verification** (`signet verify`) - verify_test.go (4 tests: valid, expired, wrong CA, missing)
+- ✅ **Trust policy bundles** (sigpol) - bundle_test.go + checker_test.go + compiler_test.go + golden_path_test.go (37 tests)
+- ✅ **Identity extraction** (sigid) - providers/cert, providers/basic, providers/cell (25+ tests)
+- ✅ **Policy gate** - authority_oidc_test.go TestPolicyGate_* + TestExchangeToken_PolicyCheckerDeniesDeactivated
 - 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)
 
 **Test Separation**:
@@ -97,6 +101,8 @@ task security                 # Security scan (requires gosec)
 | `signet auth login` | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow) |
 | `signet auth register` | Register agent with GitHub token (headless, no browser) |
 | `signet auth status` | Show MCP certificate status and expiry |
+| `signet auth daemon` | Auto-renew certificates before expiry (background process) |
+| `signet verify` | Verify a bridge certificate against the signet CA |
 
 ## Key Packages
 
@@ -116,7 +122,9 @@ task security                 # Security scan (requires gosec)
 | `pkg/errors/` | Structured error codes (`CodedError[T]`) |
 | `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`, `LRUCache` with atomic `GetOrPut`) |
 | `pkg/oidc/` | Pluggable OIDC provider abstraction (GitHub Actions, Cloudflare Access) |
-| `pkg/policy/` | Policy evaluation interface for OIDC subject authorization |
+| `pkg/policy/` | Trust policy bundles (ADR-011): PolicyChecker, Compiler, signed CBOR bundles with rollback protection |
+| `pkg/sigid/` | Identity context extraction: CertProvider (X.509), basic/cell/cert providers, 4-entity model (Owner/Machine/Actor/Identity) |
+| `pkg/authflow/` | Pluggable auth flow registry (venturi pattern): Flow interface, Deps, Registry + FlowFactory |
 | `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
 ### Rust (signet-sign)
