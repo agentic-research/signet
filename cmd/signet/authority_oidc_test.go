@@ -85,6 +85,7 @@ func createTestAuthority(t *testing.T, providers ...oidcprovider.Provider) (*Aut
 
 	authority := &Authority{
 		ca:               ca,
+		publicKey:        masterKey.Public().(ed25519.PublicKey),
 		logger:           logger,
 		providerRegistry: registry,
 		config: &AuthorityConfig{
@@ -93,6 +94,82 @@ func createTestAuthority(t *testing.T, providers ...oidcprovider.Provider) (*Aut
 	}
 
 	return authority, registry
+}
+
+// TestPolicyGate_BootstrapAllows verifies that the policy checker in bootstrap
+// mode does not block cert issuance (matching pre-policy behavior).
+func TestPolicyGate_BootstrapAllows(t *testing.T) {
+	authority, _ := createTestAuthority(t)
+
+	// PolicyChecker with noop fetcher = permanently in bootstrap mode
+	checker := policy.NewPolicyChecker(
+		&noopBundleFetcher{},
+		authority.publicKey,
+		time.Second,
+	)
+
+	subject, err := checker.CheckSubject(context.Background(), "any-subject-at-all")
+	if err != nil {
+		t.Fatalf("bootstrap mode should allow all subjects: %v", err)
+	}
+	if !subject.Active {
+		t.Error("bootstrap subject should be active")
+	}
+}
+
+// TestPolicyGate_DeniesDeactivatedSubject verifies that when a real bundle is
+// present, deactivated subjects are denied.
+func TestPolicyGate_DeniesDeactivatedSubject(t *testing.T) {
+	authority, _ := createTestAuthority(t)
+
+	// Create a real bundle with a deactivated subject
+	compiler := policy.NewCompiler(ed25519.NewKeyFromSeed(authority.publicKey[:ed25519.SeedSize]))
+	// Use the authority's key pair — but we need the private key.
+	// Instead, generate a fresh pair for the bundle.
+	_, bundlePriv, _ := ed25519.GenerateKey(rand.Reader)
+	bundlePub := bundlePriv.Public().(ed25519.PublicKey)
+
+	compiler2 := policy.NewCompiler(bundlePriv)
+	defer compiler2.Destroy()
+	compiler2.AddSubject("active-user", []string{})
+	compiler2.AddSubject("fired-user", []string{})
+	compiler2.DeactivateSubject("fired-user")
+	bundle, err := compiler2.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fetcher := &staticBundleFetcher{bundle: bundle}
+	checker := policy.NewPolicyChecker(fetcher, bundlePub, time.Second)
+
+	// Active user should be allowed
+	_, err = checker.CheckSubject(context.Background(), "active-user")
+	if err != nil {
+		t.Fatalf("active user should be allowed: %v", err)
+	}
+
+	// Fired user should be denied
+	_, err = checker.CheckSubject(context.Background(), "fired-user")
+	if err == nil {
+		t.Fatal("deactivated user should be denied")
+	}
+
+	// Unknown user should be denied (not provisioned)
+	_, err = checker.CheckSubject(context.Background(), "unknown")
+	if err == nil {
+		t.Fatal("unprovisioned user should be denied")
+	}
+
+	_ = compiler // unused, that's fine
+}
+
+// staticBundleFetcher returns a fixed bundle for testing.
+type staticBundleFetcher struct {
+	bundle *policy.TrustPolicyBundle
+}
+
+func (f *staticBundleFetcher) Fetch(_ context.Context) (*policy.TrustPolicyBundle, error) {
+	return f.bundle, nil
 }
 
 // TestHandleExchangeToken_Success tests successful token exchange
