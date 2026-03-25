@@ -312,7 +312,7 @@ This is the most tangled file. 1780+ lines mixing three concerns:
 | `cmd/signet/authority.go:531-532` (OID `{99999,1,1}`, `{99999,1,2}`) | `sigid/identity.go:37-42` (`OIDSubject`, `OIDIssuanceTime`) | X.509 extension OIDs | **Duplicated** — sigid should be canonical source |
 | `cmd/signet/authority.go:482-486` (`Claims{Email,Subject,Name}`) | `sigid/context.go:12-24` (`Context{Provenance,Environment,Boundary}`) | Identity claims types | **Divergent** — authority uses flat `Claims`; sigid has richer `Context` |
 | `pkg/signet/token.go` fields 14-15 (`Actor`, `Delegator`) | `sigid/context.go:27-39` (`Provenance{ActorPPID,DelegatorPPID}`) | Identity in token | **Legacy overlap** — fields 14-15 are legacy; sigid field 20 replaces them |
-| `pkg/signet/capability.go` (`ComputeCapabilityID`) | `sigid/cell.go:8-11` (`PolicyStatement{Allow,Deny}`) | Capability/policy types | **Complementary** — signet has token-level caps; sigid has cell-level policy |
+| `pkg/signet/capability.go` (`ComputeCapabilityID`) | `pkg/policy/cell.go` (`PolicyStatement{Allow,Deny}`) | Capability/policy types | **Complementary** — signet has token-level caps; policy has cell-level policy (moved from sigid in PR #106) |
 | `pkg/attest/x509/bridge.go:16` (`OIDSignetCapabilities`) | (not yet in sigid) | Capability cert extension OID | **Not yet duplicated** — will need to be shared |
 
 ---

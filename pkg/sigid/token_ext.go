@@ -3,6 +3,7 @@ package sigid
 import (
 	"fmt"
 
+	"github.com/agentic-research/signet/pkg/policy"
 	"github.com/agentic-research/signet/pkg/signet"
 	"github.com/fxamacker/cbor/v2"
 )
@@ -27,7 +28,7 @@ const (
 //
 // The returned bytes are a valid CBOR-encoded token that can be unmarshaled back into
 // a signet.Token, but also contains the chain data in field 20.
-func TokenWithChain(token *signet.Token, chain []SignetAuthCell) ([]byte, error) {
+func TokenWithChain(token *signet.Token, chain []policy.SignetAuthCell) ([]byte, error) {
 	if token == nil {
 		return nil, fmt.Errorf("token is nil")
 	}
@@ -70,7 +71,7 @@ func TokenWithChain(token *signet.Token, chain []SignetAuthCell) ([]byte, error)
 // This reads sigid-specific field 20 (Provenance).
 //
 // Returns an error if field 20 is not present or cannot be decoded.
-func ChainFromToken(tokenCBOR []byte) ([]SignetAuthCell, error) {
+func ChainFromToken(tokenCBOR []byte) ([]policy.SignetAuthCell, error) {
 	if len(tokenCBOR) == 0 {
 		return nil, fmt.Errorf("token CBOR is empty")
 	}
@@ -94,7 +95,7 @@ func ChainFromToken(tokenCBOR []byte) ([]SignetAuthCell, error) {
 	}
 
 	// Unmarshal the chain
-	var chain []SignetAuthCell
+	var chain []policy.SignetAuthCell
 	if err := cbor.Unmarshal(chainCBOR, &chain); err != nil {
 		return nil, fmt.Errorf("unmarshal chain: %w", err)
 	}

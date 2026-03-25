@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentic-research/signet/pkg/policy"
 	"github.com/agentic-research/signet/pkg/sigid"
 	"github.com/agentic-research/signet/pkg/signet"
 	"github.com/fxamacker/cbor/v2"
@@ -32,7 +33,7 @@ func generateTestKey(t *testing.T) *testKey {
 // signCell creates a signature over the cell data
 // The signature is computed over the canonical CBOR encoding of the cell
 // (with Signature field set to empty bytes)
-func signCell(t *testing.T, cell *sigid.SignetAuthCell, key *testKey) []byte {
+func signCell(t *testing.T, cell *policy.SignetAuthCell, key *testKey) []byte {
 	t.Helper()
 
 	// Clone the cell and zero out the signature field for signing
@@ -56,22 +57,22 @@ func signCell(t *testing.T, cell *sigid.SignetAuthCell, key *testKey) []byte {
 }
 
 // createTestCell creates a test SignetAuthCell signed by the given key
-func createTestCell(t *testing.T, resource string, owner []byte, key *testKey) *sigid.SignetAuthCell {
+func createTestCell(t *testing.T, resource string, owner []byte, key *testKey) *policy.SignetAuthCell {
 	t.Helper()
 
-	cell := &sigid.SignetAuthCell{
+	cell := &policy.SignetAuthCell{
 		Resource: resource,
 		Owner:    owner,
 		Group:    nil, // No group for simple test
-		OwnerPermissions: sigid.PolicyStatement{
+		OwnerPermissions: policy.PolicyStatement{
 			Allow: []string{"*"},
 			Deny:  []string{},
 		},
-		GroupPermissions: sigid.PolicyStatement{
+		GroupPermissions: policy.PolicyStatement{
 			Allow: []string{},
 			Deny:  []string{},
 		},
-		OtherPermissions: sigid.PolicyStatement{
+		OtherPermissions: policy.PolicyStatement{
 			Allow: []string{},
 			Deny:  []string{},
 		},
@@ -84,9 +85,9 @@ func createTestCell(t *testing.T, resource string, owner []byte, key *testKey) *
 	return cell
 }
 
-// createMockToken creates a test signet.Token with a SignetAuthCell chain
-// The chain is embedded in a custom CBOR field (field 20 for sigid Provenance)
-func createMockToken(t *testing.T, chain []sigid.SignetAuthCell) *signet.Token {
+// createMockToken creates a bare signet.Token with random fields for testing.
+// The caller is responsible for embedding chain data (via token.Actor or CBOR field 20).
+func createMockToken(t *testing.T) *signet.Token {
 	t.Helper()
 
 	// Create basic token fields
@@ -116,11 +117,6 @@ func createMockToken(t *testing.T, chain []sigid.SignetAuthCell) *signet.Token {
 		Nonce:          nonce,
 	}
 
-	// Embed the chain in the token
-	// We'll use a map to add custom CBOR field 20 (reserved for sigid Provenance)
-	// For testing, we'll marshal the token to a map, add field 20, then unmarshal
-	// This is a bit of a hack but allows us to test without modifying signet.Token
-
 	return token
 }
 
@@ -138,19 +134,19 @@ func TestExtractContext_ValidChain(t *testing.T) {
 
 	// Child cell: resource="root:child", owner=childKey, signed by rootKey
 	// (rootKey is authorizing childKey to own the sub-resource)
-	childCell := &sigid.SignetAuthCell{
+	childCell := &policy.SignetAuthCell{
 		Resource: "root:child",
 		Owner:    childKey.Public,
 		Group:    nil,
-		OwnerPermissions: sigid.PolicyStatement{
+		OwnerPermissions: policy.PolicyStatement{
 			Allow: []string{"read", "write"},
 			Deny:  []string{},
 		},
-		GroupPermissions: sigid.PolicyStatement{
+		GroupPermissions: policy.PolicyStatement{
 			Allow: []string{},
 			Deny:  []string{},
 		},
-		OtherPermissions: sigid.PolicyStatement{
+		OtherPermissions: policy.PolicyStatement{
 			Allow: []string{},
 			Deny:  []string{},
 		},
@@ -160,10 +156,10 @@ func TestExtractContext_ValidChain(t *testing.T) {
 	childCell.Signature = signCell(t, childCell, rootKey)
 
 	// Create chain
-	chain := []sigid.SignetAuthCell{*rootCell, *childCell}
+	chain := []policy.SignetAuthCell{*rootCell, *childCell}
 
 	// Create mock token with the chain
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// For now, we'll temporarily store the chain in the token's Actor field
 	// (This is a test hack - in reality it would be in field 20)
@@ -220,8 +216,8 @@ func TestExtractContext_InvalidSignature(t *testing.T) {
 	cell.Signature[0] ^= 0xFF
 	cell.Signature[1] ^= 0xFF
 
-	chain := []sigid.SignetAuthCell{*cell}
-	token := createMockToken(t, chain)
+	chain := []policy.SignetAuthCell{*cell}
+	token := createMockToken(t)
 
 	// Marshal and store chain
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
@@ -261,23 +257,23 @@ func TestExtractContext_WrongSigner(t *testing.T) {
 	rootCell := createTestCell(t, "root", rootKey.Public, rootKey)
 
 	// Child cell owned by childKey, but signed by wrongKey (not rootKey!)
-	childCell := &sigid.SignetAuthCell{
+	childCell := &policy.SignetAuthCell{
 		Resource: "root:child",
 		Owner:    childKey.Public,
 		Group:    nil,
-		OwnerPermissions: sigid.PolicyStatement{
+		OwnerPermissions: policy.PolicyStatement{
 			Allow: []string{"read"},
 			Deny:  []string{},
 		},
-		GroupPermissions: sigid.PolicyStatement{},
-		OtherPermissions: sigid.PolicyStatement{},
+		GroupPermissions: policy.PolicyStatement{},
+		OtherPermissions: policy.PolicyStatement{},
 		Signature:        nil,
 	}
 	// Sign with wrongKey instead of rootKey (this is the error)
 	childCell.Signature = signCell(t, childCell, wrongKey)
 
-	chain := []sigid.SignetAuthCell{*rootCell, *childCell}
-	token := createMockToken(t, chain)
+	chain := []policy.SignetAuthCell{*rootCell, *childCell}
+	token := createMockToken(t)
 
 	// Marshal and store chain
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
@@ -309,7 +305,7 @@ func TestExtractContext_WrongSigner(t *testing.T) {
 
 // TestExtractContext_MalformedCBOR tests that malformed CBOR in the token is handled gracefully
 func TestExtractContext_MalformedCBOR(t *testing.T) {
-	token := createMockToken(t, []sigid.SignetAuthCell{})
+	token := createMockToken(t)
 
 	// Put invalid CBOR data in the chain field
 	token.Actor = map[string]interface{}{
@@ -333,14 +329,14 @@ func TestExtractContext_MalformedCBOR(t *testing.T) {
 
 // TestExtractContext_EmptyChain tests that an empty chain is rejected
 func TestExtractContext_EmptyChain(t *testing.T) {
-	token := createMockToken(t, []sigid.SignetAuthCell{})
+	token := createMockToken(t)
 
 	// Marshal empty chain
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
 	if err != nil {
 		t.Fatalf("failed to create CBOR encoder: %v", err)
 	}
-	chainCBOR, err := encMode.Marshal([]sigid.SignetAuthCell{})
+	chainCBOR, err := encMode.Marshal([]policy.SignetAuthCell{})
 	if err != nil {
 		t.Fatalf("failed to marshal chain: %v", err)
 	}
@@ -365,7 +361,7 @@ func TestExtractContext_EmptyChain(t *testing.T) {
 
 // TestExtractContext_NoActorField tests that missing Actor field is handled
 func TestExtractContext_NoActorField(t *testing.T) {
-	token := createMockToken(t, []sigid.SignetAuthCell{})
+	token := createMockToken(t)
 	token.Actor = nil // No actor field
 
 	// Try to extract context
@@ -391,24 +387,24 @@ func TestExtractContextFromCBOR_ValidChain(t *testing.T) {
 
 	rootCell := createTestCell(t, "root", rootKey.Public, rootKey)
 
-	childCell := &sigid.SignetAuthCell{
+	childCell := &policy.SignetAuthCell{
 		Resource: "root:child",
 		Owner:    childKey.Public,
 		Group:    nil,
-		OwnerPermissions: sigid.PolicyStatement{
+		OwnerPermissions: policy.PolicyStatement{
 			Allow: []string{"read", "write"},
 			Deny:  []string{},
 		},
-		GroupPermissions: sigid.PolicyStatement{},
-		OtherPermissions: sigid.PolicyStatement{},
+		GroupPermissions: policy.PolicyStatement{},
+		OtherPermissions: policy.PolicyStatement{},
 		Signature:        nil,
 	}
 	childCell.Signature = signCell(t, childCell, rootKey)
 
-	chain := []sigid.SignetAuthCell{*rootCell, *childCell}
+	chain := []policy.SignetAuthCell{*rootCell, *childCell}
 
 	// Create a basic token
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Embed the chain in field 20 using TokenWithChain
 	tokenCBOR, err := sigid.TokenWithChain(token, chain)
@@ -450,10 +446,10 @@ func TestExtractContextFromCBOR_ValidChain(t *testing.T) {
 func TestTokenWithChain_RoundTrip(t *testing.T) {
 	rootKey := generateTestKey(t)
 	rootCell := createTestCell(t, "test-resource", rootKey.Public, rootKey)
-	chain := []sigid.SignetAuthCell{*rootCell}
+	chain := []policy.SignetAuthCell{*rootCell}
 
 	// Create a token
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Embed the chain in field 20
 	tokenCBOR, err := sigid.TokenWithChain(token, chain)
@@ -499,8 +495,8 @@ func TestPPID_Deterministic(t *testing.T) {
 	cell2 := createTestCell(t, "resource2", userKey.Public, userKey)
 
 	// Create two chains with the same cells
-	chain1 := []sigid.SignetAuthCell{*cell1}
-	chain2 := []sigid.SignetAuthCell{*cell2}
+	chain1 := []policy.SignetAuthCell{*cell1}
+	chain2 := []policy.SignetAuthCell{*cell2}
 
 	// Extract context twice with the same issuer secret
 	provider := NewProvider(issuerSecret)
@@ -524,7 +520,7 @@ func TestPPID_Unlinkable(t *testing.T) {
 
 	// Create cells with the same owner
 	cell := createTestCell(t, "resource", userKey.Public, userKey)
-	chain := []sigid.SignetAuthCell{*cell}
+	chain := []policy.SignetAuthCell{*cell}
 
 	// Extract context with different issuer secrets
 	provider1 := NewProvider(issuerSecret1)
@@ -548,7 +544,7 @@ func TestPPID_HMACvsSHA256(t *testing.T) {
 	userKey := generateTestKey(t)
 
 	cell := createTestCell(t, "resource", userKey.Public, userKey)
-	chain := []sigid.SignetAuthCell{*cell}
+	chain := []policy.SignetAuthCell{*cell}
 
 	// With HMAC (issuer secret)
 	providerWithHMAC := NewProvider(issuerSecret)
@@ -575,19 +571,19 @@ func TestPPID_DelegatorTracking(t *testing.T) {
 
 	// Two-link chain: root -> child
 	rootCell := createTestCell(t, "root", rootKey.Public, rootKey)
-	childCell := &sigid.SignetAuthCell{
+	childCell := &policy.SignetAuthCell{
 		Resource: "root:child",
 		Owner:    childKey.Public,
-		OwnerPermissions: sigid.PolicyStatement{
+		OwnerPermissions: policy.PolicyStatement{
 			Allow: []string{"*"},
 			Deny:  []string{},
 		},
-		GroupPermissions: sigid.PolicyStatement{},
-		OtherPermissions: sigid.PolicyStatement{},
+		GroupPermissions: policy.PolicyStatement{},
+		OtherPermissions: policy.PolicyStatement{},
 	}
 	childCell.Signature = signCell(t, childCell, rootKey)
 
-	chain := []sigid.SignetAuthCell{*rootCell, *childCell}
+	chain := []policy.SignetAuthCell{*rootCell, *childCell}
 
 	// Extract provenance
 	provider := NewProvider(issuerSecret)
@@ -763,11 +759,11 @@ func TestValidateContext_NoBoundary(t *testing.T) {
 
 // createTokenWithFullClaims creates a token with chain, environment, and boundary claims.
 // This embeds data in CBOR fields 20 (chain), 21 (environment), and 22 (boundary).
-func createTokenWithFullClaims(t *testing.T, chain []sigid.SignetAuthCell, env *sigid.Environment, boundary *sigid.Boundary) []byte {
+func createTokenWithFullClaims(t *testing.T, chain []policy.SignetAuthCell, env *sigid.Environment, boundary *sigid.Boundary) []byte {
 	t.Helper()
 
 	// Create basic token
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Marshal the base token to CBOR
 	tokenCBOR, err := token.Marshal()
@@ -828,21 +824,21 @@ func TestExtractContext_FullClaims(t *testing.T) {
 	childKey := generateTestKey(t)
 
 	rootCell := createTestCell(t, "root", rootKey.Public, rootKey)
-	childCell := &sigid.SignetAuthCell{
+	childCell := &policy.SignetAuthCell{
 		Resource: "root:child",
 		Owner:    childKey.Public,
 		Group:    nil,
-		OwnerPermissions: sigid.PolicyStatement{
+		OwnerPermissions: policy.PolicyStatement{
 			Allow: []string{"read", "write"},
 			Deny:  []string{},
 		},
-		GroupPermissions: sigid.PolicyStatement{},
-		OtherPermissions: sigid.PolicyStatement{},
+		GroupPermissions: policy.PolicyStatement{},
+		OtherPermissions: policy.PolicyStatement{},
 		Signature:        nil,
 	}
 	childCell.Signature = signCell(t, childCell, rootKey)
 
-	chain := []sigid.SignetAuthCell{*rootCell, *childCell}
+	chain := []policy.SignetAuthCell{*rootCell, *childCell}
 
 	// Create Environment and Boundary claims
 	env := &sigid.Environment{
