@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -285,6 +286,32 @@ func (ca *LocalCA) CreateCACertificateTemplate() *x509.Certificate {
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}
+}
+
+// CACertPEM returns the CA's self-signed certificate as PEM.
+// This is the trust anchor that verifiers and MCP servers need.
+// Suitable for serving at /.well-known/ca-bundle.pem.
+func (ca *LocalCA) CACertPEM() ([]byte, error) {
+	template := ca.CreateCACertificateTemplate()
+	if template == nil {
+		return nil, errors.New("failed to create CA certificate template")
+	}
+
+	certDER, err := x509.CreateCertificate(
+		rand.Reader,
+		template,
+		template, // self-signed
+		ca.masterKey.Public(),
+		ca.masterKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create CA certificate: %w", err)
+	}
+
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	}), nil
 }
 
 // CreateCertificateTemplate creates a basic X.509 certificate template
