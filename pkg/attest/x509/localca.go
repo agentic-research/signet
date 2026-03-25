@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -25,6 +26,9 @@ type LocalCA struct {
 
 	// issuerDID is the DID that will be used as the certificate subject
 	issuerDID string
+
+	// cachedCAPEM is the cached CA certificate PEM (generated once, stable)
+	cachedCAPEM []byte
 }
 
 // NewLocalCA creates a new Local CA with the given master key and DID
@@ -285,6 +289,43 @@ func (ca *LocalCA) CreateCACertificateTemplate() *x509.Certificate {
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}
+}
+
+// CACertPEM returns the CA's self-signed certificate as PEM.
+// This is the trust anchor that verifiers and MCP servers need.
+// Suitable for serving at /.well-known/ca-bundle.pem.
+// The result is cached — subsequent calls return the same PEM (stable trust anchor).
+func (ca *LocalCA) CACertPEM() ([]byte, error) {
+	if ca.cachedCAPEM != nil {
+		return ca.cachedCAPEM, nil
+	}
+
+	template := ca.CreateCACertificateTemplate()
+	if template == nil {
+		return nil, errors.New("failed to create CA certificate template")
+	}
+
+	// Add SubjectKeyId for proper chain validation
+	ski := generateSubjectKeyID(ca.masterKey.Public())
+	template.SubjectKeyId = ski
+	template.AuthorityKeyId = ski // self-signed: AKI = SKI
+
+	certDER, err := x509.CreateCertificate(
+		rand.Reader,
+		template,
+		template, // self-signed
+		ca.masterKey.Public(),
+		ca.masterKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create CA certificate: %w", err)
+	}
+
+	ca.cachedCAPEM = pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+	return ca.cachedCAPEM, nil
 }
 
 // CreateCertificateTemplate creates a basic X.509 certificate template

@@ -184,6 +184,7 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	mux.Handle("/login", loginHandler)
 	mux.Handle("/callback", callbackHandler)
 	mux.HandleFunc("/healthz", server.handleHealthz)
+	mux.HandleFunc("/.well-known/ca-bundle.pem", handleCABundle(authority))
 	mux.HandleFunc("/", server.handleLanding)
 
 	// OIDC token exchange endpoint (for CI/CD platforms)

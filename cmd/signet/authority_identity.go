@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"time"
 
@@ -208,6 +209,26 @@ func parsePublicKeyBytes(data []byte) (crypto.PublicKey, error) {
 		return k, nil
 	default:
 		return nil, fmt.Errorf("unsupported key type: %T (expected Ed25519 or ECDSA)", pub)
+	}
+}
+
+// handleCABundle serves the CA certificate as PEM at /.well-known/ca-bundle.pem.
+// This is the trust anchor URL that MCP server operators add to their config.
+// Cached in memory — the CA cert doesn't change during server lifetime.
+func handleCABundle(authority *Authority) http.HandlerFunc {
+	// Generate once at startup (CA cert is static)
+	caPEM, err := authority.ca.CACertPEM()
+	if err != nil {
+		authority.logger.Error("Failed to generate CA certificate PEM", "error", err)
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "CA certificate unavailable", http.StatusInternalServerError)
+		}
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		w.Header().Set("Cache-Control", "public, max-age=3600") // 1h cache
+		_, _ = w.Write(caPEM)
 	}
 }
 
