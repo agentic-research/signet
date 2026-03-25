@@ -69,7 +69,9 @@ func TestVerifyCert_WrongCA(t *testing.T) {
 	otherCAPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: otherCADER})
 
 	otherCAPath := filepath.Join(t.TempDir(), "other-ca.pem")
-	os.WriteFile(otherCAPath, otherCAPEM, 0o644)
+	if err := os.WriteFile(otherCAPath, otherCAPEM, 0o644); err != nil {
+		t.Fatalf("write other CA: %v", err)
+	}
 
 	result, err := verifyCert(certPath, otherCAPath)
 	if err != nil {
