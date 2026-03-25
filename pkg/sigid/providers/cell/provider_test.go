@@ -85,9 +85,9 @@ func createTestCell(t *testing.T, resource string, owner []byte, key *testKey) *
 	return cell
 }
 
-// createMockToken creates a test signet.Token with a SignetAuthCell chain
-// The chain is embedded in a custom CBOR field (field 20 for sigid Provenance)
-func createMockToken(t *testing.T, chain []policy.SignetAuthCell) *signet.Token {
+// createMockToken creates a bare signet.Token with random fields for testing.
+// The caller is responsible for embedding chain data (via token.Actor or CBOR field 20).
+func createMockToken(t *testing.T) *signet.Token {
 	t.Helper()
 
 	// Create basic token fields
@@ -116,11 +116,6 @@ func createMockToken(t *testing.T, chain []policy.SignetAuthCell) *signet.Token 
 		JTI:            jti,
 		Nonce:          nonce,
 	}
-
-	// Embed the chain in the token
-	// We'll use a map to add custom CBOR field 20 (reserved for sigid Provenance)
-	// For testing, we'll marshal the token to a map, add field 20, then unmarshal
-	// This is a bit of a hack but allows us to test without modifying signet.Token
 
 	return token
 }
@@ -164,7 +159,7 @@ func TestExtractContext_ValidChain(t *testing.T) {
 	chain := []policy.SignetAuthCell{*rootCell, *childCell}
 
 	// Create mock token with the chain
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// For now, we'll temporarily store the chain in the token's Actor field
 	// (This is a test hack - in reality it would be in field 20)
@@ -222,7 +217,7 @@ func TestExtractContext_InvalidSignature(t *testing.T) {
 	cell.Signature[1] ^= 0xFF
 
 	chain := []policy.SignetAuthCell{*cell}
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Marshal and store chain
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
@@ -278,7 +273,7 @@ func TestExtractContext_WrongSigner(t *testing.T) {
 	childCell.Signature = signCell(t, childCell, wrongKey)
 
 	chain := []policy.SignetAuthCell{*rootCell, *childCell}
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Marshal and store chain
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
@@ -310,7 +305,7 @@ func TestExtractContext_WrongSigner(t *testing.T) {
 
 // TestExtractContext_MalformedCBOR tests that malformed CBOR in the token is handled gracefully
 func TestExtractContext_MalformedCBOR(t *testing.T) {
-	token := createMockToken(t, []policy.SignetAuthCell{})
+	token := createMockToken(t)
 
 	// Put invalid CBOR data in the chain field
 	token.Actor = map[string]interface{}{
@@ -334,7 +329,7 @@ func TestExtractContext_MalformedCBOR(t *testing.T) {
 
 // TestExtractContext_EmptyChain tests that an empty chain is rejected
 func TestExtractContext_EmptyChain(t *testing.T) {
-	token := createMockToken(t, []policy.SignetAuthCell{})
+	token := createMockToken(t)
 
 	// Marshal empty chain
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
@@ -366,7 +361,7 @@ func TestExtractContext_EmptyChain(t *testing.T) {
 
 // TestExtractContext_NoActorField tests that missing Actor field is handled
 func TestExtractContext_NoActorField(t *testing.T) {
-	token := createMockToken(t, []policy.SignetAuthCell{})
+	token := createMockToken(t)
 	token.Actor = nil // No actor field
 
 	// Try to extract context
@@ -409,7 +404,7 @@ func TestExtractContextFromCBOR_ValidChain(t *testing.T) {
 	chain := []policy.SignetAuthCell{*rootCell, *childCell}
 
 	// Create a basic token
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Embed the chain in field 20 using TokenWithChain
 	tokenCBOR, err := sigid.TokenWithChain(token, chain)
@@ -454,7 +449,7 @@ func TestTokenWithChain_RoundTrip(t *testing.T) {
 	chain := []policy.SignetAuthCell{*rootCell}
 
 	// Create a token
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Embed the chain in field 20
 	tokenCBOR, err := sigid.TokenWithChain(token, chain)
@@ -768,7 +763,7 @@ func createTokenWithFullClaims(t *testing.T, chain []policy.SignetAuthCell, env 
 	t.Helper()
 
 	// Create basic token
-	token := createMockToken(t, chain)
+	token := createMockToken(t)
 
 	// Marshal the base token to CBOR
 	tokenCBOR, err := token.Marshal()
