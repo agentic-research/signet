@@ -92,9 +92,12 @@ func (c *certResponse) expiresAtString() string {
 	if json.Unmarshal(c.ExpiresAt, &s) == nil {
 		return s
 	}
-	// Fall back to number (Unix timestamp)
+	// Fall back to number (Unix timestamp — seconds or milliseconds)
 	var n int64
 	if json.Unmarshal(c.ExpiresAt, &n) == nil {
+		if n > 1e12 { // milliseconds (common in JS)
+			n = n / 1000
+		}
 		return time.Unix(n, 0).UTC().Format(time.RFC3339)
 	}
 	return string(c.ExpiresAt)
@@ -204,9 +207,10 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("certificate request failed: %w", err)
 	}
+	expires := certResp.expiresAtString()
 	fmt.Fprintf(os.Stderr, "%s Certificate issued", styles.Success.Render("✓"))
-	if certResp.expiresAtString() != "" {
-		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.expiresAtString())
+	if expires != "" {
+		fmt.Fprintf(os.Stderr, " (expires: %s)", expires)
 	}
 	fmt.Fprintln(os.Stderr)
 
@@ -313,9 +317,10 @@ func tryRenewExisting(certDir string) (bool, error) {
 		return false, fmt.Errorf("failed to save renewed certificate: %w", err)
 	}
 
+	renewExpires := certResp.expiresAtString()
 	fmt.Fprintf(os.Stderr, "%s Certificate renewed", styles.Success.Render("✓"))
-	if certResp.expiresAtString() != "" {
-		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.expiresAtString())
+	if renewExpires != "" {
+		fmt.Fprintf(os.Stderr, " (expires: %s)", renewExpires)
 	}
 	fmt.Fprintln(os.Stderr)
 	return true, nil
@@ -405,10 +410,9 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 			_, _ = fmt.Fprint(w, `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>signet</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0A0A10;color:#E0D9C7;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
+body{background:#0A0A10;color:#E0D9C7;font-family:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
 body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.03) 2px,rgba(255,255,255,.03) 4px);pointer-events:none;z-index:10}
 .card{background:#141420;padding:48px;max-width:420px;text-align:center;border:1px solid #1A1A2A}
 .beads{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:32px}
@@ -417,7 +421,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;margin-bottom:12px;text-transform:lowercase}
 .err{color:#E67340;text-shadow:0 0 12px rgba(230,115,64,.4)}
 p{font-size:.875rem;color:#B8A98E;line-height:1.7;font-weight:450}
-.detail{font-size:.75rem;color:#95866E;margin-top:16px;font-family:'JetBrains Mono',monospace}
+.detail{font-size:.75rem;color:#95866E;margin-top:16px;font-family:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace}
 </style></head><body>
 <div class="card">
 <div class="beads"><div class="bead"></div><div class="thread"></div><div class="bead"></div><div class="thread"></div><div class="bead"></div></div>
@@ -450,10 +454,9 @@ p{font-size:.875rem;color:#B8A98E;line-height:1.7;font-weight:450}
 		_, _ = fmt.Fprint(w, `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>signet</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0A0A10;color:#E0D9C7;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
+body{background:#0A0A10;color:#E0D9C7;font-family:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
 body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.03) 2px,rgba(255,255,255,.03) 4px);pointer-events:none;z-index:10}
 .card{background:#141420;padding:48px;max-width:420px;text-align:center;border:1px solid #1A1A2A}
 .beads{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:32px}
@@ -468,8 +471,7 @@ p{font-size:.875rem;color:#B8A98E;line-height:1.7;font-weight:450}
 <div class="card">
 <div class="beads"><div class="bead lit"></div><div class="thread"></div><div class="bead lit"></div><div class="thread"></div><div class="bead lit"></div></div>
 <h1><span class="check">&#10003;</span> authenticated</h1>
-<p>bridge cert issued. you can close this tab.</p>
-<p class="hint">return to terminal</p>
+<p>you can close this tab.</p>
 </div>
 <script>document.querySelectorAll('.bead').forEach((b,i)=>{setTimeout(()=>b.classList.add('lit'),i*200)})</script>
 </body></html>`)
