@@ -104,12 +104,21 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}
-	caDER, _ := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caPriv)
-	caCert, _ := x509.ParseCertificate(caDER)
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caPriv)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("parse CA cert: %v", err)
+	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
 
 	// Generate client cert (P-256)
-	clientKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
+	}
 	now := time.Now()
 	subjectDER, _ := asn1.Marshal(ownerID)
 
@@ -130,8 +139,12 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 
 	certPath = filepath.Join(dir, "cert.pem")
 	caPath = filepath.Join(dir, "ca.pem")
-	os.WriteFile(certPath, clientPEM, 0o644)
-	os.WriteFile(caPath, caPEM, 0o644)
+	if err := os.WriteFile(certPath, clientPEM, 0o644); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	if err := os.WriteFile(caPath, caPEM, 0o644); err != nil {
+		t.Fatalf("write CA: %v", err)
+	}
 
 	return certPath, caPath
 }

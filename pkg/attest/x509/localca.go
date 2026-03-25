@@ -26,6 +26,9 @@ type LocalCA struct {
 
 	// issuerDID is the DID that will be used as the certificate subject
 	issuerDID string
+
+	// cachedCAPEM is the cached CA certificate PEM (generated once, stable)
+	cachedCAPEM []byte
 }
 
 // NewLocalCA creates a new Local CA with the given master key and DID
@@ -291,11 +294,21 @@ func (ca *LocalCA) CreateCACertificateTemplate() *x509.Certificate {
 // CACertPEM returns the CA's self-signed certificate as PEM.
 // This is the trust anchor that verifiers and MCP servers need.
 // Suitable for serving at /.well-known/ca-bundle.pem.
+// The result is cached — subsequent calls return the same PEM (stable trust anchor).
 func (ca *LocalCA) CACertPEM() ([]byte, error) {
+	if ca.cachedCAPEM != nil {
+		return ca.cachedCAPEM, nil
+	}
+
 	template := ca.CreateCACertificateTemplate()
 	if template == nil {
 		return nil, errors.New("failed to create CA certificate template")
 	}
+
+	// Add SubjectKeyId for proper chain validation
+	ski := generateSubjectKeyID(ca.masterKey.Public())
+	template.SubjectKeyId = ski
+	template.AuthorityKeyId = ski // self-signed: AKI = SKI
 
 	certDER, err := x509.CreateCertificate(
 		rand.Reader,
@@ -308,10 +321,11 @@ func (ca *LocalCA) CACertPEM() ([]byte, error) {
 		return nil, fmt.Errorf("create CA certificate: %w", err)
 	}
 
-	return pem.EncodeToMemory(&pem.Block{
+	ca.cachedCAPEM = pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: certDER,
-	}), nil
+	})
+	return ca.cachedCAPEM, nil
 }
 
 // CreateCertificateTemplate creates a basic X.509 certificate template

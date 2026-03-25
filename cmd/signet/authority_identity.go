@@ -219,7 +219,7 @@ func handleCABundle(authority *Authority) http.HandlerFunc {
 	// Generate once at startup (CA cert is static)
 	caPEM, err := authority.ca.CACertPEM()
 	if err != nil {
-		// If we can't generate the CA cert, return 500 on every request
+		authority.logger.Error("Failed to generate CA certificate PEM", "error", err)
 		return func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "CA certificate unavailable", http.StatusInternalServerError)
 		}

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/agentic-research/signet/pkg/cli/styles"
@@ -31,7 +34,7 @@ Extracts and displays: subject, owner (OID), issuer, validity, key type.`,
 }
 
 func init() {
-	verifyCmd.Flags().StringVar(&verifyCAPath, "ca", "", "CA certificate PEM (default: fetch from authority)")
+	verifyCmd.Flags().StringVar(&verifyCAPath, "ca", "", "CA certificate PEM file (default: ~/.signet/ca.pem)")
 	rootCmd.AddCommand(verifyCmd)
 }
 
@@ -54,11 +57,11 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	if verifyCAPath == "" {
 		// Try default location
 		cfg := getConfig()
-		defaultCA := cfg.Home + "/ca.pem"
+		defaultCA := filepath.Join(cfg.Home, "ca.pem")
 		if _, err := os.Stat(defaultCA); err == nil {
 			verifyCAPath = defaultCA
 		} else {
-			return fmt.Errorf("no CA specified and no default at %s\n  Use: signet verify cert.pem --ca ca.pem", defaultCA)
+			return fmt.Errorf("no CA specified and no default at %s\n  Use: signet verify cert.pem --ca ca.pem\n  Or:  curl -s https://your-authority/.well-known/ca-bundle.pem > %s", defaultCA, defaultCA)
 		}
 	}
 
@@ -110,18 +113,14 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 		return nil, fmt.Errorf("parse cert: %w", err)
 	}
 
-	// Read CA
+	// Read CA bundle (supports multiple PEM blocks)
 	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		return nil, fmt.Errorf("read CA: %w", err)
 	}
-	caBlock, _ := pem.Decode(caPEM)
-	if caBlock == nil {
-		return nil, fmt.Errorf("failed to decode CA PEM")
-	}
-	caCert, err := x509.ParseCertificate(caBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA: %w", err)
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("no valid certificates found in CA file %s", caPath)
 	}
 
 	result := &VerifyResult{
@@ -146,8 +145,6 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	}
 
 	// Verify chain
-	pool := x509.NewCertPool()
-	pool.AddCert(caCert)
 	if _, err := cert.Verify(x509.VerifyOptions{
 		Roots:       pool,
 		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
@@ -166,7 +163,19 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 func keyTypeName(cert *x509.Certificate) string {
 	switch cert.PublicKeyAlgorithm {
 	case x509.ECDSA:
-		return "ECDSA P-256"
+		if pub, ok := cert.PublicKey.(*ecdsa.PublicKey); ok {
+			switch pub.Curve {
+			case elliptic.P256():
+				return "ECDSA P-256"
+			case elliptic.P384():
+				return "ECDSA P-384"
+			case elliptic.P521():
+				return "ECDSA P-521"
+			default:
+				return "ECDSA"
+			}
+		}
+		return "ECDSA"
 	case x509.Ed25519:
 		return "Ed25519"
 	case x509.RSA:

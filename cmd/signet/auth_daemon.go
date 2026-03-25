@@ -83,6 +83,14 @@ const (
 func runAuthDaemon(cmd *cobra.Command, _ []string) error {
 	cfg := getConfig()
 
+	// Validate intervals
+	if daemonCheckInterval <= 0 {
+		return fmt.Errorf("--check-interval must be positive (got %s)", daemonCheckInterval)
+	}
+	if daemonRenewBefore <= 0 {
+		return fmt.Errorf("--renew-before must be positive (got %s)", daemonRenewBefore)
+	}
+
 	// PID file — prevent double-run
 	pidPath := filepath.Join(cfg.Home, pidFileName)
 	if err := acquirePIDFile(pidPath); err != nil {
@@ -225,8 +233,12 @@ func checkAndRenew(certDir string, renewBefore time.Duration, name string) renew
 		styles.Warning.Render("⚠"), name, remaining.Round(time.Minute))
 
 	renewed, err := tryRenewExisting(certDir)
-	if err != nil || !renewed {
-		fmt.Fprintf(os.Stderr, "%s [%s] Renewal failed: %v\n", styles.Error.Render("✗"), name, err)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s [%s] Renewal error: %v\n", styles.Error.Render("✗"), name, err)
+		return renewResultFailed
+	}
+	if !renewed {
+		fmt.Fprintf(os.Stderr, "%s [%s] Renewal returned false (may need re-login)\n", styles.Warning.Render("⚠"), name)
 		return renewResultFailed
 	}
 
