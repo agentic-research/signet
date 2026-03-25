@@ -77,8 +77,30 @@ type callbackResult struct {
 
 // certResponse is the JSON response from the /api/cert endpoint.
 type certResponse struct {
-	Certificate string `json:"certificate"`
-	ExpiresAt   string `json:"expires_at,omitempty"`
+	Certificate string          `json:"certificate"`
+	ExpiresAt   json.RawMessage `json:"expires_at,omitempty"`
+}
+
+// expiresAtString returns ExpiresAt as a string regardless of whether the
+// server sent it as a string ("2026-03-25T...") or a number (1774401234).
+func (c *certResponse) expiresAtString() string {
+	if len(c.ExpiresAt) == 0 {
+		return ""
+	}
+	// Try string first (quoted)
+	var s string
+	if json.Unmarshal(c.ExpiresAt, &s) == nil {
+		return s
+	}
+	// Fall back to number (Unix timestamp — seconds or milliseconds)
+	var n int64
+	if json.Unmarshal(c.ExpiresAt, &n) == nil {
+		if n > 1e12 { // milliseconds (common in JS)
+			n = n / 1000
+		}
+		return time.Unix(n, 0).UTC().Format(time.RFC3339)
+	}
+	return string(c.ExpiresAt)
 }
 
 // certMetadata is persisted alongside the cert for status/refresh.
@@ -185,9 +207,10 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("certificate request failed: %w", err)
 	}
+	expires := certResp.expiresAtString()
 	fmt.Fprintf(os.Stderr, "%s Certificate issued", styles.Success.Render("✓"))
-	if certResp.ExpiresAt != "" {
-		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.ExpiresAt)
+	if expires != "" {
+		fmt.Fprintf(os.Stderr, " (expires: %s)", expires)
 	}
 	fmt.Fprintln(os.Stderr)
 
@@ -294,9 +317,10 @@ func tryRenewExisting(certDir string) (bool, error) {
 		return false, fmt.Errorf("failed to save renewed certificate: %w", err)
 	}
 
+	renewExpires := certResp.expiresAtString()
 	fmt.Fprintf(os.Stderr, "%s Certificate renewed", styles.Success.Render("✓"))
-	if certResp.ExpiresAt != "" {
-		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.ExpiresAt)
+	if renewExpires != "" {
+		fmt.Fprintf(os.Stderr, " (expires: %s)", renewExpires)
 	}
 	fmt.Fprintln(os.Stderr)
 	return true, nil
@@ -383,8 +407,28 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 			once.Do(func() {
 				resultCh <- callbackResult{Err: fmt.Errorf("OAuth error: %s", errParam)}
 			})
-			_, _ = fmt.Fprintf(w, "<html><body><h2>Authentication failed</h2><p>%s</p><p>You can close this tab.</p></body></html>",
-				html.EscapeString(errParam))
+			_, _ = fmt.Fprint(w, `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>signet</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0A0A10;color:#E0D9C7;font-family:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.03) 2px,rgba(255,255,255,.03) 4px);pointer-events:none;z-index:10}
+.card{background:#141420;padding:48px;max-width:420px;text-align:center;border:1px solid #1A1A2A}
+.beads{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:32px}
+.bead{width:8px;height:8px;border-radius:50%;background:#6B6358}
+.thread{width:12px;height:2px;background:#6B6358}
+h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;margin-bottom:12px;text-transform:lowercase}
+.err{color:#E67340;text-shadow:0 0 12px rgba(230,115,64,.4)}
+p{font-size:.875rem;color:#B8A98E;line-height:1.7;font-weight:450}
+.detail{font-size:.75rem;color:#95866E;margin-top:16px;font-family:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace}
+</style></head><body>
+<div class="card">
+<div class="beads"><div class="bead"></div><div class="thread"></div><div class="bead"></div><div class="thread"></div><div class="bead"></div></div>
+<h1><span class="err">&#10007;</span> authentication failed</h1>
+<p>`+html.EscapeString(errParam)+`</p>
+<p class="detail">close this tab and retry</p>
+</div></body></html>`)
 			return
 		}
 
@@ -407,7 +451,30 @@ func startCallbackServer(listener net.Listener, expectedState string, resultCh c
 		once.Do(func() {
 			resultCh <- callbackResult{Code: code, State: state}
 		})
-		_, _ = fmt.Fprint(w, "<html><body><h2>Authenticated</h2><p>You can close this tab and return to the terminal.</p></body></html>")
+		_, _ = fmt.Fprint(w, `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>signet</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0A0A10;color:#E0D9C7;font-family:'JetBrains Mono','SF Mono','Fira Code','Cascadia Code',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,.03) 2px,rgba(255,255,255,.03) 4px);pointer-events:none;z-index:10}
+.card{background:#141420;padding:48px;max-width:420px;text-align:center;border:1px solid #1A1A2A}
+.beads{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:32px}
+.bead{width:8px;height:8px;border-radius:50%;background:#6B6358;transition:all .6s}
+.bead.lit{background:#E09452;box-shadow:0 0 20px rgba(224,148,82,.4)}
+.thread{width:12px;height:2px;background:#6B6358}
+h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;margin-bottom:12px;text-transform:lowercase}
+.check{color:#73B873;text-shadow:0 0 12px rgba(115,184,115,.4)}
+p{font-size:.875rem;color:#B8A98E;line-height:1.7;font-weight:450}
+.hint{font-size:.75rem;color:#95866E;margin-top:24px;letter-spacing:.06em;text-transform:lowercase}
+</style></head><body>
+<div class="card">
+<div class="beads"><div class="bead lit"></div><div class="thread"></div><div class="bead lit"></div><div class="thread"></div><div class="bead lit"></div></div>
+<h1><span class="check">&#10003;</span> authenticated</h1>
+<p>you can close this tab.</p>
+</div>
+<script>document.querySelectorAll('.bead').forEach((b,i)=>{setTimeout(()=>b.classList.add('lit'),i*200)})</script>
+</body></html>`)
 	})
 
 	srv := &http.Server{Handler: mux}
@@ -552,7 +619,7 @@ func saveCertBundle(signetHome, endpoint, mcpURL string, certResp *certResponse,
 	meta := certMetadata{
 		Endpoint:     endpoint,
 		MCPURL:       mcpURL,
-		ExpiresAt:    certResp.ExpiresAt,
+		ExpiresAt:    certResp.expiresAtString(),
 		IssuedAt:     time.Now().UTC().Format(time.RFC3339),
 		RefreshToken: refreshToken,
 	}

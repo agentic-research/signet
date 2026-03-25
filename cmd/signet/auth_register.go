@@ -77,8 +77,8 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("certificate request failed: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "%s Certificate issued", styles.Success.Render("✓"))
-	if certResp.ExpiresAt != "" {
-		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.ExpiresAt)
+	if certResp.expiresAtString() != "" {
+		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.expiresAtString())
 	}
 	fmt.Fprintln(os.Stderr)
 
