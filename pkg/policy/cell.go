@@ -1,4 +1,4 @@
-package sigid
+package policy
 
 import "strings"
 
@@ -51,9 +51,7 @@ func matchesPattern(action, pattern string) bool {
 	}
 
 	// Wildcard suffix: "storage:*"
-	if strings.HasSuffix(pattern, ":*") {
-		prefix := strings.TrimSuffix(pattern, ":*")
-		// Check if action starts with prefix and has something after it
+	if prefix, ok := strings.CutSuffix(pattern, ":*"); ok {
 		if strings.HasPrefix(action, prefix+":") {
 			return true
 		}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentic-research/signet/pkg/policy"
 	"github.com/agentic-research/signet/pkg/sigid"
 	"github.com/agentic-research/signet/pkg/signet"
 	"github.com/fxamacker/cbor/v2"
@@ -89,12 +90,12 @@ func (p *CellProvider) ExtractContextFromCBOR(tokenCBOR []byte) (*sigid.Context,
 
 // extractContextFromChain is the common logic for extracting context from a verified chain.
 // This is used by the legacy ExtractContext method.
-func (p *CellProvider) extractContextFromChain(chain []sigid.SignetAuthCell) (*sigid.Context, error) {
+func (p *CellProvider) extractContextFromChain(chain []policy.SignetAuthCell) (*sigid.Context, error) {
 	return p.buildContext(chain, nil, nil)
 }
 
 // buildContext creates a Context from verified chain, environment, and boundary claims.
-func (p *CellProvider) buildContext(chain []sigid.SignetAuthCell, environment *sigid.Environment, boundary *sigid.Boundary) (*sigid.Context, error) {
+func (p *CellProvider) buildContext(chain []policy.SignetAuthCell, environment *sigid.Environment, boundary *sigid.Boundary) (*sigid.Context, error) {
 	// Verify the chain signatures
 	if err := p.verifyChain(chain); err != nil {
 		return nil, fmt.Errorf("verify chain: %w", err)
@@ -118,7 +119,7 @@ func (p *CellProvider) buildContext(chain []sigid.SignetAuthCell, environment *s
 }
 
 // extractChainFromMap extracts the SignetAuthCell chain from a token CBOR map (field 20).
-func (p *CellProvider) extractChainFromMap(tokenMap map[int]interface{}) ([]sigid.SignetAuthCell, error) {
+func (p *CellProvider) extractChainFromMap(tokenMap map[int]interface{}) ([]policy.SignetAuthCell, error) {
 	chainField, ok := tokenMap[sigid.FieldProvenance]
 	if !ok {
 		return nil, fmt.Errorf("field %d (provenance chain) not present in token", sigid.FieldProvenance)
@@ -129,7 +130,7 @@ func (p *CellProvider) extractChainFromMap(tokenMap map[int]interface{}) ([]sigi
 		return nil, fmt.Errorf("field %d is not a byte array", sigid.FieldProvenance)
 	}
 
-	var chain []sigid.SignetAuthCell
+	var chain []policy.SignetAuthCell
 	if err := cbor.Unmarshal(chainCBOR, &chain); err != nil {
 		return nil, fmt.Errorf("unmarshal chain: %w", err)
 	}
@@ -186,7 +187,7 @@ func (p *CellProvider) extractBoundaryFromMap(tokenMap map[int]interface{}) (*si
 // extractChainLegacy extracts the SignetAuthCell chain from the token's Actor field.
 // This is for backward compatibility with existing tests. New code should use
 // ExtractContextFromCBOR which reads from CBOR field 20.
-func (p *CellProvider) extractChainLegacy(token *signet.Token) ([]sigid.SignetAuthCell, error) {
+func (p *CellProvider) extractChainLegacy(token *signet.Token) ([]policy.SignetAuthCell, error) {
 	if token.Actor == nil {
 		return nil, fmt.Errorf("no actor field in token")
 	}
@@ -196,7 +197,7 @@ func (p *CellProvider) extractChainLegacy(token *signet.Token) ([]sigid.SignetAu
 		return nil, fmt.Errorf("actor.chain is not a byte array")
 	}
 
-	var chain []sigid.SignetAuthCell
+	var chain []policy.SignetAuthCell
 	if err := cbor.Unmarshal(chainCBOR, &chain); err != nil {
 		return nil, fmt.Errorf("unmarshal chain: %w", err)
 	}
@@ -212,7 +213,7 @@ func (p *CellProvider) extractChainLegacy(token *signet.Token) ([]sigid.SignetAu
 // For a valid chain:
 // 1. The first cell must be self-signed (signed by its own owner)
 // 2. Each subsequent cell must be signed by the owner of the previous cell
-func (p *CellProvider) verifyChain(chain []sigid.SignetAuthCell) error {
+func (p *CellProvider) verifyChain(chain []policy.SignetAuthCell) error {
 	if len(chain) == 0 {
 		return fmt.Errorf("chain is empty")
 	}
@@ -238,7 +239,7 @@ func (p *CellProvider) verifyChain(chain []sigid.SignetAuthCell) error {
 }
 
 // verifyCell verifies a single cell's signature
-func (p *CellProvider) verifyCell(cell *sigid.SignetAuthCell, signerPubKey []byte) error {
+func (p *CellProvider) verifyCell(cell *policy.SignetAuthCell, signerPubKey []byte) error {
 	if len(signerPubKey) != ed25519.PublicKeySize {
 		return fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(signerPubKey))
 	}
@@ -275,7 +276,7 @@ func (p *CellProvider) verifyCell(cell *sigid.SignetAuthCell, signerPubKey []byt
 
 // extractProvenance extracts provenance information from the cell chain
 // The actor PPID is derived from the owner of the final cell using HMAC-SHA256
-func (p *CellProvider) extractProvenance(chain []sigid.SignetAuthCell) *sigid.Provenance {
+func (p *CellProvider) extractProvenance(chain []policy.SignetAuthCell) *sigid.Provenance {
 	if len(chain) == 0 {
 		return &sigid.Provenance{}
 	}
