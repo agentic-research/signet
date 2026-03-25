@@ -222,11 +222,9 @@ pkg/sigid/
 ├── context.go              # Context, Provenance, Environment, Boundary, Attestation
 ├── identity.go             # Identity, CertIdentityProvider, MachineFingerprint
 ├── provider.go             # ContextProvider, AttestationProvider, BoundaryValidator interfaces
-├── cell.go                 # SignetAuthCell, PolicyStatement  (NOTE: may migrate to sigpol)
 ├── token_ext.go            # CBOR field 20-23 extension helpers
 ├── doc.go                  # Package documentation
 ├── context_test.go
-├── policy_test.go          # Tests for PolicyStatement (NOTE: follows cell.go)
 └── providers/
     ├── basic/
     │   ├── provider.go     # Reference ContextProvider implementation
@@ -251,8 +249,8 @@ pkg/sigid/
 
 | Question | Options | Recommendation |
 |----------|---------|----------------|
-| Does `cell.go` (PolicyStatement, SignetAuthCell) belong in sigid or sigpol? | A) Keep in sigid (it's identity-level permissioning) B) Move to sigpol (it's policy evaluation) | **B** — `PolicyStatement` is policy logic. `SignetAuthCell` is a policy artifact. sigid should extract identity; sigpol should evaluate permissions. |
-| Should `providers/cell/` move with `cell.go`? | A) Keep in sigid B) Move to sigpol | **B** — The cell provider evaluates policy chains. It should be in sigpol with its types. |
+| Does `cell.go` (PolicyStatement, SignetAuthCell) belong in sigid or sigpol? | A) Keep in sigid (it's identity-level permissioning) B) Move to sigpol (it's policy evaluation) | **B — Done.** Moved to `pkg/policy/cell.go` in PR #106. |
+| Should `providers/cell/` move with `cell.go`? | A) Keep in sigid B) Move to sigpol | **B** — Deferred. The cell provider remains in `pkg/sigid/providers/cell/` and imports types from `pkg/policy`. Consider moving the provider in a follow-up. |
 | Should `CertIdentityProvider` and `ContextProvider` unify? | A) Keep separate (cert vs token paths) B) Create common `IdentityExtractor` interface | **A for now** — They extract from fundamentally different inputs (X.509 cert vs CBOR token). A unified interface would require a union input type that obscures the API. |
 | Should the Ed25519 hard-coding in cell provider use the algorithm registry? | A) Keep hard-coded B) Use `pkg/crypto/algorithm` | **B** — When absorbing, switch to the algorithm registry for consistency. Not blocking for initial absorption. |
 | Where do attestation provider implementations go? | A) `pkg/sigid/providers/` B) `pkg/sigid/attestation/` | **A** — Follow existing pattern. Add `providers/spire/`, `providers/tpm/` etc. |
