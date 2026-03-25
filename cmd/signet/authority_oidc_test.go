@@ -109,6 +109,7 @@ func createTestOIDCServer(t *testing.T, authority *Authority) *OIDCServer {
 			&noopBundleFetcher{},
 			authority.publicKey,
 			time.Second,
+			policy.WithLogger(authority.logger),
 		),
 	}
 }
@@ -236,6 +237,7 @@ func TestExchangeToken_PolicyCheckerDeniesDeactivated(t *testing.T) {
 			&staticBundleFetcher{bundle: bundle},
 			bundlePub,
 			time.Second,
+			policy.WithLogger(authority.logger),
 		),
 	}
 
@@ -244,7 +246,7 @@ func TestExchangeToken_PolicyCheckerDeniesDeactivated(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	ephemeralPub, _, _ := ed25519.GenerateKey(nil)
+	ephemeralPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	ephemeralKeyB64 := base64.RawURLEncoding.EncodeToString(ephemeralPub)
 
 	reqBody := map[string]any{
