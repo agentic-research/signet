@@ -24,8 +24,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
       - name: Build signet
-        run: make build
+        run: task build
 
       - name: Setup test environment
         run: |
