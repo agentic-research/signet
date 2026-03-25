@@ -38,6 +38,7 @@ import (
 	"github.com/agentic-research/signet/pkg/crypto/keys"
 	oidcprovider "github.com/agentic-research/signet/pkg/oidc"
 	"github.com/agentic-research/signet/pkg/policy"
+	"github.com/agentic-research/signet/pkg/sigid"
 )
 
 var (
@@ -527,15 +528,13 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey crypto.
 		EmailAddresses: []string{claims.Email},
 		ExtraExtensions: []pkix.Extension{
 			{
-				// OID 1.3.6.1.4.1.99999.* - Reserved for private/experimental use
-				// TODO: Replace with registered enterprise OID for production deployment
-				// Signet Subject OID
-				Id:    []int{1, 3, 6, 1, 4, 1, 99999, 1, 1},
+				// Signet Subject OID — canonical source: pkg/sigid/identity.go
+				Id:    sigid.OIDSubject,
 				Value: []byte(claims.Subject),
 			},
 			{
-				// Signet Issuance Time OID
-				Id:    []int{1, 3, 6, 1, 4, 1, 99999, 1, 2},
+				// Signet Issuance Time OID — canonical source: pkg/sigid/identity.go
+				Id:    sigid.OIDIssuanceTime,
 				Value: []byte(notBefore.Format(time.RFC3339)),
 			},
 		},

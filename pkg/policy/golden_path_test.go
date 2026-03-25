@@ -14,12 +14,13 @@ import (
 	"time"
 
 	"github.com/agentic-research/signet/pkg/policy"
+	"github.com/agentic-research/signet/pkg/sigid"
 )
 
-// Signet OID extensions (must match authority.go and signet-edge.ts)
+// OIDs sourced from the single canonical definition in pkg/sigid/identity.go
 var (
-	oidSubject      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 1}
-	oidIssuanceTime = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 2}
+	oidSubject      = asn1.ObjectIdentifier(sigid.OIDSubject)
+	oidIssuanceTime = asn1.ObjectIdentifier(sigid.OIDIssuanceTime)
 )
 
 // TestGoldenPath_AuthIdentityPolicy exercises the full chain:
