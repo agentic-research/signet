@@ -1,6 +1,6 @@
 # Revocation Strategy
 
-**Status**: Implemented (see `pkg/revocation/`)
+**Status**: Partially Implemented (core in `pkg/revocation/`, `pkg/revocation/cabundle/`; deployment checklist items below remain open)
 **Date**: 2025-10-05
 
 ---

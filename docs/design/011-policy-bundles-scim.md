@@ -1,6 +1,6 @@
 # 011: Trust Policy Bundles — SCIM as Compiled Policy Distribution
 
-**Status**: Draft
+**Status**: Partially Implemented (bundle/checker/compiler shipped in `pkg/policy/`; SCIM endpoints not yet implemented)
 **Date**: 2026-03-10
 **Authors**: James Gardner / @jamestexas
 

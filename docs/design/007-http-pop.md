@@ -2,8 +2,7 @@
 
 ```
 Network Working Group                                         J. Gardner
-Intended status: Standards Track                      27 September 2025
-Expires: March 2026
+Intended status: Internal Design Document             27 September 2025
 ```
 
 ## Abstract
@@ -12,7 +11,12 @@ This document defines a method for edge proxies to verify proof-of-possession (P
 
 ## Status of This Memo
 
-This has not been formally submitted and exists solely in this repo.
+This is an internal design document, not an IETF Internet-Draft. It uses RFC-style formatting for familiarity but has not been formally submitted.
+
+> **Implementation note:** The proof header in this document uses `PoP-Proof:` with `sig=` field.
+> The actual implementation (`pkg/http/middleware/`, `pkg/signet/sig1.go`) uses `Signet-Proof:`
+> with the SIG1 wire format (`SIG1.<CBOR>.<COSE_Sign1>`). The implementation is authoritative;
+> this document describes the conceptual design that informed it.
 Internet-Drafts are working documents of the Internet Engineering Task Force (IETF). Note that other groups may also distribute working documents as Internet-Drafts. The list of current Internet-Drafts is at https://datatracker.ietf.org/drafts/current/.
 
 ## Copyright Notice

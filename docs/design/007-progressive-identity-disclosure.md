@@ -1,10 +1,16 @@
 # 007: Progressive Identity Disclosure
 
-**Status**: Draft
+**Status**: Draft (target design — CLI commands described here are not yet implemented)
 **Author**: James Gardner
 **Date**: 2026-02-10
 **Supersedes**: N/A
-**Related**: [002-linked-key-pop.md](./002-linked-key-pop.md), [006-revocation.md](./006-revocation.md)
+**Related**: [004-bridge-certs.md](./004-bridge-certs.md), [006-revocation.md](./006-revocation.md)
+
+> **Implementation note:** This document describes the target UX for progressive identity
+> disclosure. Commands like `signet-git export-bridge-cert` and `signet-git init --oidc`
+> do not exist yet. The current CLI offers `signet auth login` (browser OAuth → cert),
+> `signet auth register` (headless → cert), and `signet verify` (cert validation).
+> The authflow registry (`pkg/authflow/`) provides the foundation for adding these flows.
 
 ## Problem Statement
 

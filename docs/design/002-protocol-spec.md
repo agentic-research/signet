@@ -35,22 +35,25 @@ SIG1.<base64url(CBOR payload)>.<base64url(COSE_Sign1 signature)>
 
 ```cddl
 signet-token = {
-  1: uint,           ; iss_id - Issuer identifier
-  2: uint,           ; aud_id - Audience identifier
+  1: tstr,           ; iss_id - Issuer identifier
+  ? 2: tstr,         ; aud_id - Audience identifier
   3: bstr .size 32,  ; sub_ppid - Per-token pairwise pseudonym
   4: uint,           ; exp - Expiration (Unix timestamp)
-  ? 5: uint,         ; nbf - Not before
-  ? 6: uint,         ; iat - Issued at
+  5: uint,           ; nbf - Not before
+  6: uint,           ; iat - Issued at
   7: bstr .size 16,  ; cap_id - 128-bit capability hash
-  8: uint,           ; cap_ver - Capability version (major.minor)
-  9: bstr .size 32,  ; cnf_key_hash - SHA-256 of bound public key
-  10: uint,          ; kid - Issuer's key ID
-  11: [* uint],      ; cap_tokens - Capability list (max 32)
-  ? 12: {* any},     ; cap_custom - Custom claims
+  ? 8: uint,         ; cap_ver - Capability version (major.minor)
+  9: bstr .size 32,  ; cnf - Confirmation ID (SHA-256 of bound master public key)
+  ? 10: bstr,        ; kid - Key ID
+  ? 11: [* uint],    ; cap_tokens - Capability list
+  ? 12: {* tstr => any}, ; cap_custom - Custom claims
   13: bstr .size 16, ; jti - Token ID
-  ? 14: actor,       ; act - Actor (impersonation)
-  ? 15: delegator,   ; del - Delegator (delegation)
-  ? 16: text         ; aud - Audience string (debugging)
+  ? 14: {* tstr => any}, ; act - Actor (impersonation)
+  ? 15: {* tstr => any}, ; del - Delegator (delegation)
+  ? 16: tstr,        ; aud_str - Audience string (debugging)
+  ? 17: bstr .size 16, ; nonce - Nonce
+  ? 18: bstr .size 32, ; eph_kid - Ephemeral key ID
+  ? 19: uint,        ; epoch - Revocation epoch
 }
 ```
 
@@ -135,11 +138,11 @@ def generate_proof(request, private_key, jti):
 1. **CBOR**: Decode and validate schema compliance
 1. **Signature**: Verify COSE_Sign1 with issuer’s public key
 1. **Expiration**: Ensure `current_time < exp`
-1. **Audience**: Verify `aud_id` matches verifier
+1. **Audience**: If `aud_id` is present, verify it matches the verifier's expected audience. If omitted, the token is audience-agnostic (acceptable for broadcast or discovery scenarios).
 
 ### 4.2 Proof-of-Possession Verification
 
-1. **Key Binding**: Verify `kid` maps to token’s `cnf_key_hash`
+1. **Key Binding**: Verify `kid` maps to token’s `cnf`
 1. **Timestamp**: Ensure `|current_time - ts| < max_skew` (default 60s)
 1. **Nonce**: Check nonce not seen for this `jti` within time window
 1. **Signature**: Verify signature over canonical string
@@ -289,19 +292,21 @@ This protocol addresses:
 
 ```
 Input:
-  iss_id: 1
-  aud_id: 2
+  iss_id: "example-issuer"
+  aud_id: "example-audience"
   sub_ppid: <32 bytes>
   exp: 1700001000
+  nbf: 1700000000
+  iat: 1700000000
   cap_id: <16 bytes>
   cap_ver: 65537 (v1.1)
-  cnf_key_hash: <32 bytes>
-  kid: 42
+  cnf: <32 bytes> (SHA-256 of master public key)
+  kid: <key id bytes>
   cap_tokens: [1, 256, 512]
   jti: <16 bytes>
 
 Output:
-  SIG1.eyJhbGciOi...<base64>...<base64>
+  SIG1.<base64url(CBOR)>.<base64url(COSE_Sign1)>
 ```
 
 ### 12.2 Example PoP
@@ -346,12 +351,12 @@ cap_custom:
 
 |JWT Claim|Signet Field   |Notes                    |
 |---------|---------------|-------------------------|
-|iss      |iss_id (1)     |Numeric for efficiency   |
-|aud      |aud_id (2)     |Numeric + optional string|
+|iss      |iss_id (1)     |String identifier        |
+|aud      |aud_id (2)     |String + optional aud_str (16)|
 |sub      |sub_ppid (3)   |Per-token for privacy    |
 |exp      |exp (4)        |Same semantics           |
 |scope    |cap_tokens (11)|Semantic capabilities    |
-|kid      |kid (10)       |Key identifier           |
+|kid      |kid (10)       |Byte string key ID       |
 
 -----
 
