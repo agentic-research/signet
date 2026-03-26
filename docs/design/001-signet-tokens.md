@@ -121,10 +121,10 @@ def generate_pop_proof(request, private_key):
     # Sign with private key (ephemeral proof)
     proof = ed25519_sign(private_key, canon)
 
-    # Cache kid → cnf_key_hash mapping at verifier
+    # Cache kid → cnf mapping at verifier
     return kid, proof
 Verification Rules
-kid maps to cached cnf_key_hash (never see public key twice)
+kid maps to cached cnf (never see public key twice)
 ts within ±60s of server time (with monotonic clock handling)
 nonce not seen before for this jti
 Proof validates against cached key hash
@@ -329,7 +329,7 @@ Current state of implementation vs specification:
 | signet-git | ✅ Production | Git signing application |
 | HTTP Middleware | 🚧 Development | In progress |
 
-Implementation status is tracked in the project's bead system.
+Implementation status is tracked in the project's Beads (bd) system; see [/.beads/README.md](../../.beads/README.md) for details.
 
 ## Related Documents
 

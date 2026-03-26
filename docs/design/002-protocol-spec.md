@@ -138,11 +138,11 @@ def generate_proof(request, private_key, jti):
 1. **CBOR**: Decode and validate schema compliance
 1. **Signature**: Verify COSE_Sign1 with issuer’s public key
 1. **Expiration**: Ensure `current_time < exp`
-1. **Audience**: Verify `aud_id` matches verifier
+1. **Audience**: If `aud_id` is present, verify it matches the verifier's expected audience. If omitted, the token is audience-agnostic (acceptable for broadcast or discovery scenarios).
 
 ### 4.2 Proof-of-Possession Verification
 
-1. **Key Binding**: Verify `kid` maps to token’s `cnf_key_hash`
+1. **Key Binding**: Verify `kid` maps to token’s `cnf`
 1. **Timestamp**: Ensure `|current_time - ts| < max_skew` (default 60s)
 1. **Nonce**: Check nonce not seen for this `jti` within time window
 1. **Signature**: Verify signature over canonical string
