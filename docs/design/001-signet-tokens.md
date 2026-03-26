@@ -58,22 +58,25 @@ Wire Format
 SIG1.<b64url(CBOR payload)>.<b64url(COSE_Sign1 Ed25519 signature)>
 CBOR Payload Structure
 Key	Name	Type	Description
-1	iss_id	uint	Issuer identifier (small numeric ID)
-2	aud_id	uint	Audience identifier
+1	iss_id	tstr	Issuer identifier
+2	aud_id	tstr	Audience identifier (optional)
 3	sub_ppid	bstr(32B)	Per-token pairwise pseudonymous identifier
 4	exp	uint	Expiration (epoch seconds)
-5	nbf	uint	Not before (optional)
-6	iat	uint	Issued at (optional)
+5	nbf	uint	Not before
+6	iat	uint	Issued at
 7	cap_id	bstr(16B)	128-bit capability set hash
-8	cap_ver	uint	Capability version/epoch (major.minor encoded)
-9	cnf_key_hash	bstr(32B)	SHA-256 of bound public key
-10	kid	uint	Key ID for issuer's signing key
-11	cap_tokens	array	Semantic capability tokens (max 32 items)
-12	cap_custom	map	Custom constraints and metadata
+8	cap_ver	uint	Capability version/epoch (major.minor encoded, optional)
+9	cnf	bstr(32B)	Confirmation ID — SHA-256 of bound master public key
+10	kid	bstr	Key ID (optional)
+11	cap_tokens	[* uint]	Semantic capability tokens (optional)
+12	cap_custom	map	Custom constraints and metadata (optional)
 13	jti	bstr(16B)	Token ID
-14	act	map	Actor (for impersonation)
-15	del	map	Delegator (for delegation)
-16	aud	str	Audience string (for debugging)
+14	act	map	Actor (for impersonation, optional)
+15	del	map	Delegator (for delegation, optional)
+16	aud_str	tstr	Audience string (for debugging, optional)
+17	nonce	bstr(16B)	Nonce (optional)
+18	eph_kid	bstr(32B)	Ephemeral key ID (optional)
+19	epoch	uint	Revocation epoch (optional)
 Capability Computation (Updated for 128-bit)
 python
 def compute_cap_id(cap_tokens):
@@ -322,17 +325,16 @@ Current state of implementation vs specification:
 | Go Library (libsignet) | ✅ Production | Reference implementation |
 | Go SDK | ✅ Production | Full feature parity |
 | pkg/crypto/epr | ✅ Production | Ephemeral proof library |
-| pkg/cms | ✅ Production | Ed25519 CMS/PKCS#7 (first in Go!) |
-| signet-commit | ✅ Production | Git signing application |
+| [go-cms](https://github.com/agentic-research/go-cms) (external) | ✅ Production | Ed25519 CMS/PKCS#7 — external dependency |
+| signet-git | ✅ Production | Git signing application |
 | HTTP Middleware | 🚧 Development | In progress |
 
-See [Development Roadmap](../../DEVELOPMENT_ROADMAP.md) for detailed implementation status.
+Implementation status is tracked in the project's bead system.
 
 ## Related Documents
 
 - **[002: Protocol Specification](./002-protocol-spec.md)** - Wire format and protocol details
 - **[003: SDK Architecture](./003-sdk.md)** - Client library implementation guide
-- **[Development Roadmap](../../DEVELOPMENT_ROADMAP.md)** - Implementation status and priorities
 - **[Architecture Overview](../../ARCHITECTURE.md)** - System design and principles
 
 References
