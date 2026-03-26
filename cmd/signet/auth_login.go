@@ -553,9 +553,13 @@ func refreshAccessToken(endpoint, refreshToken string) (*tokenResponse, error) {
 // requestCertificate calls a cert endpoint with a Bearer token and public key PEM.
 // certURL should be the full URL (e.g., https://rosary.bot/api/cert).
 func requestCertificate(certURL, token string, pubKeyPEM []byte) (*certResponse, error) {
-	reqBody, err := json.Marshal(map[string]string{
+	return requestCertificateWithBody(certURL, token, map[string]string{
 		"public_key": string(pubKeyPEM),
 	})
+}
+
+func requestCertificateWithBody(certURL, token string, bodyMap map[string]string) (*certResponse, error) {
+	reqBody, err := json.Marshal(bodyMap)
 	if err != nil {
 		return nil, err
 	}

@@ -470,6 +470,7 @@ func (s *OIDCServer) serveLandingJSON(w http.ResponseWriter) {
 		{"path": "/healthz", "method": "GET", "description": "Health check"},
 		{"path": "/login", "method": "GET", "description": "OIDC authentication flow"},
 		{"path": "/callback", "method": "GET", "description": "OIDC callback handler"},
+		{"path": "/api/cert/register", "method": "POST", "description": "Agent registration (GitHub PAT)"},
 	}
 	if hasExchange {
 		endpoints = append(endpoints, map[string]string{
@@ -501,6 +502,7 @@ func (s *OIDCServer) serveLandingMarkdown(w http.ResponseWriter) {
 	b.WriteString("| `/healthz` | GET | Health check |\n")
 	b.WriteString("| `/login` | GET | OIDC authentication flow |\n")
 	b.WriteString("| `/callback` | GET | OIDC callback handler |\n")
+	b.WriteString("| `/api/cert/register` | POST | Agent registration (GitHub PAT) |\n")
 	if hasExchange {
 		b.WriteString("| `/exchange-token` | POST | CI/CD token exchange |\n")
 	}
@@ -885,6 +887,14 @@ func (s *OIDCServer) buildLandingHTML() []byte {
         <span class="method get">get</span>
       </div>
       <div class="ep-desc">oidc callback handler</div>
+    </div>
+    <div class="endpoint-card" style="border-left-color: var(--teal)">
+      <div class="ep-row">
+        <span class="ep-glyph" style="color: var(--teal)">&#9674;</span>
+        <code class="ep-path" style="color: var(--teal)">/api/cert/register</code>
+        <span class="method post">post</span>
+      </div>
+      <div class="ep-desc">agent registration (github pat)</div>
     </div>` + exchangeCard + `
   </div>
 

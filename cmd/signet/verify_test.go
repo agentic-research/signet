@@ -122,7 +122,6 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 		t.Fatalf("generate client key: %v", err)
 	}
 	now := time.Now()
-	subjectDER, _ := asn1.Marshal(ownerID)
 
 	clientTmpl := &x509.Certificate{
 		SerialNumber:   big.NewInt(1),
@@ -133,7 +132,8 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		EmailAddresses: []string{email},
 		ExtraExtensions: []pkix.Extension{
-			{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: subjectDER},
+			// Use raw bytes to match production authority behavior.
+			{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: []byte(ownerID)},
 		},
 	}
 	clientDER, _ := x509.CreateCertificate(rand.Reader, clientTmpl, caCert, &clientKey.PublicKey, caPriv)
@@ -149,4 +149,123 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 	}
 
 	return certPath, caPath
+}
+
+// createTestAgentCertFiles creates a cert with agent identity extensions.
+func createTestAgentCertFiles(t *testing.T, sponsorEmail, sponsorID, agentName, scope string, validity time.Duration) (certPath, caPath string) {
+	t.Helper()
+	dir := t.TempDir()
+
+	// Generate CA
+	caPub, caPriv, _ := ed25519.GenerateKey(rand.Reader)
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(100),
+		Subject:               pkix.Name{CommonName: "signet-authority", Organization: []string{"rosary"}},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caPriv)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("parse CA cert: %v", err)
+	}
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+
+	// Generate agent client cert.
+	// Use raw bytes (not DER-encoded ASN.1) to match production authority behavior.
+	// This exercises the raw-byte fallback path in extractExtValue().
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
+	}
+	now := time.Now()
+
+	cn := "agent:" + agentName
+	extensions := []pkix.Extension{
+		{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: []byte(sponsorID)},
+		{Id: asn1.ObjectIdentifier(sigid.OIDAgentName), Value: []byte(agentName)},
+	}
+	if scope != "" {
+		extensions = append(extensions, pkix.Extension{
+			Id: asn1.ObjectIdentifier(sigid.OIDScope), Value: []byte(scope),
+		})
+	}
+
+	clientTmpl := &x509.Certificate{
+		SerialNumber:    big.NewInt(1),
+		Subject:         pkix.Name{CommonName: cn, Organization: []string{"rosary"}, OrganizationalUnit: []string{"Agent Certificates"}},
+		NotBefore:       now,
+		NotAfter:        now.Add(validity),
+		KeyUsage:        x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		EmailAddresses:  []string{sponsorEmail},
+		ExtraExtensions: extensions,
+	}
+	clientDER, _ := x509.CreateCertificate(rand.Reader, clientTmpl, caCert, &clientKey.PublicKey, caPriv)
+	clientPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientDER})
+
+	certPath = filepath.Join(dir, "cert.pem")
+	caPath = filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(certPath, clientPEM, 0o644); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	if err := os.WriteFile(caPath, caPEM, 0o644); err != nil {
+		t.Fatalf("write CA: %v", err)
+	}
+
+	return certPath, caPath
+}
+
+func TestVerifyCert_AgentIdentity(t *testing.T) {
+	certPath, caPath := createTestAgentCertFiles(t,
+		"james@example.com", "github-12345",
+		"dev-agent", "repo:signet",
+		24*time.Hour)
+
+	result, err := verifyCert(certPath, caPath)
+	if err != nil {
+		t.Fatalf("verifyCert: %v", err)
+	}
+	if !result.Valid {
+		t.Errorf("expected valid cert, got invalid: %s", result.Reason)
+	}
+	if result.Subject != "agent:dev-agent" {
+		t.Errorf("Subject = %q, want %q", result.Subject, "agent:dev-agent")
+	}
+	if result.Agent != "dev-agent" {
+		t.Errorf("Agent = %q, want %q", result.Agent, "dev-agent")
+	}
+	if result.Scope != "repo:signet" {
+		t.Errorf("Scope = %q, want %q", result.Scope, "repo:signet")
+	}
+	if result.Owner != "github-12345" {
+		t.Errorf("Owner (sponsor) = %q, want %q", result.Owner, "github-12345")
+	}
+}
+
+func TestVerifyCert_AgentWithoutScope(t *testing.T) {
+	certPath, caPath := createTestAgentCertFiles(t,
+		"james@example.com", "github-12345",
+		"staging-agent", "",
+		24*time.Hour)
+
+	result, err := verifyCert(certPath, caPath)
+	if err != nil {
+		t.Fatalf("verifyCert: %v", err)
+	}
+	if !result.Valid {
+		t.Errorf("expected valid cert, got invalid: %s", result.Reason)
+	}
+	if result.Agent != "staging-agent" {
+		t.Errorf("Agent = %q, want %q", result.Agent, "staging-agent")
+	}
+	if result.Scope != "" {
+		t.Errorf("Scope = %q, want empty", result.Scope)
+	}
 }
