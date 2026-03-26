@@ -122,7 +122,6 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 		t.Fatalf("generate client key: %v", err)
 	}
 	now := time.Now()
-	subjectDER, _ := asn1.Marshal(ownerID)
 
 	clientTmpl := &x509.Certificate{
 		SerialNumber:   big.NewInt(1),
@@ -133,7 +132,8 @@ func createTestCertFiles(t *testing.T, email, ownerID string, validity time.Dura
 		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		EmailAddresses: []string{email},
 		ExtraExtensions: []pkix.Extension{
-			{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: subjectDER},
+			// Use raw bytes to match production authority behavior.
+			{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: []byte(ownerID)},
 		},
 	}
 	clientDER, _ := x509.CreateCertificate(rand.Reader, clientTmpl, caCert, &clientKey.PublicKey, caPriv)
@@ -177,24 +177,23 @@ func createTestAgentCertFiles(t *testing.T, sponsorEmail, sponsorID, agentName, 
 	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
 
-	// Generate agent client cert
+	// Generate agent client cert.
+	// Use raw bytes (not DER-encoded ASN.1) to match production authority behavior.
+	// This exercises the raw-byte fallback path in extractExtValue().
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate client key: %v", err)
 	}
 	now := time.Now()
-	subjectDER, _ := asn1.Marshal(sponsorID)
-	agentDER, _ := asn1.Marshal(agentName)
-	scopeDER, _ := asn1.Marshal(scope)
 
 	cn := "agent:" + agentName
 	extensions := []pkix.Extension{
-		{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: subjectDER},
-		{Id: asn1.ObjectIdentifier(sigid.OIDAgentName), Value: agentDER},
+		{Id: asn1.ObjectIdentifier(sigid.OIDSubject), Value: []byte(sponsorID)},
+		{Id: asn1.ObjectIdentifier(sigid.OIDAgentName), Value: []byte(agentName)},
 	}
 	if scope != "" {
 		extensions = append(extensions, pkix.Extension{
-			Id: asn1.ObjectIdentifier(sigid.OIDScope), Value: scopeDER,
+			Id: asn1.ObjectIdentifier(sigid.OIDScope), Value: []byte(scope),
 		})
 	}
 

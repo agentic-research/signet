@@ -41,13 +41,14 @@ var (
 	OIDIssuanceTime = []int{1, 3, 6, 1, 4, 1, 99999, 1, 2}
 
 	// OIDAgentName identifies this cert as belonging to an agent (not a human).
-	// Value is a UTF8String like "dev-agent" or "staging-agent".
-	// When absent, the cert represents a human identity.
+	// Value is raw UTF-8 bytes (Go authority) or DER-encoded UTF8String (edge/rig).
+	// Consumers must accept both encodings. When absent, the cert represents a human identity.
 	OIDAgentName = []int{1, 3, 6, 1, 4, 1, 99999, 1, 3}
 
 	// OIDScope restricts what the agent is authorized to do.
-	// Value is a UTF8String like "repo:signet" or "repo:rosary,contents:write".
-	// When absent, the cert has no scope restriction (full access of the sponsor).
+	// Value is raw UTF-8 bytes (Go authority) or DER-encoded UTF8String (edge/rig).
+	// Consumers must accept both encodings. When absent, the cert has no scope
+	// restriction (full access of the sponsor).
 	OIDScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 4}
 )
 

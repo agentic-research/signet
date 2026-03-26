@@ -119,13 +119,17 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 // requestCertificateWithGitHub calls /api/cert/register with a GitHub PAT.
 // When agentName is non-empty, the server issues an agent-scoped certificate.
 func requestCertificateWithGitHub(endpoint, ghToken string, pubKeyPEM []byte, agentName, scope string) (*certResponse, error) {
+	if agentName == "" && scope != "" {
+		return nil, fmt.Errorf("--scope can only be used when --agent is set")
+	}
+
 	body := map[string]string{
 		"public_key": string(pubKeyPEM),
 	}
 	if agentName != "" {
 		body["agent_name"] = agentName
 	}
-	if scope != "" {
+	if agentName != "" && scope != "" {
 		body["scope"] = scope
 	}
 	return requestCertificateWithBody(endpoint+"/api/cert/register", ghToken, body)

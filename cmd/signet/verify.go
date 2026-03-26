@@ -171,12 +171,28 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	return result, nil
 }
 
-// extractExtValue tries ASN.1 UTF8String first, falls back to raw bytes.
+// maxExtensionValueLen bounds how much data we'll attempt to decode or print
+// from a certificate extension, to avoid terminal flooding on untrusted input.
+const maxExtensionValueLen = 4096
+
+// extractExtValue tries ASN.1 UTF8String first (only when the tag byte matches),
+// then falls back to interpreting raw bytes as a string. Rejects oversized values
+// and verifies DER was fully consumed to avoid misinterpreting raw bytes as ASN.1.
 func extractExtValue(raw []byte) string {
-	var s string
-	if _, err := asn1.Unmarshal(raw, &s); err == nil {
-		return s
+	if len(raw) == 0 || len(raw) > maxExtensionValueLen {
+		return ""
 	}
+
+	// Only attempt ASN.1 decode if the first byte is the UTF8String tag (0x0c).
+	// This avoids misinterpreting raw bytes that coincidentally parse as DER.
+	if raw[0] == 0x0c {
+		var s string
+		if rest, err := asn1.Unmarshal(raw, &s); err == nil && len(rest) == 0 {
+			return s
+		}
+	}
+
+	// Fallback: treat bounded raw bytes as a string (Go authority encoding).
 	return string(raw)
 }
 

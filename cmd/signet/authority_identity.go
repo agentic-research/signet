@@ -144,14 +144,12 @@ func (a *Authority) mintClientCertificateWithAgent(claims Claims, devicePublicKe
 		},
 	}
 
-	// Add agent-specific extensions
-	if agent != nil {
-		if agent.Name != "" {
-			extensions = append(extensions, pkix.Extension{
-				Id:    asn1.ObjectIdentifier(sigid.OIDAgentName),
-				Value: []byte(agent.Name),
-			})
-		}
+	// Add agent-specific extensions (scope requires a named agent)
+	if agent != nil && agent.Name != "" {
+		extensions = append(extensions, pkix.Extension{
+			Id:    asn1.ObjectIdentifier(sigid.OIDAgentName),
+			Value: []byte(agent.Name),
+		})
 		if agent.Scope != "" {
 			extensions = append(extensions, pkix.Extension{
 				Id:    asn1.ObjectIdentifier(sigid.OIDScope),
