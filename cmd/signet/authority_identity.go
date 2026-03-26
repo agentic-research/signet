@@ -87,10 +87,22 @@ type Claims struct {
 	Name    string `json:"name"`
 }
 
+// AgentIdentity holds optional agent-specific identity fields for cert minting.
+// When non-nil, the cert represents an agent rather than a human.
+type AgentIdentity struct {
+	Name  string // e.g. "dev-agent", "staging-agent"
+	Scope string // e.g. "repo:signet" or "repo:rosary,contents:write"
+}
+
 func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey crypto.PublicKey) ([]byte, error) {
+	return a.mintClientCertificateWithAgent(claims, devicePublicKey, nil)
+}
+
+func (a *Authority) mintClientCertificateWithAgent(claims Claims, devicePublicKey crypto.PublicKey, agent *AgentIdentity) ([]byte, error) {
 	a.logger.Info("Minting client certificate",
 		"email", claims.Email,
 		"subject", claims.Subject,
+		"agent", agent,
 	)
 
 	// Calculate certificate validity, capped to max
@@ -111,32 +123,58 @@ func (a *Authority) mintClientCertificate(claims Claims, devicePublicKey crypto.
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate serial number: %w", err)
 	}
+	// Determine CN and OU based on whether this is an agent or human cert
+	cn := claims.Email
+	ou := "Client Certificates"
+	if agent != nil && agent.Name != "" {
+		cn = fmt.Sprintf("agent:%s", agent.Name)
+		ou = "Agent Certificates"
+	}
+
+	extensions := []pkix.Extension{
+		{
+			// Signet Subject OID — canonical source: pkg/sigid/identity.go
+			Id:    asn1.ObjectIdentifier(sigid.OIDSubject),
+			Value: []byte(claims.Subject),
+		},
+		{
+			// Signet Issuance Time OID — canonical source: pkg/sigid/identity.go
+			Id:    asn1.ObjectIdentifier(sigid.OIDIssuanceTime),
+			Value: []byte(notBefore.Format(time.RFC3339)),
+		},
+	}
+
+	// Add agent-specific extensions
+	if agent != nil {
+		if agent.Name != "" {
+			extensions = append(extensions, pkix.Extension{
+				Id:    asn1.ObjectIdentifier(sigid.OIDAgentName),
+				Value: []byte(agent.Name),
+			})
+		}
+		if agent.Scope != "" {
+			extensions = append(extensions, pkix.Extension{
+				Id:    asn1.ObjectIdentifier(sigid.OIDScope),
+				Value: []byte(agent.Scope),
+			})
+		}
+	}
+
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:         claims.Email,
+			CommonName:         cn,
 			Organization:       []string{"Signet Authority"},
-			OrganizationalUnit: []string{"Client Certificates"},
+			OrganizationalUnit: []string{ou},
 		},
-		NotBefore:      notBefore,
-		NotAfter:       notAfter,
-		KeyUsage:       x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		IsCA:           false,
-		MaxPathLen:     -1,
-		EmailAddresses: []string{claims.Email},
-		ExtraExtensions: []pkix.Extension{
-			{
-				// Signet Subject OID — canonical source: pkg/sigid/identity.go
-				Id:    asn1.ObjectIdentifier(sigid.OIDSubject),
-				Value: []byte(claims.Subject),
-			},
-			{
-				// Signet Issuance Time OID — canonical source: pkg/sigid/identity.go
-				Id:    asn1.ObjectIdentifier(sigid.OIDIssuanceTime),
-				Value: []byte(notBefore.Format(time.RFC3339)),
-			},
-		},
+		NotBefore:       notBefore,
+		NotAfter:        notAfter,
+		KeyUsage:        x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		IsCA:            false,
+		MaxPathLen:      -1,
+		EmailAddresses:  []string{claims.Email},
+		ExtraExtensions: extensions,
 	}
 
 	// Issue the certificate (SubjectKeyId computed by IssueClientCertificate from the public key)

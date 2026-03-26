@@ -14,6 +14,8 @@ var (
 	registerToken    string
 	registerEndpoint string
 	registerMCPURL   string
+	registerAgent    string
+	registerScope    string
 )
 
 var authRegisterCmd = &cobra.Command{
@@ -26,12 +28,15 @@ No browser required — designed for CI/CD environments and autonomous agents.
   2. Requests a signed client certificate via /api/cert/register
   3. Saves cert + key to ~/.signet/mcp/rosary/
   4. Configures Claude Code (if installed)`,
-	Example: `  # Register with a GitHub token
+	Example: `  # Register a human identity
   signet auth register --github-token ghp_xxx
+
+  # Register an agent with scoped identity
+  signet auth register --agent dev-agent --scope repo:signet
 
   # Register using GITHUB_TOKEN env var
   export GITHUB_TOKEN=ghp_xxx
-  signet auth register`,
+  signet auth register --agent staging-agent`,
 	RunE: runAuthRegister,
 }
 
@@ -40,6 +45,8 @@ func init() {
 	f.StringVar(&registerToken, "github-token", "", "GitHub personal access token (or set GITHUB_TOKEN env var)")
 	f.StringVar(&registerEndpoint, "endpoint", "https://rosary.bot", "Dashboard URL")
 	f.StringVar(&registerMCPURL, "mcp-url", "https://mcp.rosary.bot/mcp", "MCP endpoint URL")
+	f.StringVar(&registerAgent, "agent", "", "Agent name (e.g. dev-agent). When set, cert identifies an agent, not a human.")
+	f.StringVar(&registerScope, "scope", "", "Scope restriction (e.g. repo:signet). Limits what the agent is authorized to do.")
 
 	authCmd.AddCommand(authRegisterCmd)
 }
@@ -72,11 +79,17 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(os.Stderr, "%s Generated ECDSA P-256 keypair\n", styles.Success.Render("✓"))
 
 	// Request cert via /api/cert/register (GitHub token auth, no OAuth needed)
-	certResp, err := requestCertificateWithGitHub(registerEndpoint, token, pubPEM)
+	certResp, err := requestCertificateWithGitHub(registerEndpoint, token, pubPEM, registerAgent, registerScope)
 	if err != nil {
 		return fmt.Errorf("certificate request failed: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "%s Certificate issued", styles.Success.Render("✓"))
+
+	if registerAgent != "" {
+		fmt.Fprintf(os.Stderr, "%s Agent certificate issued for %s",
+			styles.Success.Render("✓"), styles.Code.Render(registerAgent))
+	} else {
+		fmt.Fprintf(os.Stderr, "%s Certificate issued", styles.Success.Render("✓"))
+	}
 	if certResp.expiresAtString() != "" {
 		fmt.Fprintf(os.Stderr, " (expires: %s)", certResp.expiresAtString())
 	}
@@ -104,6 +117,16 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 }
 
 // requestCertificateWithGitHub calls /api/cert/register with a GitHub PAT.
-func requestCertificateWithGitHub(endpoint, ghToken string, pubKeyPEM []byte) (*certResponse, error) {
-	return requestCertificate(endpoint+"/api/cert/register", ghToken, pubKeyPEM)
+// When agentName is non-empty, the server issues an agent-scoped certificate.
+func requestCertificateWithGitHub(endpoint, ghToken string, pubKeyPEM []byte, agentName, scope string) (*certResponse, error) {
+	body := map[string]string{
+		"public_key": string(pubKeyPEM),
+	}
+	if agentName != "" {
+		body["agent_name"] = agentName
+	}
+	if scope != "" {
+		body["scope"] = scope
+	}
+	return requestCertificateWithBody(endpoint+"/api/cert/register", ghToken, body)
 }

@@ -42,7 +42,9 @@ func init() {
 type VerifyResult struct {
 	Valid     bool
 	Subject   string // CN
-	Owner     string // OID 99999.1.1
+	Owner     string // OID 99999.1.1 (sponsor identity)
+	Agent     string // OID 99999.1.3 (agent name, empty for human certs)
+	Scope     string // OID 99999.1.4 (scope restriction, empty if unrestricted)
 	Issuer    string // Issuer CN
 	KeyType   string // "ECDSA P-256", "Ed25519", etc.
 	NotBefore time.Time
@@ -78,8 +80,14 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "  Subject:   %s\n", styles.Code.Render(result.Subject))
+	if result.Agent != "" {
+		fmt.Fprintf(os.Stderr, "  Agent:     %s\n", styles.Code.Render(result.Agent))
+	}
+	if result.Scope != "" {
+		fmt.Fprintf(os.Stderr, "  Scope:     %s\n", styles.Code.Render(result.Scope))
+	}
 	if result.Owner != "" {
-		fmt.Fprintf(os.Stderr, "  Owner:     %s\n", styles.Code.Render(result.Owner))
+		fmt.Fprintf(os.Stderr, "  Sponsor:   %s\n", styles.Code.Render(result.Owner))
 	}
 	fmt.Fprintf(os.Stderr, "  Issuer:    %s\n", styles.Code.Render(result.Issuer))
 	fmt.Fprintf(os.Stderr, "  Key:       %s\n", styles.Code.Render(result.KeyType))
@@ -131,16 +139,19 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 		KeyType:   keyTypeName(cert),
 	}
 
-	// Extract owner from OID extension
+	// Extract signet identity extensions from cert
 	oidSubject := asn1.ObjectIdentifier(sigid.OIDSubject)
+	oidAgent := asn1.ObjectIdentifier(sigid.OIDAgentName)
+	oidScope := asn1.ObjectIdentifier(sigid.OIDScope)
 	for _, ext := range cert.Extensions {
-		if ext.Id.Equal(oidSubject) {
-			var s string
-			if _, err := asn1.Unmarshal(ext.Value, &s); err == nil {
-				result.Owner = s
-			} else {
-				result.Owner = string(ext.Value)
-			}
+		val := extractExtValue(ext.Value)
+		switch {
+		case ext.Id.Equal(oidSubject):
+			result.Owner = val
+		case ext.Id.Equal(oidAgent):
+			result.Agent = val
+		case ext.Id.Equal(oidScope):
+			result.Scope = val
 		}
 	}
 
@@ -158,6 +169,15 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	result.Valid = true
 	result.Remaining = time.Until(cert.NotAfter)
 	return result, nil
+}
+
+// extractExtValue tries ASN.1 UTF8String first, falls back to raw bytes.
+func extractExtValue(raw []byte) string {
+	var s string
+	if _, err := asn1.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return string(raw)
 }
 
 func keyTypeName(cert *x509.Certificate) string {

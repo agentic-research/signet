@@ -39,6 +39,16 @@ var (
 
 	// OIDIssuanceTime is the RFC3339 issuance timestamp
 	OIDIssuanceTime = []int{1, 3, 6, 1, 4, 1, 99999, 1, 2}
+
+	// OIDAgentName identifies this cert as belonging to an agent (not a human).
+	// Value is a UTF8String like "dev-agent" or "staging-agent".
+	// When absent, the cert represents a human identity.
+	OIDAgentName = []int{1, 3, 6, 1, 4, 1, 99999, 1, 3}
+
+	// OIDScope restricts what the agent is authorized to do.
+	// Value is a UTF8String like "repo:signet" or "repo:rosary,contents:write".
+	// When absent, the cert has no scope restriction (full access of the sponsor).
+	OIDScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 4}
 )
 
 // CertIdentityProvider extracts identity context from X.509 bridge certificates.
