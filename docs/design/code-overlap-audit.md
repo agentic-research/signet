@@ -95,19 +95,21 @@ Per ADR-011:
 
 ---
 
-### pkg/policy/ — SIGPOL (move)
+### pkg/policy/ — SIGPOL (in place)
 
-| Path | Owner | Recommended Location | Reason |
-|------|-------|---------------------|--------|
-| `pkg/policy/evaluator.go` | sigpol | `sigpol: pkg/policy/` | Policy evaluation is the core sigpol concern. `PolicyEvaluator` interface and `StaticPolicyEvaluator` are the authorization decision point. |
+| Path | Owner | Purpose |
+|------|-------|---------|
+| `pkg/policy/evaluator.go` | sigpol | `PolicyEvaluator` interface, `StaticPolicyEvaluator` |
+| `pkg/policy/bundle.go` | sigpol | `TrustPolicyBundle` — signed CBOR bundles with rollback protection |
+| `pkg/policy/checker.go` | sigpol | `PolicyChecker` — verifies subjects against current bundle (parallel to `cabundle.BundleCache`) |
+| `pkg/policy/compiler.go` | sigpol | `Compiler` — compiles policy rules into signed bundles |
+| `pkg/policy/cell.go` | sigpol | `SignetAuthCell`, `PolicyStatement` — hierarchical IAM (moved from `pkg/sigid/` in PR #106) |
 
-**Why sigpol**: `evaluator.go` answers "is this subject allowed?" and "what capabilities do they get?" — pure policy.
+**Status**: ADR-011 expansion is complete. Bundle/checker/compiler shipped. SCIM endpoints not yet implemented.
 
 **Dependencies**:
-- Imports: stdlib only. No signet-internal deps.
-- Imported by: `cmd/signet/authority.go`, `cmd/signet/authority_oidc_test.go`.
-
-**ADR-011 expansion**: This package will grow to include `bundle.go`, `checker.go`, `cache.go`, `compiler.go` per ADR-011 section 6.
+- Imports: stdlib + `golang.org/x/sync/singleflight`, `pkg/revocation/types` (shared `Storage` interface).
+- Imported by: `cmd/signet/authority.go`, `cmd/signet/authority_oidc_test.go`, `pkg/sigid/token_ext.go`, `pkg/sigid/providers/cell/`.
 
 ---
 

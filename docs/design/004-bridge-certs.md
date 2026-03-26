@@ -1,8 +1,20 @@
 # Bridge Certificates for Federated Identity
 
-**Status:** Draft
+**Status:** Partially Implemented
 
-**Date:** 2025-10-03
+**Date:** 2025-10-03 (updated 2026-03-25)
+
+> **Implementation note:** The current bridge cert implementation (`cmd/signet/authority_identity.go`,
+> `pkg/attest/x509/`) uses simpler X.509 extensions (`OIDSubject`, `OIDIssuanceTime`) rather than
+> the full `SignetCapabilityAttestation` ASN.1 structure described below. The deployed bridge certs
+> at `auth.rosary.bot` carry the user's email as CN, Clerk subject ID in an extension, and are used
+> for MCP client authentication (24-hour TTL). The selective-disclosure / ephemeral-session model
+> described in this ADR is the target design, not the current implementation.
+>
+> **Terminology note:** "Bridge certificate" is used in two contexts in this codebase:
+> (1) here — ephemeral, selective-disclosure identity certs (ADR-004 design target);
+> (2) in `006-revocation.md` and `integration-seams.md` — MCP client identity certs (current implementation).
+> Both share the same CA and issuance path. The distinction is in TTL and purpose.
 
 **Authors:** James Gardner
 
@@ -57,9 +69,13 @@ Implement **bridge certificates** - ephemeral, single-use X.509 certificates tha
 #### X.509 Extension (Critical)
 
 ```asn1
+-- NOTE: Production code uses the private-use arc 1.3.6.1.4.1.99999.1.*
+-- This is a placeholder. A PEN (Private Enterprise Number) registration
+-- with IANA is needed before public release. See: integration-seams.md
+-- for the full cross-repo OID usage audit.
 id-signet-capability-attestation OBJECT IDENTIFIER ::=
   { iso(1) identified-organization(3) dod(6) internet(1)
-    private(4) enterprise(1) signet(TBD) 1 }
+    private(4) enterprise(1) 99999 1 }
 
 SignetCapabilityAttestation ::= SEQUENCE {
   version      INTEGER DEFAULT 1,
