@@ -311,13 +311,17 @@ func TestSecureValue_DestroyDuringConcurrentUse(t *testing.T) {
 
 	// Destroy while Use() operations may be in progress
 	// This should wait for all Use() to complete before zeroizing
+	var destroyDone sync.WaitGroup
+	destroyDone.Add(1)
 	go func() {
+		defer destroyDone.Done()
 		secure.Destroy()
 	}()
 
-	wg.Wait()
+	wg.Wait()          // Wait for all Use() goroutines
+	destroyDone.Wait() // Wait for Destroy() to fully complete
 
-	// After all goroutines complete, should be destroyed
+	// After all goroutines AND Destroy complete, should be destroyed
 	if !secure.IsDestroyed() {
 		t.Error("Expected SecureValue to be destroyed")
 	}
