@@ -43,8 +43,8 @@ type VerifyResult struct {
 	Valid     bool
 	Subject   string // CN
 	Owner     string // OID 99999.1.1 (sponsor identity)
-	Agent     string // OID 99999.1.3 (agent name, empty for human certs)
-	Scope     string // OID 99999.1.4 (scope restriction, empty if unrestricted)
+	Agent     string // OID 99999.1.5 (agent name, empty for human certs)
+	Scope     string // OID 99999.1.6 (scope restriction, empty if unrestricted)
 	Issuer    string // Issuer CN
 	KeyType   string // "ECDSA P-256", "Ed25519", etc.
 	NotBefore time.Time

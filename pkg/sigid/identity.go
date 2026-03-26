@@ -43,13 +43,16 @@ var (
 	// OIDAgentName identifies this cert as belonging to an agent (not a human).
 	// Value is raw UTF-8 bytes (Go authority) or DER-encoded UTF8String (edge/rig).
 	// Consumers must accept both encodings. When absent, the cert represents a human identity.
-	OIDAgentName = []int{1, 3, 6, 1, 4, 1, 99999, 1, 3}
+	//
+	// NOTE: .1.3 is reserved by OIDSignetCapabilities (pkg/attest/x509/bridge.go)
+	// for bridge cert capability attestation. Agent OIDs start at .1.5.
+	OIDAgentName = []int{1, 3, 6, 1, 4, 1, 99999, 1, 5}
 
 	// OIDScope restricts what the agent is authorized to do.
 	// Value is raw UTF-8 bytes (Go authority) or DER-encoded UTF8String (edge/rig).
 	// Consumers must accept both encodings. When absent, the cert has no scope
 	// restriction (full access of the sponsor).
-	OIDScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 4}
+	OIDScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 6}
 )
 
 // CertIdentityProvider extracts identity context from X.509 bridge certificates.

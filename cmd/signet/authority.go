@@ -187,6 +187,11 @@ func runAuthority(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/.well-known/ca-bundle.pem", handleCABundle(authority))
 	mux.HandleFunc("/", server.handleLanding)
 
+	// GitHub PAT registration endpoint (always-on, for headless agent onboarding)
+	registerHandler := rateLimitMiddleware(limiter, logger, proxyHeader, http.HandlerFunc(server.handleRegister))
+	mux.Handle("/api/cert/register", registerHandler)
+	fmt.Println(styles.Info.Render("→") + " Agent registration enabled at /api/cert/register")
+
 	// OIDC token exchange endpoint (for CI/CD platforms)
 	if authority.providerRegistry != nil {
 		exchangeHandler := rateLimitMiddleware(limiter, logger, proxyHeader, http.HandlerFunc(server.handleExchangeToken))
