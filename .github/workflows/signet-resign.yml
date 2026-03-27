@@ -15,33 +15,47 @@ on:
   pull_request_review:
     types: [submitted]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to re-sign (required for manual trigger)'
+        required: false
+        type: string
 
 # Only one re-sign at a time for the same PR
 concurrency:
-  group: signet-resign-${{ github.event.pull_request.number || 'manual' }}
+  group: signet-resign-${{ github.event.pull_request.number || github.event.inputs.pr_number || 'manual' }}
   cancel-in-progress: false
 
 permissions:
   id-token: write
   contents: write
-  pull-requests: write
 
 jobs:
   resign:
     name: Re-sign approved PR
     runs-on: ubuntu-latest
 
-    # Only run if approval is submitted and re-signing is enabled
+    # Only run if:
+    # 1. Approval is submitted (or manual trigger)
+    # 2. Re-signing is enabled via variable
+    # 3. PR is NOT from a fork (GITHUB_TOKEN cannot push to forks)
     if: |
       (github.event.review.state == 'approved' || github.event_name == 'workflow_dispatch') &&
-      vars.SIGNET_RESIGN_ENABLED == 'true'
+      vars.SIGNET_RESIGN_ENABLED == 'true' &&
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch')
 
     steps:
+      - name: Validate Manual Trigger
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number == ''
+        run: |
+          echo "::error::PR number is required for manual trigger"
+          exit 1
+
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
           # Use the head ref of the PR so we can push back to it
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.ref || format('refs/pull/{0}/head', github.event.inputs.pr_number) }}
           fetch-depth: 0 # Full history needed for amend
 
       - name: Setup Go
@@ -54,6 +68,9 @@ jobs:
         uses: arduino/setup-task@v2
         with:
           version: 3.x
+
+      - name: Run Tests
+        run: task test
 
       - name: Build signet
         run: task build
@@ -83,7 +100,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/signet-resign
 
-          # Authority config — uses the same master key as signet-git.
+          # Authority config
           cat > /tmp/signet-resign/config.json << EOF
           {
             "oidc_provider_url": "https://token.actions.githubusercontent.com",
@@ -146,11 +163,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Check if the commit is already signed by Signet (avoid loops/redundancy)
-          # We check the signature type in the CMS/PKCS#7 blob (Simplified for demo)
-          if git log -1 --format='%G?' | grep -q 'U'; then
-            echo "Commit is already signed with a valid signature"
-            # Optional: Add check for Signet OID/Issuer to be even more precise
+          # Check if the commit is already signed by a valid/trusted identity.
+          # Any of G/U/X/Y/R indicates a present valid signature that we should not duplicate.
+          if git log -1 --format='%G?' | grep -qE '[GUXYR]'; then
+            echo "Commit is already signed with a valid signature; skipping re-sign."
+            exit 0
           fi
 
           # Configure git to use signet-git for signing
@@ -183,8 +200,25 @@ jobs:
         run: |
           set -euo pipefail
           
+          # Guard against empty ref (workflow_dispatch safety)
+          REF="${{ github.event.pull_request.head.ref }}"
+          if [ -z "$REF" ]; then
+            # Attempt to resolve ref from PR number if manual
+            PR_NUM="${{ github.event.inputs.pr_number }}"
+            if [ -n "$PR_NUM" ]; then
+               REF=$(gh pr view "$PR_NUM" --json headRefName -q .headRefName)
+            fi
+          fi
+
+          if [ -z "$REF" ]; then
+            echo "::error::Could not determine PR head ref for push"
+            exit 1
+          fi
+
           # Force-push back to the PR head branch.
           # This is safe because it's a feature branch and approval was granted.
-          git push --force-with-lease origin ${{ github.event.pull_request.head.ref }}
+          git push --force-with-lease origin "HEAD:refs/heads/$REF"
 
-          echo "Re-signed commit pushed to ${{ github.event.pull_request.head.ref }}"
+          echo "Re-signed commit pushed to $REF"
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -18,17 +18,17 @@ const (
 // Config holds the configuration for Signet CLI
 type Config struct {
 	// Home is the path to the .signet directory
-	Home string
+	Home string `json:"home"`
 
 	// IssuerDID is the DID of the signer
-	IssuerDID string
+	IssuerDID string `json:"issuer_did"`
 
 	// CertificateValidityMinutes is the duration for ephemeral certificates
-	CertificateValidityMinutes int
+	CertificateValidityMinutes int `json:"certificate_validity_minutes"`
 
 	// Algorithm is the signing algorithm to use (default: "ed25519").
 	// Supported values: "ed25519", "ml-dsa-44".
-	Algorithm string
+	Algorithm string `json:"algorithm"`
 
 	// AuthEndpoint is the OIDC/Dashboard URL for MCP authentication
 	AuthEndpoint string `json:"auth_endpoint"`
@@ -52,7 +52,12 @@ func Default() *Config {
 func Load() (*Config, error) {
 	cfg := Default()
 
-	// 1. Try to load from file first
+	// 1. Override home with environment variable first (if set)
+	if home := os.Getenv("SIGNET_HOME"); home != "" {
+		cfg.Home = home
+	}
+
+	// 2. Try to load from file
 	configPath := filepath.Join(cfg.Home, "config.json")
 	if data, err := os.ReadFile(configPath); err == nil {
 		var fileCfg Config
@@ -76,11 +81,7 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// 2. Override with environment variables if set
-	if home := os.Getenv("SIGNET_HOME"); home != "" {
-		cfg.Home = home
-	}
-
+	// 3. Final environment variable overrides
 	if did := os.Getenv("SIGNET_DID"); did != "" {
 		cfg.IssuerDID = did
 	}
