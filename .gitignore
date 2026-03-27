@@ -106,3 +106,4 @@ rs/target/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+.gemini/docs/archive/
