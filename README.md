@@ -311,6 +311,7 @@ make fmt lint
 ## Documentation
 
 - **[Architecture](ARCHITECTURE.md)** - Design decisions and technical rationale
+- **[Agent Provenance Standard (APAS)](docs/apas/agent-provenance-standard.md)** - Research and specifications for AI agent identity
 - **[Design Docs](docs/design/)** - ADRs and design documents
 - **[Contributing](CONTRIBUTING.md)** - How to contribute effectively
 - **[Performance](docs/PERFORMANCE.md)** - Benchmarks and analysis
