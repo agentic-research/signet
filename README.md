@@ -392,10 +392,10 @@ graph TD
     Signet{"Signet: Proof-of-Possession"}:::signet
 
     Signet --> F1["Agent Identity Model<br/>(separate from human)"]:::feature
-    Signet --> F2["5-Min Ephemeral Certs<br/>(no renewal, just expire)"]:::feature
-    Signet --> F3["Offline-first Local CA<br/>(you control revocation)"]:::feature
+    Signet --> F2["5-minute Ephemeral Certs<br/>(no renewal, just expire)"]:::feature
+    Signet --> F3["Offline-first Local CA<br/>(epoch-based rotation, no CRL/OCSP)"]:::feature
 
-    F1 & F2 & F3 --> End((Stolen Cert = Useless)):::signet
+    F1 & F2 & F3 --> End((Stolen Cert = Useless Without Key<br/>Stolen Key = 5 Minutes Max)):::signet
 ```
 
 **Solution:** Cryptographic proof-of-possession. Every request proves knowledge of a private key without revealing it. Tokens can't be stolen and replayed.
