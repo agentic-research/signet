@@ -107,3 +107,4 @@ rs/target/
 .dolt/
 *.db
 .gemini/docs/archive/
+/signet-agent
