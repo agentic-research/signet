@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-draft
 **Status**: Draft
-**Authors**: James Gardner, Claude (synthesis of 4-agent research team)
+**Authors**: Agentic Research
 **Date**: 2026-03-25
 
 > **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today

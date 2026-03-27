@@ -15,11 +15,16 @@ Stable design documents explaining technical choices and architecture:
 - `007-http-pop.md` - HTTP proof-of-possession
 
 ### [`implementation/`](./implementation/)
-Work-in-progress feature implementation guides:
+Historical and work-in-progress feature implementation guides (may be partially outdated):
 - `revocation-sequence.md` - Step-by-step revocation implementation
 - `revocation-interface.md` - Revocation API design
 
 These documents are living artifacts used during development and may become less relevant after feature completion.
+
+### [`apas/`](./apas/)
+Agent Provenance Standard (APAS) research and specifications:
+- `agent-provenance-standard.md` - Core APAS specification
+- `research.md` - Research notes and background
 
 ### Root Documentation
 - `problem-statement.md` - Why Signet exists, the problem it solves
@@ -28,7 +33,6 @@ These documents are living artifacts used during development and may become less
 ## Finding What You Need
 
 - **Understanding the project**: Start with [`../README.md`](../README.md) and `problem-statement.md`
-- **Current status**: See [`../DEVELOPMENT_ROADMAP.md`](../DEVELOPMENT_ROADMAP.md)
 - **Technical details**: Explore `design/` docs
 - **Contributing**: See [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Architecture overview**: See [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
