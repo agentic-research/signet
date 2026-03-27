@@ -66,7 +66,9 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 	needsSave := false
 	if registerEndpoint == "" {
 		fmt.Printf("%s Enter Signet Dashboard URL: ", styles.Info.Render("?"))
-		fmt.Scanln(&registerEndpoint)
+		if _, err := fmt.Scanln(&registerEndpoint); err != nil {
+			return fmt.Errorf("failed to read dashboard URL: %w", err)
+		}
 		if registerEndpoint == "" {
 			return fmt.Errorf("dashboard URL is required")
 		}
@@ -76,7 +78,9 @@ func runAuthRegister(cmd *cobra.Command, _ []string) error {
 
 	if registerMCPURL == "" {
 		fmt.Printf("%s Enter MCP Endpoint URL: ", styles.Info.Render("?"))
-		fmt.Scanln(&registerMCPURL)
+		if _, err := fmt.Scanln(&registerMCPURL); err != nil {
+			return fmt.Errorf("failed to read MCP URL: %w", err)
+		}
 		if registerMCPURL == "" {
 			return fmt.Errorf("MCP URL is required")
 		}

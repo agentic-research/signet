@@ -135,7 +135,9 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	needsSave := false
 	if authEndpoint == "" {
 		fmt.Printf("%s Enter Signet Dashboard URL: ", styles.Info.Render("?"))
-		fmt.Scanln(&authEndpoint)
+		if _, err := fmt.Scanln(&authEndpoint); err != nil {
+			return fmt.Errorf("failed to read dashboard URL: %w", err)
+		}
 		if authEndpoint == "" {
 			return fmt.Errorf("dashboard URL is required")
 		}
@@ -145,7 +147,9 @@ func runAuthLogin(cmd *cobra.Command, _ []string) error {
 
 	if authMCPURL == "" {
 		fmt.Printf("%s Enter MCP Endpoint URL: ", styles.Info.Render("?"))
-		fmt.Scanln(&authMCPURL)
+		if _, err := fmt.Scanln(&authMCPURL); err != nil {
+			return fmt.Errorf("failed to read MCP URL: %w", err)
+		}
 		if authMCPURL == "" {
 			return fmt.Errorf("MCP URL is required")
 		}

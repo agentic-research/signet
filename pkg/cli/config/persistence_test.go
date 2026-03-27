@@ -26,8 +26,7 @@ func TestConfigPersistence(t *testing.T) {
 		}
 
 		// Load in a fresh environment
-		os.Setenv("SIGNET_HOME", tempHome)
-		defer os.Unsetenv("SIGNET_HOME")
+		t.Setenv("SIGNET_HOME", tempHome)
 
 		loaded, err := Load()
 		if err != nil {
@@ -52,10 +51,8 @@ func TestConfigPersistence(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		os.Setenv("SIGNET_HOME", tempHome)
-		os.Setenv("SIGNET_AUTH_ENDPOINT", "http://env-endpoint")
-		defer os.Unsetenv("SIGNET_HOME")
-		defer os.Unsetenv("SIGNET_AUTH_ENDPOINT")
+		t.Setenv("SIGNET_HOME", tempHome)
+		t.Setenv("SIGNET_AUTH_ENDPOINT", "http://env-endpoint")
 
 		loaded, err := Load()
 		if err != nil {
