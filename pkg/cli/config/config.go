@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -28,6 +29,12 @@ type Config struct {
 	// Algorithm is the signing algorithm to use (default: "ed25519").
 	// Supported values: "ed25519", "ml-dsa-44".
 	Algorithm string
+
+	// AuthEndpoint is the OIDC/Dashboard URL for MCP authentication
+	AuthEndpoint string `json:"auth_endpoint"`
+
+	// MCPURL is the MCP endpoint URL
+	MCPURL string `json:"mcp_url"`
 }
 
 // Default returns the default configuration
@@ -40,12 +47,36 @@ func Default() *Config {
 	}
 }
 
-// Load loads configuration from environment variables and defaults
-// Priority: env vars > defaults
+// Load loads configuration from environment variables, config file, and defaults
+// Priority: env vars > config file > defaults
 func Load() (*Config, error) {
 	cfg := Default()
 
-	// Override with environment variables if set
+	// 1. Try to load from file first
+	configPath := filepath.Join(cfg.Home, "config.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var fileCfg Config
+		if err := json.Unmarshal(data, &fileCfg); err == nil {
+			// Merge fields from file if they are set
+			if fileCfg.IssuerDID != "" {
+				cfg.IssuerDID = fileCfg.IssuerDID
+			}
+			if fileCfg.CertificateValidityMinutes > 0 {
+				cfg.CertificateValidityMinutes = fileCfg.CertificateValidityMinutes
+			}
+			if fileCfg.Algorithm != "" {
+				cfg.Algorithm = fileCfg.Algorithm
+			}
+			if fileCfg.AuthEndpoint != "" {
+				cfg.AuthEndpoint = fileCfg.AuthEndpoint
+			}
+			if fileCfg.MCPURL != "" {
+				cfg.MCPURL = fileCfg.MCPURL
+			}
+		}
+	}
+
+	// 2. Override with environment variables if set
 	if home := os.Getenv("SIGNET_HOME"); home != "" {
 		cfg.Home = home
 	}
@@ -58,7 +89,34 @@ func Load() (*Config, error) {
 		cfg.Algorithm = alg
 	}
 
+	if endpoint := os.Getenv("SIGNET_AUTH_ENDPOINT"); endpoint != "" {
+		cfg.AuthEndpoint = endpoint
+	}
+
+	if mcp := os.Getenv("SIGNET_MCP_URL"); mcp != "" {
+		cfg.MCPURL = mcp
+	}
+
 	return cfg, nil
+}
+
+// Save persists the current configuration to the home directory
+func (c *Config) Save() error {
+	if err := c.EnsureHome(); err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(c.Home, "config.json")
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
 }
 
 // GetDefaultHome returns the default path for the .signet directory

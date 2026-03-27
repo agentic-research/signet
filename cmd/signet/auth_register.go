@@ -43,8 +43,8 @@ No browser required — designed for CI/CD environments and autonomous agents.
 func init() {
 	f := authRegisterCmd.Flags()
 	f.StringVar(&registerToken, "github-token", "", "GitHub personal access token (or set GITHUB_TOKEN env var)")
-	f.StringVar(&registerEndpoint, "endpoint", "https://rosary.bot", "Dashboard URL")
-	f.StringVar(&registerMCPURL, "mcp-url", "https://mcp.rosary.bot/mcp", "MCP endpoint URL")
+	f.StringVar(&registerEndpoint, "endpoint", "", "Dashboard URL (defaults to config)")
+	f.StringVar(&registerMCPURL, "mcp-url", "", "MCP endpoint URL (defaults to config)")
 	f.StringVar(&registerAgent, "agent", "", "Agent name (e.g. dev-agent). When set, cert identifies an agent, not a human.")
 	f.StringVar(&registerScope, "scope", "", "Scope restriction (e.g. repo:signet). Limits what the agent is authorized to do.")
 
@@ -54,6 +54,43 @@ func init() {
 func runAuthRegister(cmd *cobra.Command, _ []string) error {
 	cfg := getConfig()
 	fmt.Fprintln(os.Stderr)
+
+	// Step 0: Ensure Endpoint and MCP URL are defined (Prompt if not)
+	if registerEndpoint == "" {
+		registerEndpoint = cfg.AuthEndpoint
+	}
+	if registerMCPURL == "" {
+		registerMCPURL = cfg.MCPURL
+	}
+
+	needsSave := false
+	if registerEndpoint == "" {
+		fmt.Printf("%s Enter Signet Dashboard URL: ", styles.Info.Render("?"))
+		fmt.Scanln(&registerEndpoint)
+		if registerEndpoint == "" {
+			return fmt.Errorf("dashboard URL is required")
+		}
+		cfg.AuthEndpoint = registerEndpoint
+		needsSave = true
+	}
+
+	if registerMCPURL == "" {
+		fmt.Printf("%s Enter MCP Endpoint URL: ", styles.Info.Render("?"))
+		fmt.Scanln(&registerMCPURL)
+		if registerMCPURL == "" {
+			return fmt.Errorf("MCP URL is required")
+		}
+		cfg.MCPURL = registerMCPURL
+		needsSave = true
+	}
+
+	if needsSave {
+		if err := cfg.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Warning: failed to save config: %v\n", styles.Warning.Render("⚠"), err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s Configuration saved to %s\n", styles.Success.Render("✓"), filepath.Join(cfg.Home, "config.json"))
+		}
+	}
 
 	// Resolve token
 	token := registerToken
