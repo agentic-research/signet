@@ -54,8 +54,9 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          # Use the head ref of the PR so we can push back to it
-          ref: ${{ github.event.pull_request.head.ref || format('refs/pull/{0}/head', github.event.inputs.pr_number) }}
+          # Use the specific SHA that was approved/triggered to ensure we sign the exact code reviewed.
+          # Fallback to manual PR head ref for workflow_dispatch.
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.inputs.pr_number) }}
           fetch-depth: 0 # Full history needed for amend
 
       - name: Setup Go
@@ -200,6 +201,13 @@ jobs:
         run: |
           set -euo pipefail
           
+          # Resolve original SHA for lease check
+          EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$EXPECTED_SHA" ]; then
+            # Fallback for manual trigger: use the current checkout (head of PR)
+            EXPECTED_SHA=$(git rev-parse HEAD^)
+          fi
+
           # Guard against empty ref (workflow_dispatch safety)
           REF="${{ github.event.pull_request.head.ref }}"
           if [ -z "$REF" ]; then
@@ -226,10 +234,12 @@ jobs:
             exit 1
           fi
 
-          # Force-push back to the PR head branch.
-          # This is safe because it's a feature branch and approval was granted.
-          git push --force-with-lease origin "HEAD:refs/heads/$REF"
+          echo "Pushing re-signed commit to $REF (leasing $EXPECTED_SHA)..."
 
-          echo "Re-signed commit pushed to $REF"
+          # Force-push back to the PR head branch with a lease on the approved SHA.
+          # This ensures we don't overwrite any new commits pushed since approval.
+          git push --force-with-lease="refs/heads/$REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$REF"
+
+          echo "Re-signed commit successfully pushed to $REF"
         env:
           GH_TOKEN: ${{ github.token }}
