@@ -33,18 +33,25 @@ BenchmarkIsRevoked/CacheHit     35.6 µs/op     666 B/op      8 allocs
 BenchmarkIsRevokedParallel       3.8 µs/op     692 B/op     10 allocs
 ```
 
-### Total Time Breakdown
+### Cryptographic Operations (In-Memory)
 
-For a complete Git commit signing operation:
+The table below breaks down the time spent on the hot path for a single signing operation (excluding one-time setup costs like key loading).
 
 | Operation | Time | Percentage |
 |-----------|------|------------|
-| Load master key from disk | ~1-2ms | 1% |
 | Generate ephemeral keypair | ~12.6µs | 10% |
-| Create X.509 certificate | ~83.3µs | 68% |
+| Create X.509 certificate | ~83.3µs | 67% |
 | Create CMS signature | ~27.4µs | 22% |
-| PEM encoding | ~1µs | <1% |
-| **Total** | **~125µs** | **100%** |
+| PEM encoding | ~1µs | 1% |
+| **Total (Crypto)** | **~125µs** | **100%** |
+
+### One-Time Setup Overhead
+
+In addition to the cryptographic operations, a complete command execution includes one-time initialization:
+- **Load master key from disk/keyring**: ~1-2ms (depending on hardware and storage backend)
+- **Process startup (Go runtime)**: ~10-15ms
+
+While the cryptographic operations are sub-millisecond (~0.12ms), the total wall-clock time for a CLI command is dominated by disk I/O and process initialization. Even including this overhead, Signet is significantly faster than GPG (~15-50ms).
 
 ## Analysis
 
