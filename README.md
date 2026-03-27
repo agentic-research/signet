@@ -350,7 +350,52 @@ We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for develop
 
 ## Why Signet?
 
-**Problem:** Bearer tokens (API keys, JWTs, OAuth tokens) are "steal-and-use" credentials. If an attacker gets your token, they are you.
+**Problem:** Bearer tokens (API keys, JWTs, OAuth tokens) are "steal-and-use" credentials. If an attacker gets your token, they are you. Every attempted fix leaves the core vulnerability intact:
+
+```mermaid
+graph TD
+    classDef rootProblem fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
+    classDef bandAid fill:#fff3e0,stroke:#ef6c00,stroke-width:1px,color:#000
+    classDef current fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#000
+    classDef signet fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef feature fill:#f1f8e9,stroke:#689f38,stroke-width:1px,color:#000
+    classDef bridge fill:#fce4ec,stroke:#ad1457,stroke-width:1px,color:#000
+
+    Root["The Bearer Token Problem<br/>(Possession = Identity)"]:::rootProblem
+
+    subgraph StatusQuo ["Attempted Fixes"]
+        TR["Token Rotation"]:::bandAid
+        mTLS["mTLS"]:::bandAid
+        ZT["Zero Trust"]:::bandAid
+        SPIFFE["SPIFFE / SPIRE"]:::bandAid
+    end
+
+    subgraph Current ["Current Best Practice"]
+        OIDC["OIDC Federation<br/>(ambient creds)"]:::current
+    end
+
+    Root --> TR & mTLS & ZT & SPIFFE
+    Root --> OIDC
+
+    TR -->|"Shorter window, same flaw"| Vuln
+    mTLS -->|"Secures the pipe, not the token"| Vuln
+    ZT -->|"Validates stolen tokens more frequently"| Vuln
+    SPIFFE -->|"Workload identity, not agent identity"| Vuln
+    OIDC -->|"No static secrets...<br/>but output is still bearer"| Vuln
+
+    Vuln(("Still Yields a Bearer Asset<br/>(Steal one, become the user)")):::rootProblem
+
+    Vuln --> Bridge["Requires moving from Possession to Proof"]:::bridge
+    Bridge --> Signet
+
+    Signet{"Signet: Proof-of-Possession"}:::signet
+
+    Signet --> F1["Agent Identity Model<br/>(separate from human)"]:::feature
+    Signet --> F2["5-Min Ephemeral Certs<br/>(no renewal, just expire)"]:::feature
+    Signet --> F3["Offline-first Local CA<br/>(you control revocation)"]:::feature
+
+    F1 & F2 & F3 --> End((Stolen Cert = Useless)):::signet
+```
 
 **Solution:** Cryptographic proof-of-possession. Every request proves knowledge of a private key without revealing it. Tokens can't be stolen and replayed.
 
