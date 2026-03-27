@@ -60,8 +60,8 @@ for MCP endpoint access. Opens a browser for authentication, then:
 
 func init() {
 	f := authLoginCmd.Flags()
-	f.StringVar(&authEndpoint, "endpoint", "https://rosary.bot", "Dashboard URL")
-	f.StringVar(&authMCPURL, "mcp-url", "https://mcp.rosary.bot/mcp", "MCP endpoint URL")
+	f.StringVar(&authEndpoint, "endpoint", "", "Dashboard URL (defaults to config)")
+	f.StringVar(&authMCPURL, "mcp-url", "", "MCP endpoint URL (defaults to config)")
 	f.BoolVar(&authNoBrowser, "no-browser", false, "Print auth URL instead of opening browser")
 	f.BoolVar(&authSkipConfig, "skip-configure", false, "Don't auto-configure Claude Code")
 
@@ -123,6 +123,47 @@ type tokenResponse struct {
 func runAuthLogin(cmd *cobra.Command, _ []string) error {
 	cfg := getConfig()
 	fmt.Fprintln(os.Stderr)
+
+	// Step 0: Ensure Endpoint and MCP URL are defined (Prompt if not)
+	if authEndpoint == "" {
+		authEndpoint = cfg.AuthEndpoint
+	}
+	if authMCPURL == "" {
+		authMCPURL = cfg.MCPURL
+	}
+
+	needsSave := false
+	if authEndpoint == "" {
+		fmt.Printf("%s Enter Signet Dashboard URL: ", styles.Info.Render("?"))
+		if _, err := fmt.Scanln(&authEndpoint); err != nil {
+			return fmt.Errorf("failed to read dashboard URL: %w", err)
+		}
+		if authEndpoint == "" {
+			return fmt.Errorf("dashboard URL is required")
+		}
+		cfg.AuthEndpoint = authEndpoint
+		needsSave = true
+	}
+
+	if authMCPURL == "" {
+		fmt.Printf("%s Enter MCP Endpoint URL: ", styles.Info.Render("?"))
+		if _, err := fmt.Scanln(&authMCPURL); err != nil {
+			return fmt.Errorf("failed to read MCP URL: %w", err)
+		}
+		if authMCPURL == "" {
+			return fmt.Errorf("MCP URL is required")
+		}
+		cfg.MCPURL = authMCPURL
+		needsSave = true
+	}
+
+	if needsSave {
+		if err := cfg.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Warning: failed to save config: %v\n", styles.Warning.Render("⚠"), err)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s Configuration saved to %s\n", styles.Success.Render("✓"), filepath.Join(cfg.Home, "config.json"))
+		}
+	}
 
 	// Check for existing cert — idempotent behavior
 	certDir := filepath.Join(cfg.Home, "mcp", "rosary")

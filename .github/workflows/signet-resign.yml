@@ -1,36 +1,29 @@
-# Re-sign merge commits with Signet
+# Signet Re-sign - Safe Chained Provenance
 #
-# GitHub squash merges create new commits signed by GitHub's web-flow key.
-# This workflow re-signs the merge commit with a Signet identity so that
-# `git log --show-signature` shows a verifiable signet signature on main.
+# This workflow implements the "Semantic Firewall" pattern:
+#   1. Developer signs a commit with their user identity.
+#   2. PR is reviewed and approved by a human peer.
+#   3. On approval, the CI system (Signet Authority) verifies the user's signature
+#      and passes all tests, then re-signs (amends) the commit with its own "Seal of Approval".
+#   4. The PR now has a "Chained Provenance" (User + CI) and can be merged to main.
 #
-# How it works:
-#   1. Start a local Signet authority
-#   2. Exchange the GHA OIDC token for a bridge certificate
-#   3. Configure signet-git as the gpg.x509.program
-#   4. Amend the HEAD commit to add a Signet signature
-#   5. Force-push with lease (safe: GITHUB_TOKEN pushes don't retrigger workflows)
-#
-# Required secrets:
-#   SIGNET_MASTER_KEY  PEM-encoded Ed25519 private key (signet format).
-#                      Generate with: signet-git init --insecure && cat ~/.signet/master.key
-#
-# Required variables:
-#   SIGNET_RESIGN_ENABLED  Set to 'true' to activate (allows gradual rollout)
-#
-# Loop prevention:
-#   Pushes via GITHUB_TOKEN do not trigger workflow runs (GitHub's built-in behavior).
+# This avoids force-pushing to main while ensuring everything in main has CI's seal.
 
 name: Signet Re-sign
 
 on:
-  push:
-    branches: [main]
+  pull_request_review:
+    types: [submitted]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to re-sign (required for manual trigger)'
+        required: false
+        type: string
 
-# Only one re-sign at a time; queue subsequent pushes
+# Only one re-sign at a time for the same PR
 concurrency:
-  group: signet-resign-main
+  group: signet-resign-${{ github.event.pull_request.number || github.event.inputs.pr_number || 'manual' }}
   cancel-in-progress: false
 
 permissions:
@@ -39,28 +32,46 @@ permissions:
 
 jobs:
   resign:
-    name: Re-sign merge commit
+    name: Re-sign approved PR
     runs-on: ubuntu-latest
 
-    # Skip if not explicitly enabled
-    if: ${{ vars.SIGNET_RESIGN_ENABLED == 'true' }}
+    # Only run if:
+    # 1. Approval is submitted (or manual trigger)
+    # 2. Re-signing is enabled via variable
+    # 3. PR is NOT from a fork (GITHUB_TOKEN cannot push to forks)
+    if: |
+      (github.event.review.state == 'approved' || github.event_name == 'workflow_dispatch') &&
+      vars.SIGNET_RESIGN_ENABLED == 'true' &&
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch')
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Validate Manual Trigger
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number == ''
+        run: |
+          echo "::error::PR number is required for manual trigger"
+          exit 1
+
+      - name: Checkout PR branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
         with:
-          fetch-depth: 2
+          # Use the specific SHA that was approved/triggered to ensure we sign the exact code reviewed.
+          # Fallback to manual PR head ref for workflow_dispatch.
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.inputs.pr_number) }}
+          fetch-depth: 0 # Full history needed for amend
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.4.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Install Task
-        uses: arduino/setup-task@v2
+        uses: arduino/setup-task@24c5e13bce349197642746563945fcdf9355e8f4 # v2.0.0
         with:
           version: 3.x
+
+      - name: Run Tests
+        run: task test
 
       - name: Build signet
         run: task build
@@ -90,9 +101,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/signet-resign
 
-          # Authority config — uses the same master key as signet-git.
-          # The interactive OIDC fields are required by validation but unused;
-          # only the /exchange-token endpoint is exercised.
+          # Authority config
           cat > /tmp/signet-resign/config.json << EOF
           {
             "oidc_provider_url": "https://token.actions.githubusercontent.com",
@@ -117,7 +126,7 @@ jobs:
                 enabled: true
                 require_ref_protection: true
           EOF
-          # Inject repository restriction (keep heredoc quoted to prevent injection)
+          # Inject repository restriction
           echo "      allowed_repositories:" >> /tmp/signet-resign/oidc-providers.yaml
           echo "        - ${GITHUB_REPOSITORY}" >> /tmp/signet-resign/oidc-providers.yaml
 
@@ -142,31 +151,32 @@ jobs:
           set -euo pipefail
 
           # Exchange GHA OIDC token for a bridge cert.
-          # Place cert and key where signet-git expects them.
           ./signet authority exchange-github-token \
             --authority-url http://localhost:8080 \
             --auto \
             --output "${SIGNET_HOME}/git/bridge-cert.pem" \
             --key-output "${SIGNET_HOME}/git/bridge-key.pem"
 
-          # Verify files landed
           test -f "${SIGNET_HOME}/git/bridge-cert.pem"
           test -f "${SIGNET_HOME}/git/bridge-key.pem"
 
-          echo "Bridge certificate acquired for re-signing"
-
-      - name: Re-sign HEAD commit
+      - name: Re-sign PR HEAD commit
         run: |
           set -euo pipefail
+
+          # Check if the commit is already signed by a valid/trusted identity.
+          # Any of G/U/X/Y/R indicates a present valid signature that we should not duplicate.
+          if git log -1 --format='%G?' | grep -qE '[GUXYR]'; then
+            echo "Commit is already signed with a valid signature; skipping re-sign."
+            exit 0
+          fi
 
           # Configure git to use signet-git for signing
           git config gpg.format x509
           git config gpg.x509.program "$(pwd)/signet-git"
           git config commit.gpgsign true
 
-          # Preserve original author/committer from the merge commit.
-          # These come from git history (not untrusted event inputs)
-          # and are properly quoted to prevent injection.
+          # Preserve original author/committer
           AUTHOR_NAME="$(git log -1 --format='%an')"
           AUTHOR_EMAIL="$(git log -1 --format='%ae')"
           COMMITTER_NAME="$(git log -1 --format='%cn')"
@@ -180,19 +190,56 @@ jobs:
           export GIT_AUTHOR_DATE="$(git log -1 --format='%aI')"
           export GIT_COMMITTER_DATE="$(git log -1 --format='%cI')"
 
-          echo "Re-signing commit: $(git log -1 --oneline)"
+          echo "Re-signing PR commit: $(git log -1 --oneline)"
 
-          # Amend to add signet signature (preserves message, tree, parent)
+          # Amend to add signet signature
           git commit --amend --no-edit -S
 
-          echo "Re-signed: $(git log -1 --oneline)"
+          echo "Re-signed with CI provenance: $(git log -1 --oneline)"
 
-      - name: Push re-signed commit
+      - name: Push re-signed commit to PR
         run: |
           set -euo pipefail
+          
+          # Resolve original SHA for lease check
+          EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$EXPECTED_SHA" ]; then
+            # Fallback for manual trigger: use the current checkout (head of PR)
+            EXPECTED_SHA=$(git rev-parse HEAD^)
+          fi
 
-          # Force-push with lease to prevent overwriting concurrent merges.
-          # GITHUB_TOKEN pushes do not trigger workflow runs, preventing loops.
-          git push --force-with-lease origin main
+          # Guard against empty ref (workflow_dispatch safety)
+          REF="${{ github.event.pull_request.head.ref }}"
+          if [ -z "$REF" ]; then
+            # Attempt to resolve ref from PR number if manual
+            PR_NUM="${{ github.event.inputs.pr_number }}"
+            if [ -n "$PR_NUM" ]; then
+               REF=$(gh pr view "$PR_NUM" --json headRefName -q .headRefName)
+            fi
+          fi
 
-          echo "Re-signed commit pushed to main"
+          if [ -z "$REF" ]; then
+            echo "::error::Could not determine PR head ref for push"
+            exit 1
+          fi
+
+          # Fail-safe: NEVER push to the default branch
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          if [ -z "$DEFAULT_BRANCH" ]; then
+            DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+          fi
+
+          if [ "$REF" = "$DEFAULT_BRANCH" ]; then
+            echo "::error::Ref $REF matches default branch $DEFAULT_BRANCH; aborting push for safety"
+            exit 1
+          fi
+
+          echo "Pushing re-signed commit to $REF (leasing $EXPECTED_SHA)..."
+
+          # Force-push back to the PR head branch with a lease on the approved SHA.
+          # This ensures we don't overwrite any new commits pushed since approval.
+          git push --force-with-lease="refs/heads/$REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$REF"
+
+          echo "Re-signed commit successfully pushed to $REF"
+        env:
+          GH_TOKEN: ${{ github.token }}

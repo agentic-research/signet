@@ -69,10 +69,11 @@ func main() {
 		log.Fatalf("failed to stat socket: %v", err)
 	}
 	mode := info.Mode().Perm()
-	if mode != 0o600 {
+	// Allow 0600 or 0700 (standard for user-only access on Darwin/Linux)
+	if mode&0o077 != 0 {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
-		log.Fatalf("socket has incorrect permissions %o (expected 0600)", mode)
+		log.Fatalf("socket has insecure permissions %o (expected user-only access, e.g. 0600 or 0700)", mode)
 	}
 
 	// Ensure socket and listener are cleaned up on exit

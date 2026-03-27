@@ -114,13 +114,13 @@ See [`cmd/signet/authority.go`](./cmd/signet/authority.go) for configuration det
 
 ### 5. MCP Client Authentication
 
-One-command onboarding for MCP endpoints with mTLS:
+One-command onboarding for MCP endpoints with mTLS. The CLI will prompt for your Dashboard and MCP URLs on first run and save them to `~/.signet/config.json`.
 
 ```bash
-# Interactive (opens browser for OAuth2 login)
+# Interactive (prompts for URLs on first run, then opens browser)
 signet auth login
 
-# Headless (for CI/CD agents)
+# Headless (prompts for URLs if not configured, then registers)
 signet auth register --github-token $GITHUB_TOKEN
 
 # Check certificate status
@@ -128,6 +128,7 @@ signet auth status
 ```
 
 **Features:**
+- **Zero Configuration**: Prompts for setup if defaults are not defined.
 - OAuth2 + PKCE browser flow with localhost callback (`signet auth login`)
 - GitHub token one-shot registration for headless/CI agents (`signet auth register`)
 - ECDSA P-256 keypair generated locally (private key never leaves machine)
