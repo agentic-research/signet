@@ -1,7 +1,7 @@
 repos:
   # Markdown formatting
   - repo: https://github.com/hukkin/mdformat
-    rev: 1.0.0
+    rev: 2d496dbc18e31b83a1596685347ffe0b6041daf0  # 1.0.0
     hooks:
       - id: mdformat
         additional_dependencies:
@@ -11,7 +11,7 @@ repos:
 
   # Step 1: Format code first
   - repo: https://github.com/dnephin/pre-commit-golang
-    rev: v0.5.1
+    rev: fb24a639f7c938759fe56eeebbb7713b69d60494  # v0.5.1
     hooks:
       - id: go-fmt
         exclude: '\.md$'
@@ -19,35 +19,35 @@ repos:
         exclude: '\.md$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: c4a0b883114b00d8d76b479c820ce7950211c99b  # v4.5.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
 
   # Step 2: Tidy dependencies
   - repo: https://github.com/dnephin/pre-commit-golang
-    rev: v0.5.1
+    rev: fb24a639f7c938759fe56eeebbb7713b69d60494  # v0.5.1
     hooks:
       - id: go-mod-tidy
         exclude: '\.md$'
 
   # Step 3: Lint code (after formatting)
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.9.0
+    rev: 72798d34b1eb36745915b0d4eea5c2b3b31bdfe3  # v2.9.0
     hooks:
       - id: golangci-lint
         exclude: '\.md$'
 
   # Step 4: Run tests
   - repo: https://github.com/dnephin/pre-commit-golang
-    rev: v0.5.1
+    rev: fb24a639f7c938759fe56eeebbb7713b69d60494  # v0.5.1
     hooks:
       - id: go-unit-tests
         exclude: '\.md$'
 
   # Step 5: Final checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: c4a0b883114b00d8d76b479c820ce7950211c99b  # v4.5.0
     hooks:
       - id: check-yaml
       - id: check-added-large-files
@@ -56,9 +56,16 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
 
+  # YAML Linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: 81e9f98ffd059efe8aa9c1b1a42e5cce61b640c6  # v1.35.1
+    hooks:
+      - id: yamllint
+        args: ['-d', '{rules: {line-length: {max: 120}}}']
+
   # Step 6: Shell script validation
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.9.0.6
+    rev: 4de1378e4cd853bfc2b111b05fff35e2dbf809a3  # v0.9.0.6
     hooks:
       - id: shellcheck
         args: ['-x']  # Follow sourced files

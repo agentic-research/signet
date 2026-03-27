@@ -118,8 +118,8 @@ jobs:
                 require_ref_protection: true
           EOF
           # Inject repository restriction (keep heredoc quoted to prevent injection)
-          echo "                allowed_repositories:" >> /tmp/signet-resign/oidc-providers.yaml
-          echo "                  - ${GITHUB_REPOSITORY}" >> /tmp/signet-resign/oidc-providers.yaml
+          echo "      allowed_repositories:" >> /tmp/signet-resign/oidc-providers.yaml
+          echo "        - ${GITHUB_REPOSITORY}" >> /tmp/signet-resign/oidc-providers.yaml
 
           export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
           ./signet authority --config /tmp/signet-resign/config.json --verbose &
