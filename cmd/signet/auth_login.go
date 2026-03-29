@@ -592,7 +592,7 @@ func refreshAccessToken(endpoint, refreshToken string) (*tokenResponse, error) {
 }
 
 // requestCertificate calls a cert endpoint with a Bearer token and public key PEM.
-// certURL should be the full URL (e.g., https://auth.notme.bot/exchange-token).
+// certURL should be the full URL (e.g., https://auth.notme.bot/api/cert).
 func requestCertificate(certURL, token string, pubKeyPEM []byte) (*certResponse, error) {
 	return requestCertificateWithBody(certURL, token, map[string]string{
 		"public_key": string(pubKeyPEM),

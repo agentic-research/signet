@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
 
           TOKEN=$(curl -sSf \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${BRIDGE_AUDIENCE}" \
             | jq -r '.value')
 
@@ -111,10 +111,23 @@ jobs:
           KEY=$(echo "$RESULT" | jq -r '.private_key')
           EXPIRES=$(echo "$RESULT" | jq -r '.expires_at')
 
+          # Validate response fields are non-empty and non-null
+          if [ -z "$CERT" ] || [ "$CERT" = "null" ]; then
+            echo "::error::missing certificate in response"
+            exit 1
+          fi
+          if [ -z "$KEY" ] || [ "$KEY" = "null" ]; then
+            echo "::error::missing private_key in response"
+            exit 1
+          fi
+
+          # Mask both raw PEM and base64-encoded form
           echo "::add-mask::${KEY}"
+          KEY_B64=$(echo "$KEY" | base64 -w0)
+          echo "::add-mask::${KEY_B64}"
 
           echo "cert=$(echo "$CERT" | base64 -w0)" >> "$GITHUB_OUTPUT"
-          echo "key=$(echo "$KEY" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          echo "key=${KEY_B64}" >> "$GITHUB_OUTPUT"
           echo "expires_at=${EXPIRES}" >> "$GITHUB_OUTPUT"
 
           echo "Bridge cert issued for: $(echo "$RESULT" | jq -r '.subject')"

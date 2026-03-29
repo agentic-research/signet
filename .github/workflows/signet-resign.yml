@@ -90,6 +90,12 @@ jobs:
           BRIDGE_KEY_B64: ${{ needs.identity.outputs.bridge_key }}
         run: |
           set -euo pipefail
+
+          if [ -z "$BRIDGE_CERT_B64" ] || [ -z "$BRIDGE_KEY_B64" ]; then
+            echo "::error::bridge cert or key is empty — identity exchange may have failed"
+            exit 1
+          fi
+
           SIGNET_HOME="${HOME}/.signet"
           mkdir -p "${SIGNET_HOME}/git"
 
@@ -97,8 +103,11 @@ jobs:
           echo "$BRIDGE_KEY_B64"  | base64 -d > "${SIGNET_HOME}/git/bridge-key.pem"
           chmod 600 "${SIGNET_HOME}/git/bridge-key.pem"
 
-          test -f "${SIGNET_HOME}/git/bridge-cert.pem"
-          test -f "${SIGNET_HOME}/git/bridge-key.pem"
+          # Validate decoded files are non-empty PEM
+          if ! grep -q "BEGIN CERTIFICATE" "${SIGNET_HOME}/git/bridge-cert.pem"; then
+            echo "::error::decoded cert is not valid PEM"
+            exit 1
+          fi
           echo "SIGNET_HOME=${SIGNET_HOME}" >> "${GITHUB_ENV}"
 
       - name: Re-sign PR HEAD commit
