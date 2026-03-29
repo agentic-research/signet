@@ -88,29 +88,15 @@ See [`pkg/http/middleware/README.md`](./pkg/http/middleware/README.md) for detai
 
 ### 4. OIDC Identity Bridge
 
-Mint X.509 client certificates from OIDC login (Fulcio-style):
+Mint X.509 client certificates from OIDC login (Fulcio-style).
+
+The hosted authority at [`auth.notme.bot`](https://auth.notme.bot) handles this automatically — no self-hosting required. For self-hosted deployments, see the [`notme/worker`](https://github.com/agentic-research/notme) repo (CF Worker) or run the Go authority server directly:
 
 ```bash
-# Create config file (config.json)
-cat > config.json <<EOF
-{
-  "oidc_provider_url": "https://accounts.google.com",
-  "oidc_client_id": "your-client-id",
-  "oidc_client_secret": "your-secret",
-  "redirect_url": "http://localhost:8080/callback",
-  "authority_master_key_path": "/path/to/master.key",
-  "listen_addr": ":8080"
-}
-EOF
-
-# Set session secret (required)
-export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
-
-# Run authority
 ./signet authority --config config.json
 ```
 
-See [`cmd/signet/authority.go`](./cmd/signet/authority.go) for configuration details.
+See [`cmd/signet/authority.go`](./cmd/signet/authority.go) for Go server configuration details.
 
 ### 5. MCP Client Authentication
 
@@ -139,21 +125,32 @@ signet auth status
 
 ### 6. GHA OIDC Signing (CI/CD)
 
-Sign artifacts in GitHub Actions using ambient OIDC credentials (no secrets needed):
+Sign artifacts in GitHub Actions using ambient OIDC credentials (no secrets needed).
 
-```bash
-# In a GitHub Actions workflow:
-signet authority exchange-github-token \
-  --authority-url http://localhost:8080 \
-  --auto \
-  --output /tmp/bridge-cert.pem
+The recommended approach uses the reusable identity workflow from [`agentic-research/notme`](https://github.com/agentic-research/notme):
+
+```yaml
+jobs:
+  identity:
+    uses: agentic-research/notme/.github/workflows/gha-identity.yml@main
+    permissions:
+      id-token: write
+
+  sign:
+    needs: identity
+    steps:
+      - run: |
+          echo "${{ needs.identity.outputs.bridge_cert }}" | base64 -d > cert.pem
+          echo "${{ needs.identity.outputs.bridge_key }}"  | base64 -d > key.pem
 ```
+
+This exchanges a GHA OIDC token at `auth.notme.bot/cert/gha` for a 5-minute bridge cert. Zero secrets in your repo.
 
 **Features:**
 - Zero secrets stored in repo (uses GHA ambient OIDC identity)
 - Bridge certificates with capability X.509 extensions
 - Policy-based authorization (repo, workflow, ref filtering)
-- Post-merge re-signing workflow (`signet authority setup-resign`)
+- Optional octo-sts integration for scoped GitHub tokens
 
 ### Sigstore KMS Plugin
 
@@ -329,14 +326,16 @@ Signet is in **alpha** (v0.2.0).
 - ✅ MCP client authentication (`signet auth login/register`)
 - ✅ Post-merge re-signing workflow
 - ✅ Security audit: 7 findings fixed (JTI race, serial collision, rate limiter hardening)
-- ✅ Authority landing page
+- ✅ Edge identity authority at [`auth.notme.bot`](https://auth.notme.bot) (CF Worker, zero secrets)
+- ✅ Cap'n Proto schemas for cross-language type parity ([`notme/schema`](https://github.com/agentic-research/notme/tree/main/schema))
 
-**Current focus:** MCP auth convergence, Cloudflare deployment.
+**Current focus:** Go workspace refactor, OAuth port to edge.
 
 **Gaps before v1.0:**
 - Security audit (required before production use)
+- Go workspace structure (`go.work` with `authority/` as importable module)
+- Port remaining OAuth flows to CF Worker (eliminate Fly dependency)
 - Signature verification CLI (`signet verify`)
-- signet-core in Rust/WASM for edge deployment (ADR in progress)
 
 ## Contributing
 
@@ -408,6 +407,13 @@ graph TD
 - Ephemeral certificates (5-minute lifetime)
 - Sub-millisecond verification
 - OpenSSL-compatible output
+
+## Related
+
+- [`agentic-research/notme`](https://github.com/agentic-research/notme) — edge identity authority (CF Worker) + Cap'n Proto schemas + reusable GHA workflows
+- [`auth.notme.bot`](https://auth.notme.bot) — live authority (zero secrets, SigningAuthority DO)
+- [`notme.bot`](https://notme.bot) — the standard (APAS predicate URIs, research)
+- [`agentic-research/go-cms`](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7
 
 ## License
 

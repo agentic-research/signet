@@ -7,7 +7,7 @@
 > **Implementation note:** The current bridge cert implementation (`cmd/signet/authority_identity.go`,
 > `pkg/attest/x509/`) uses simpler X.509 extensions (`OIDSubject`, `OIDIssuanceTime`) rather than
 > the full `SignetCapabilityAttestation` ASN.1 structure described below. The deployed bridge certs
-> at `auth.rosary.bot` carry the user's email as CN, Clerk subject ID in an extension, and are used
+> at `auth.notme.bot` carry the user's email as CN, Clerk subject ID in an extension, and are used
 > for MCP client authentication (24-hour TTL). The selective-disclosure / ephemeral-session model
 > described in this ADR is the target design, not the current implementation.
 >
