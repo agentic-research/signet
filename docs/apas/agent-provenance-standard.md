@@ -150,10 +150,9 @@ APAS uses the in-toto attestation framework with a custom predicate type.
 ```
 
 > **URI resolution**: `notme.bot` is the canonical namespace for APAS predicate schemas.
-> The running reference implementation is deployed at `auth.rosary.bot` (Cloudflare
-> Workers via rig). `rosary.bot` hosts the orchestrator documentation;
-> `notme.bot` hosts the standard itself — the separation is intentional because
-> APAS is implementation-agnostic.
+> The running identity authority is deployed at `auth.notme.bot` (Cloudflare Workers
+> with SigningAuthority DO). `notme.bot` hosts the standard itself — the separation
+> from any orchestrator is intentional because APAS is implementation-agnostic.
 
 ### 3.2 Predicate: `dispatch/v1`
 
@@ -373,10 +372,10 @@ H(Decade)     = SHA256(H(Thread_0) || H(Thread_1) || ... || H(Thread_k))
 
 The reference implementation is split across three repositories in the ART ecosystem.
 
-### 7.1 Rosary (Orchestrator) — `rosary.bot`
+### 7.1 Rosary (Orchestrator)
 
 The running orchestrator implementation is deployed at `rosary.bot` with cert
-issuance at `auth.rosary.bot` (Cloudflare Workers via rig).
+issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 
 - `src/handoff.rs` — Phase handoff with chain hashing (L1, partial L2)
 - `src/manifest.rs` — Dispatch manifest capture (L1)
@@ -445,5 +444,5 @@ issuance at `auth.rosary.bot` (Cloudflare Workers via rig).
 | Domain | Canonical URI | Purpose |
 |--------|--------------|---------|
 | `notme.bot` | `https://notme.bot/provenance/...` | APAS standard — predicate schemas, spec documentation |
+| `auth.notme.bot` | `https://auth.notme.bot/` | Signet identity authority — certificate issuance (CF Workers, SigningAuthority DO) |
 | `rosary.bot` | `https://rosary.bot/` | Rosary orchestrator — reference implementation docs |
-| `auth.rosary.bot` | `https://auth.rosary.bot/` | Certificate issuance — running CA (CF Workers via rig) |

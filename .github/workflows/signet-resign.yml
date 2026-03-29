@@ -7,7 +7,7 @@
 #      and passes all tests, then re-signs (amends) the commit with its own "Seal of Approval".
 #   4. The PR now has a "Chained Provenance" (User + CI) and can be merged to main.
 #
-# This avoids force-pushing to main while ensuring everything in main has CI's seal.
+# Auth: GHA OIDC → auth.notme.bot/cert/gha → bridge cert. No stored SIGNET_MASTER_KEY.
 
 name: Signet Re-sign
 
@@ -31,9 +31,19 @@ permissions:
   contents: write
 
 jobs:
+  identity:
+    name: Acquire bridge cert
+    uses: ./.github/workflows/gha-identity.yml
+    with:
+      skip_bridge_cert: false
+    permissions:
+      id-token: write
+      contents: read
+
   resign:
     name: Re-sign approved PR
     runs-on: ubuntu-latest
+    needs: identity
 
     # Only run if:
     # 1. Approval is submitted (or manual trigger)
@@ -54,10 +64,8 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
         with:
-          # Use the specific SHA that was approved/triggered to ensure we sign the exact code reviewed.
-          # Fallback to manual PR head ref for workflow_dispatch.
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', github.event.inputs.pr_number) }}
-          fetch-depth: 0 # Full history needed for amend
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.4.0
@@ -76,107 +84,36 @@ jobs:
       - name: Build signet
         run: task build
 
-      - name: Setup signet identity
+      - name: Write bridge cert + key
         env:
-          SIGNET_MASTER_KEY: ${{ secrets.SIGNET_MASTER_KEY }}
+          BRIDGE_CERT_B64: ${{ needs.identity.outputs.bridge_cert }}
+          BRIDGE_KEY_B64: ${{ needs.identity.outputs.bridge_key }}
         run: |
           set -euo pipefail
-
-          if [ -z "${SIGNET_MASTER_KEY}" ]; then
-            echo "::error::SIGNET_MASTER_KEY secret is not configured"
-            exit 1
-          fi
-
           SIGNET_HOME="${HOME}/.signet"
           mkdir -p "${SIGNET_HOME}/git"
 
-          # Write persistent master key from secret
-          printf '%s\n' "${SIGNET_MASTER_KEY}" > "${SIGNET_HOME}/master.key"
-          chmod 600 "${SIGNET_HOME}/master.key"
-
-          echo "SIGNET_HOME=${SIGNET_HOME}" >> "${GITHUB_ENV}"
-
-      - name: Start authority server
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/signet-resign
-
-          # Authority config
-          cat > /tmp/signet-resign/config.json << EOF
-          {
-            "oidc_provider_url": "https://token.actions.githubusercontent.com",
-            "oidc_client_id": "signet-resign",
-            "oidc_client_secret": "unused-for-exchange-flow",
-            "redirect_url": "http://localhost:8080/callback",
-            "authority_master_key_path": "${SIGNET_HOME}/master.key",
-            "listen_addr": ":8080",
-            "certificate_validity_hours": 1,
-            "oidc_providers_file": "/tmp/signet-resign/oidc-providers.yaml"
-          }
-          EOF
-
-          cat > /tmp/signet-resign/oidc-providers.yaml << 'EOF'
-          providers:
-            - type: github-actions
-              config:
-                name: github-actions
-                issuer_url: https://token.actions.githubusercontent.com
-                audience: http://localhost:8080
-                certificate_validity: 300000000000
-                enabled: true
-                require_ref_protection: true
-          EOF
-          # Inject repository restriction
-          echo "      allowed_repositories:" >> /tmp/signet-resign/oidc-providers.yaml
-          echo "        - ${GITHUB_REPOSITORY}" >> /tmp/signet-resign/oidc-providers.yaml
-
-          export SIGNET_SESSION_SECRET="$(openssl rand -base64 48)"
-          ./signet authority --config /tmp/signet-resign/config.json --verbose &
-
-          # Wait for health endpoint
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
-              echo "Authority server ready"
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "::error::Authority server failed to start within 30s"
-              exit 1
-            fi
-            sleep 1
-          done
-
-      - name: Exchange OIDC token for bridge certificate
-        run: |
-          set -euo pipefail
-
-          # Exchange GHA OIDC token for a bridge cert.
-          ./signet authority exchange-github-token \
-            --authority-url http://localhost:8080 \
-            --auto \
-            --output "${SIGNET_HOME}/git/bridge-cert.pem" \
-            --key-output "${SIGNET_HOME}/git/bridge-key.pem"
+          echo "$BRIDGE_CERT_B64" | base64 -d > "${SIGNET_HOME}/git/bridge-cert.pem"
+          echo "$BRIDGE_KEY_B64"  | base64 -d > "${SIGNET_HOME}/git/bridge-key.pem"
+          chmod 600 "${SIGNET_HOME}/git/bridge-key.pem"
 
           test -f "${SIGNET_HOME}/git/bridge-cert.pem"
           test -f "${SIGNET_HOME}/git/bridge-key.pem"
+          echo "SIGNET_HOME=${SIGNET_HOME}" >> "${GITHUB_ENV}"
 
       - name: Re-sign PR HEAD commit
         run: |
           set -euo pipefail
 
-          # Check if the commit is already signed by a valid/trusted identity.
-          # Any of G/U/X/Y/R indicates a present valid signature that we should not duplicate.
           if git log -1 --format='%G?' | grep -qE '[GUXYR]'; then
             echo "Commit is already signed with a valid signature; skipping re-sign."
             exit 0
           fi
 
-          # Configure git to use signet-git for signing
           git config gpg.format x509
           git config gpg.x509.program "$(pwd)/signet-git"
           git config commit.gpgsign true
 
-          # Preserve original author/committer
           AUTHOR_NAME="$(git log -1 --format='%an')"
           AUTHOR_EMAIL="$(git log -1 --format='%ae')"
           COMMITTER_NAME="$(git log -1 --format='%cn')"
@@ -191,30 +128,25 @@ jobs:
           export GIT_COMMITTER_DATE="$(git log -1 --format='%cI')"
 
           echo "Re-signing PR commit: $(git log -1 --oneline)"
-
-          # Amend to add signet signature
           git commit --amend --no-edit -S
-
           echo "Re-signed with CI provenance: $(git log -1 --oneline)"
 
       - name: Push re-signed commit to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          
-          # Resolve original SHA for lease check
+
           EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
           if [ -z "$EXPECTED_SHA" ]; then
-            # Fallback for manual trigger: use the current checkout (head of PR)
             EXPECTED_SHA=$(git rev-parse HEAD^)
           fi
 
-          # Guard against empty ref (workflow_dispatch safety)
           REF="${{ github.event.pull_request.head.ref }}"
           if [ -z "$REF" ]; then
-            # Attempt to resolve ref from PR number if manual
             PR_NUM="${{ github.event.inputs.pr_number }}"
             if [ -n "$PR_NUM" ]; then
-               REF=$(gh pr view "$PR_NUM" --json headRefName -q .headRefName)
+              REF=$(gh pr view "$PR_NUM" --json headRefName -q .headRefName)
             fi
           fi
 
@@ -223,7 +155,6 @@ jobs:
             exit 1
           fi
 
-          # Fail-safe: NEVER push to the default branch
           DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
           if [ -z "$DEFAULT_BRANCH" ]; then
             DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
@@ -235,11 +166,5 @@ jobs:
           fi
 
           echo "Pushing re-signed commit to $REF (leasing $EXPECTED_SHA)..."
-
-          # Force-push back to the PR head branch with a lease on the approved SHA.
-          # This ensures we don't overwrite any new commits pushed since approval.
           git push --force-with-lease="refs/heads/$REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$REF"
-
           echo "Re-signed commit successfully pushed to $REF"
-        env:
-          GH_TOKEN: ${{ github.token }}
