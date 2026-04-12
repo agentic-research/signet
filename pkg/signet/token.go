@@ -17,6 +17,11 @@ const (
 	capabilityIDSize   = 16
 	jtiSize            = 16
 	nonceSize          = 16
+
+	// MaxTokenLifetime is the maximum allowed validity duration for a token.
+	// Tokens with ExpiresAt - NotBefore exceeding this are rejected during validation.
+	// Default: 10 minutes. Ephemeral tokens should be short-lived (5 minutes typical).
+	MaxTokenLifetime = 10 * time.Minute
 )
 
 // Token represents the CBOR-encoded Signet token structure as defined in ADR-002.
@@ -170,6 +175,8 @@ func (t *Token) validate() error {
 		return fmt.Errorf("%w: issued-at precedes not-before", ErrInvalidToken)
 	case t.ExpiresAt < t.IssuedAt:
 		return fmt.Errorf("%w: expires-at precedes issued-at", ErrInvalidToken)
+	case t.ExpiresAt-t.NotBefore > int64(MaxTokenLifetime/time.Second):
+		return fmt.Errorf("%w: token validity duration %ds exceeds maximum %v", ErrInvalidToken, t.ExpiresAt-t.NotBefore, MaxTokenLifetime)
 	}
 	// Epoch is optional - it's only required when using revocation features
 	return nil

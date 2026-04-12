@@ -454,10 +454,11 @@ func TestCreateBindingMessage(t *testing.T) {
 		}
 	}
 
-	// Verify message contains public key, expiry, and purpose
-	minLength := len(DomainSeparator) + ed25519.PublicKeySize + 8 + len(purpose)
-	if len(message) != minLength {
-		t.Errorf("Message length = %d, want %d", len(message), minLength)
+	// Verify message contains public key, expiry, length-prefixed purpose
+	// Format: DomainSeparator + pubkey(32) + expiry(8) + purposeLen(4) + purpose
+	expectedLength := len(DomainSeparator) + ed25519.PublicKeySize + 8 + 4 + len(purpose)
+	if len(message) != expectedLength {
+		t.Errorf("Message length = %d, want %d", len(message), expectedLength)
 	}
 }
 

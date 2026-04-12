@@ -86,6 +86,11 @@ func (s *RedisTokenStore) Get(ctx context.Context, tokenID string) (*TokenRecord
 
 // Store saves a token record to Redis
 func (s *RedisTokenStore) Store(ctx context.Context, record *TokenRecord) (string, error) {
+	// Validate token has a JTI before generating token ID
+	if record.Token == nil || len(record.Token.JTI) == 0 {
+		return "", fmt.Errorf("token missing jti")
+	}
+
 	// Generate token ID
 	tokenID := generateTokenID(record)
 	key := s.prefix + tokenID
@@ -201,9 +206,10 @@ type storedTokenRecord struct {
 	Metadata                    map[string]string `json:"metadata,omitempty"`
 }
 
-// generateTokenID generates a consistent token ID from a record
+// generateTokenID generates a consistent token ID from a record.
+// Uses the full 16-byte JTI (32 hex chars) to match MemoryTokenStore and middleware lookup.
 func generateTokenID(record *TokenRecord) string {
-	return hex.EncodeToString(record.Token.EphemeralKeyID[:min(8, len(record.Token.EphemeralKeyID))])
+	return hex.EncodeToString(record.Token.JTI)
 }
 
 // marshalPublicKeyWithAlgorithm marshals a public key to bytes and returns the algorithm name.

@@ -6,9 +6,11 @@ package middleware
 import (
 	"context"
 	"crypto"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/agentic-research/signet/pkg/crypto/epr"
@@ -78,8 +80,29 @@ type signetHandler struct {
 	config *Config
 }
 
+// matchesSkipPath checks if a request path should skip authentication.
+// Requires non-empty skip paths starting with "/". Matches exact paths
+// or path-segment prefixes (e.g., "/api" matches "/api/foo" but not "/api-private").
+func matchesSkipPath(requestPath, skipPath string) bool {
+	if skipPath == "" || !strings.HasPrefix(skipPath, "/") {
+		return false
+	}
+	if requestPath == skipPath {
+		return true
+	}
+	return strings.HasPrefix(requestPath, skipPath+"/")
+}
+
 // ServeHTTP implements http.Handler with full two-step verification
 func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Check if this path should skip authentication
+	for _, skip := range h.config.SkipPaths {
+		if matchesSkipPath(r.URL.Path, skip) {
+			h.next.ServeHTTP(w, r)
+			return
+		}
+	}
+
 	startTime := time.Now()
 	ctx := r.Context()
 
@@ -210,7 +233,9 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for replay attacks
-	nonceKey := fmt.Sprintf("%s:%d", tokenID, proof.Timestamp)
+	// Include signature hash to prevent same-second collision with different signatures
+	sigHash := sha256.Sum256(proof.Signature)
+	nonceKey := fmt.Sprintf("%s:%d:%x", tokenID, proof.Timestamp, sigHash[:8])
 	if err := h.config.NonceStore.CheckAndStore(ctx, nonceKey, record.Token.ExpiresAt); err != nil {
 		h.config.Logger.Warn("replay attack detected", "token_id", tokenID, "timestamp", proof.Timestamp)
 		h.config.Observer.OnAuthFailure(ctx, err, "replay_check")
@@ -262,6 +287,24 @@ func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.config.Metrics.RecordAuthResult("invalid_signature", time.Since(startTime))
 		h.config.ErrorHandler(w, r, ErrInvalidSignature)
 		return
+	}
+
+	// Enforce required purposes if configured
+	if len(h.config.RequiredPurposes) > 0 {
+		purposeAllowed := false
+		for _, p := range h.config.RequiredPurposes {
+			if record.Purpose == p {
+				purposeAllowed = true
+				break
+			}
+		}
+		if !purposeAllowed {
+			h.config.Logger.Warn("token purpose not allowed", "token_id", tokenID, "purpose", record.Purpose, "required", h.config.RequiredPurposes)
+			h.config.Observer.OnAuthFailure(ctx, ErrPurposeMismatch, "purpose_check")
+			h.config.Metrics.RecordAuthResult("purpose_mismatch", time.Since(startTime))
+			h.config.ErrorHandler(w, r, ErrPurposeMismatch)
+			return
+		}
 	}
 
 	// Success! Add authentication context to request
@@ -376,12 +419,4 @@ const authContextKey contextKey = "signet-auth"
 func GetAuthContext(r *http.Request) (*AuthContext, bool) {
 	ctx, ok := r.Context().Value(authContextKey).(*AuthContext)
 	return ctx, ok
-}
-
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

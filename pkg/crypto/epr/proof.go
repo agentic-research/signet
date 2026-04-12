@@ -124,7 +124,7 @@ func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpos
 		return nil, signetErrors.NewKeyError("binding", "ephemeral", signetErrors.ErrInvalidKeyType)
 	}
 
-	// Domain separator + public key + expiry + purpose
+	// Domain separator + public key + expiry + length-prefixed purpose
 	message := append([]byte(DomainSeparator), pubBytes...)
 
 	// Add expiry timestamp (8 bytes, big-endian)
@@ -134,8 +134,14 @@ func createBindingMessage(ephemeralPub crypto.PublicKey, expiresAt int64, purpos
 	}
 	message = append(message, expiryBytes...)
 
-	// Add purpose string
-	message = append(message, []byte(purpose)...)
+	// Add purpose string with 4-byte big-endian length prefix.
+	// The length prefix prevents boundary ambiguity: without it,
+	// purpose="abc" + extension="" and purpose="ab" + extension="c"
+	// would produce identical binding messages.
+	purposeBytes := []byte(purpose)
+	purposeLen := len(purposeBytes)
+	message = append(message, byte(purposeLen>>24), byte(purposeLen>>16), byte(purposeLen>>8), byte(purposeLen))
+	message = append(message, purposeBytes...)
 
 	return message, nil
 }

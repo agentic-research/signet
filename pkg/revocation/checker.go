@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/agentic-research/signet/pkg/crypto/algorithm"
@@ -175,8 +174,11 @@ func (c *CABundleChecker) verifyBundleSignature(bundle *types.CABundle) error {
 		6: bundle.IssuedAt,  // issued timestamp
 	}
 
-	// Use CBOR deterministic encoding mode to ensure consistent serialization
-	// This prevents issues with map key ordering and produces canonical output
+	// Use CBOR deterministic encoding mode to ensure consistent serialization.
+	// IMPORTANT: Bundle signatures depend on bit-identical canonical CBOR across
+	// library versions. A fxamacker/cbor upgrade that changes encoding behavior
+	// will silently break all existing bundle signatures. Pin this dependency or
+	// add a golden-file test when upgrading.
 	encMode, err := cbor.CanonicalEncOptions().EncMode()
 	if err != nil {
 		return fmt.Errorf("failed to create CBOR encoder: %w", err)
@@ -202,39 +204,13 @@ func (c *CABundleChecker) verifyBundleSignature(bundle *types.CABundle) error {
 
 // isNotFoundError checks if an error indicates that a key was not found.
 // This is used to distinguish first requests (no stored seqno) from actual errors.
+// Storage implementations MUST use sentinel errors (cabundle.ErrNotFound or
+// revocation.ErrNotFound) — string matching is intentionally not supported
+// to prevent fragile error detection.
 func isNotFoundError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// Check for common "not found" error patterns
-	// Storage implementations typically return errors containing "not found"
-	// or wrap a specific ErrNotFound error
 	return errors.Is(err, cabundle.ErrNotFound) ||
-		errors.Is(err, ErrNotFound) ||
-		// Check error message as fallback for implementations that don't use sentinel errors
-		containsNotFound(err.Error())
-}
-
-// containsNotFound checks if an error message indicates a not found condition.
-// Using strings.Contains with already lowercased string for efficiency.
-func containsNotFound(msg string) bool {
-	// Convert to lowercase once for case-insensitive checking
-	msgLower := strings.ToLower(msg)
-
-	// Check all patterns in a single pass through the string
-	// Common patterns for "not found" errors
-	patterns := []string{
-		"not found",
-		"no such key",
-		"does not exist",
-		"doesn't exist",
-		"not exist",
-	}
-
-	for _, pattern := range patterns {
-		if strings.Contains(msgLower, pattern) {
-			return true
-		}
-	}
-	return false
+		errors.Is(err, ErrNotFound)
 }
