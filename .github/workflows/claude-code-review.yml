@@ -28,6 +28,7 @@ jobs:
 
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       pull-requests: write  # Need write to comment
       issues: read

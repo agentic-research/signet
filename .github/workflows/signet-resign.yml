@@ -44,6 +44,7 @@ jobs:
     needs: identity
     permissions:
       contents: write
+      pull-requests: read
 
     # Only run if:
     # 1. Approval is submitted (or manual trigger)
