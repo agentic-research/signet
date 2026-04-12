@@ -25,6 +25,17 @@ var ErrInvalidBundle = errors.New("revocation: bundle failed signature verificat
 var ErrNotFound = errors.New("revocation: key not found")
 
 // Checker is the interface for checking if a token is revoked.
+//
+// Return value semantics:
+//
+//	(true,  nil)   — token IS revoked, reject the request
+//	(false, nil)   — token is NOT revoked, allow the request
+//	(false, error) — revocation status UNKNOWN due to infrastructure failure;
+//	                 callers MUST treat this as "reject" (fail-closed), NOT as
+//	                 "not revoked". The middleware enforces this — see signet.go.
+//
+// Implementations that return (false, error) on infra failures (e.g., bundle fetch
+// timeout) are correct. The caller is responsible for failing closed.
 type Checker interface {
 	// IsRevoked checks if a token is revoked.
 	IsRevoked(ctx context.Context, token *signet.Token) (bool, error)

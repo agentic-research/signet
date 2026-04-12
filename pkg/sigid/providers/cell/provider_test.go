@@ -107,7 +107,7 @@ func createMockToken(t *testing.T) *signet.Token {
 	token := &signet.Token{
 		IssuerID:       "test-issuer",
 		SubjectPPID:    ephemeralKeyID,
-		ExpiresAt:      now + 3600,
+		ExpiresAt:      now + 600,
 		NotBefore:      now,
 		IssuedAt:       now,
 		ConfirmationID: confirmationID,

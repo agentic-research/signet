@@ -201,9 +201,10 @@ type storedTokenRecord struct {
 	Metadata                    map[string]string `json:"metadata,omitempty"`
 }
 
-// generateTokenID generates a consistent token ID from a record
+// generateTokenID generates a consistent token ID from a record.
+// Uses the full 16-byte JTI (32 hex chars) to match MemoryTokenStore and middleware lookup.
 func generateTokenID(record *TokenRecord) string {
-	return hex.EncodeToString(record.Token.EphemeralKeyID[:min(8, len(record.Token.EphemeralKeyID))])
+	return hex.EncodeToString(record.Token.JTI)
 }
 
 // marshalPublicKeyWithAlgorithm marshals a public key to bytes and returns the algorithm name.

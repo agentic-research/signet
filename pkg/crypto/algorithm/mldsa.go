@@ -82,18 +82,28 @@ func (m *mldsaOps) ZeroizePrivateKey(key crypto.PrivateKey) {
 		panic(fmt.Sprintf("mldsaOps.ZeroizePrivateKey: expected *mldsa44.PrivateKey, got %T", key))
 	}
 
-	// SECURITY NOTE: ML-DSA-44 key zeroization is incomplete due to circl API limitations.
-	// cloudflare/circl's PrivateKey struct has opaque internal fields that cannot be directly zeroed.
-	// We zero the serialized buffer, but the actual key material may persist in the Go heap.
+	// SECURITY WARNING: ML-DSA-44 key zeroization is INEFFECTIVE.
 	//
-	// This is a KNOWN LIMITATION documented in:
-	// https://github.com/cloudflare/circl/issues/[TBD]
+	// Pack() serializes the key into a local buffer. Zeroing that buffer does NOT
+	// zero the key's internal struct fields. The actual private key material persists
+	// in the Go heap until garbage collected.
 	//
-	// Until circl provides a Zeroize() method on PrivateKey, recommend:
-	// 1. For short-lived keys (ephemeral signing): acceptable, key goes out of scope quickly
-	// 2. For long-lived keys (master signing): high risk, coordinate with infra team on key rotation
+	// This is a known limitation of cloudflare/circl — PrivateKey is an opaque struct
+	// with no Zeroize() or Clear() method. Unlike Ed25519 (where the key IS a []byte),
+	// ML-DSA keys cannot be zeroed through the public API.
 	//
-	// TODO: File upstream issue with circl and implement proper zeroization once API available.
+	// Impact:
+	//   - Ephemeral keys (short-lived): LOW — key goes out of scope quickly, GC reclaims
+	//   - Master/long-lived keys: HIGH — key material persists indefinitely in heap
+	//
+	// Mitigations:
+	//   1. Use key rotation policies for ML-DSA master keys
+	//   2. Prefer Ed25519 for master keys where post-quantum is not required
+	//   3. Monitor cloudflare/circl for a Zeroize() API addition
+	//
+	// See also: ML-DSA-44 signatures are 2,420 bytes (37x Ed25519). When used in
+	// SIG1 wire format with base64url encoding, this approaches HTTP header limits (~8KB).
+	// Post-quantum deployments may require body-based proof transport instead of headers.
 
 	// Best-effort: zero the serialized representation
 	var buf [mldsa44.PrivateKeySize]byte

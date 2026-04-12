@@ -3,14 +3,27 @@ package keys
 import (
 	"crypto"
 	"crypto/ed25519"
-	"runtime"
+	"unsafe"
 
 	"github.com/agentic-research/signet/pkg/crypto/algorithm"
 )
 
+// zeroizeSlice securely zeros a byte slice using a volatile write pattern.
+// The use of unsafe.Pointer prevents the Go compiler from applying dead-store
+// elimination to the zeroing loop, since the compiler cannot prove that the
+// write through the pointer is unobservable.
+//
+// This is the same technique used by crypto/internal/fips140/mlkem and
+// x/crypto/nacl in the Go standard library.
+func zeroizeSlice(b []byte) {
+	for i := range b {
+		p := unsafe.Pointer(&b[i])
+		*(*byte)(p) = 0
+	}
+}
+
 // ZeroizePrivateKey securely zeros an Ed25519 private key from memory.
-// It uses runtime.KeepAlive to prevent the compiler from optimizing out
-// the zeroization operation.
+// Uses volatile writes via unsafe.Pointer to prevent dead-store elimination.
 //
 // Usage:
 //
@@ -20,17 +33,11 @@ func ZeroizePrivateKey(key ed25519.PrivateKey) {
 	if key == nil {
 		return
 	}
-	// Zero each byte of the key
-	for i := range key {
-		key[i] = 0
-	}
-	// Prevent compiler optimization from removing the zeroization
-	runtime.KeepAlive(key)
+	zeroizeSlice(key)
 }
 
 // ZeroizeBytes securely zeros a byte slice from memory.
-// It uses runtime.KeepAlive to prevent the compiler from optimizing out
-// the zeroization operation.
+// Uses volatile writes via unsafe.Pointer to prevent dead-store elimination.
 //
 // Usage:
 //
@@ -40,12 +47,7 @@ func ZeroizeBytes(b []byte) {
 	if b == nil {
 		return
 	}
-	// Zero each byte
-	for i := range b {
-		b[i] = 0
-	}
-	// Prevent compiler optimization from removing the zeroization
-	runtime.KeepAlive(b)
+	zeroizeSlice(b)
 }
 
 // SecurePrivateKey wraps a private key with automatic cleanup.

@@ -12,8 +12,8 @@
 package epr
 
 import (
-	"bytes"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"fmt"
 )
 
@@ -112,7 +112,8 @@ func Sign(privateKey ed25519.PrivateKey, message []byte) ([]byte, error) {
 	return signature, nil
 }
 
-// CompareSignatures performs constant-time comparison of signatures
+// CompareSignatures performs constant-time comparison of signatures.
+// Uses crypto/subtle to prevent timing side-channel attacks.
 func CompareSignatures(a, b []byte) bool {
 	if a == nil || b == nil {
 		return false
@@ -120,5 +121,5 @@ func CompareSignatures(a, b []byte) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	return bytes.Equal(a, b)
+	return subtle.ConstantTimeCompare(a, b) == 1
 }
