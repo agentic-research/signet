@@ -175,7 +175,7 @@ func (t *Token) validate() error {
 		return fmt.Errorf("%w: issued-at precedes not-before", ErrInvalidToken)
 	case t.ExpiresAt < t.IssuedAt:
 		return fmt.Errorf("%w: expires-at precedes issued-at", ErrInvalidToken)
-	case t.ExpiresAt-t.NotBefore > int64(MaxTokenLifetime.Seconds()):
+	case t.ExpiresAt-t.NotBefore > int64(MaxTokenLifetime/time.Second):
 		return fmt.Errorf("%w: token validity duration %ds exceeds maximum %v", ErrInvalidToken, t.ExpiresAt-t.NotBefore, MaxTokenLifetime)
 	}
 	// Epoch is optional - it's only required when using revocation features

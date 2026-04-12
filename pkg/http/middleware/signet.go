@@ -80,15 +80,26 @@ type signetHandler struct {
 	config *Config
 }
 
+// matchesSkipPath checks if a request path should skip authentication.
+// Requires non-empty skip paths starting with "/". Matches exact paths
+// or path-segment prefixes (e.g., "/api" matches "/api/foo" but not "/api-private").
+func matchesSkipPath(requestPath, skipPath string) bool {
+	if skipPath == "" || !strings.HasPrefix(skipPath, "/") {
+		return false
+	}
+	if requestPath == skipPath {
+		return true
+	}
+	return strings.HasPrefix(requestPath, skipPath+"/")
+}
+
 // ServeHTTP implements http.Handler with full two-step verification
 func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check if this path should skip authentication
-	if len(h.config.SkipPaths) > 0 {
-		for _, path := range h.config.SkipPaths {
-			if r.URL.Path == path || strings.HasPrefix(r.URL.Path, path) {
-				h.next.ServeHTTP(w, r)
-				return
-			}
+	for _, skip := range h.config.SkipPaths {
+		if matchesSkipPath(r.URL.Path, skip) {
+			h.next.ServeHTTP(w, r)
+			return
 		}
 	}
 

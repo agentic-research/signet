@@ -697,3 +697,123 @@ func createSignedRequestWithQuery(t *testing.T, method, path, query string, reco
 
 	return req
 }
+
+func TestSignetMiddleware_SkipPaths(t *testing.T) {
+	config, masterPub, _ := setupTestMiddleware(t)
+
+	middleware, err := SignetMiddleware(
+		WithMasterKey(masterPub),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
+		WithSkipPaths("/health", "/api/public"),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		wantCalled bool
+	}{
+		{"exact match", "/health", true},
+		{"prefix with segment", "/health/check", true},
+		{"no prefix overlap", "/healthz", false},          // /healthz does NOT start with /health/
+		{"exact match nested", "/api/public", true},
+		{"prefix nested", "/api/public/docs", true},
+		{"no overlap nested", "/api/private", false},
+		{"unauthenticated", "/api/secret", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			req := httptest.NewRequest("GET", tt.path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if tt.wantCalled && !called {
+				t.Errorf("Expected handler to be called for path %s", tt.path)
+			}
+			if !tt.wantCalled && called {
+				t.Errorf("Handler should NOT be called for path %s (needs auth)", tt.path)
+			}
+		})
+	}
+}
+
+func TestSignetMiddleware_RequiredPurposes_Allowed(t *testing.T) {
+	config, masterPub, masterPriv := setupTestMiddleware(t)
+
+	record, ephemeralPriv := generateTestToken(t, masterPriv, "git-commit")
+	_, err := config.TokenStore.Store(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	middleware, err := SignetMiddleware(
+		WithMasterKey(masterPub),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
+		WithLogger(config.Logger),
+		WithRequiredPurposes("git-commit", "api-access"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := createSignedRequest(t, "GET", "/test", record, ephemeralPriv)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !called {
+		t.Error("Handler should be called for allowed purpose")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected 200, got %d", rec.Code)
+	}
+}
+
+func TestSignetMiddleware_RequiredPurposes_Rejected(t *testing.T) {
+	config, masterPub, masterPriv := setupTestMiddleware(t)
+
+	record, ephemeralPriv := generateTestToken(t, masterPriv, "admin-access")
+	_, err := config.TokenStore.Store(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	middleware, err := SignetMiddleware(
+		WithMasterKey(masterPub),
+		WithTokenStore(config.TokenStore),
+		WithNonceStore(config.NonceStore),
+		WithLogger(config.Logger),
+		WithRequiredPurposes("git-commit", "api-access"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should NOT be called for disallowed purpose")
+	}))
+
+	req := createSignedRequest(t, "GET", "/test", record, ephemeralPriv)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
