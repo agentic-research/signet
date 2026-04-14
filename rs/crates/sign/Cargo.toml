@@ -26,5 +26,5 @@ thiserror = "1.0"
 log = "0.4"
 
 [dev-dependencies]
-rand = "0.8"
+rand = "0.9"
 hex = "0.4"
