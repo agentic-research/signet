@@ -9,7 +9,10 @@
 
 > **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today
 > in the rosary reference implementation. Sections marked **[TARGET]** describe the
-> intended design that is not yet implemented.
+> intended design that is not yet implemented. Sections marked **[PARTIAL]**
+> describe a level whose prerequisites have shipped and whose implementation is
+> in flight — some bullets within the section are shipped (annotated **shipped**)
+> and others are open (annotated **not yet implemented**).
 
 ## Abstract
 
@@ -23,9 +26,9 @@ APAS builds on and references these existing specifications rather than reinvent
 
 | Spec | Source | APAS Usage |
 |------|--------|-----------|
-| Signet Token Format | `signet/docs/design/001-signet-tokens.md` | Identity tokens (CBOR + COSE/Ed25519) |
-| Signet Bridge Certificates | `signet/docs/design/004-bridge-certs.md` | Delegated identity for agents |
-| Signet Identity Model | `signet/pkg/sigid/` | 4-entity decomposition (Owner/Machine/Actor/Identity) |
+| Signet Token Format | [`docs/design/001-signet-tokens.md`](../design/001-signet-tokens.md) | Identity tokens (CBOR + COSE/Ed25519) |
+| Signet Bridge Certificates | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) | Delegated identity for workloads |
+| Signet Identity Model | [`pkg/sigid/`](../../pkg/sigid/) | 4-entity decomposition (Owner/Machine/Actor/Identity) |
 | Ley-line CMS Signing | `ley-line/rs/crates/sign/src/cms.rs` | Ed25519 CMS/PKCS#7 (RFC 5652 + RFC 8419) |
 | in-toto Statement | https://in-toto.io/Statement/v1 | Attestation envelope format |
 | DSSE | Dead Simple Signing Envelope | Signature wrapper |
@@ -97,7 +100,7 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 - Hash chain links content hashes, not file paths — **shipped** (rosary PR #117, `Handoff::previous_chain_hash`)
 - Handoff documents wrapped in DSSE envelope around in-toto Statement v1, ed25519-signed — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`)
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
-- Commit signatures via signet bridge certificates (see `signet/docs/design/004-bridge-certs.md`) — **not yet implemented**
+- Commit signatures via signet bridge certificates (see [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
 - Shared CMS/Ed25519 implementation via ley-line (`ley-line/rs/crates/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; consolidation onto leyline-sign is pending the wasm32 emit per `ley-line-c764c6`)
 
 **What it proves**: "We know what happened AND who attests to it." Tamper-evident.
@@ -267,11 +270,11 @@ key format — it delegates to signet's existing specifications.
 
 | Level | Key Type | Lifetime | Defined In |
 |-------|----------|----------|------------|
-| User master key | Ed25519 | Long-lived | `signet/pkg/crypto/algorithm/ed25519.go` |
-| Orchestrator bridge cert | X.509 + Ed25519 | Short-lived, per-dispatch | `signet/docs/design/004-bridge-certs.md` |
-| Agent session key | Ephemeral Ed25519 | Per-session | `signet/pkg/crypto/epr/proof.go` |
+| User master key | Ed25519 | Long-lived | [`pkg/crypto/algorithm/ed25519.go`](../../pkg/crypto/algorithm/ed25519.go) |
+| Orchestrator bridge cert | X.509 + Ed25519 | Short-lived, per-dispatch | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) |
+| Workload session key | Ephemeral Ed25519 | Per-session | [`pkg/crypto/epr/proof.go`](../../pkg/crypto/epr/proof.go) |
 
-The 4-entity identity model from `signet/pkg/sigid/` decomposes identity as:
+The 4-entity identity model from [`pkg/sigid/`](../../pkg/sigid/) decomposes identity as:
 - **Owner**: the human user who authorized the dispatch
 - **Machine**: the host running the workload (Fly machine, local Mac)
 - **Actor**: the agent persona (dev-agent, staging-agent) — a definition, not a running instance
@@ -308,19 +311,32 @@ implemented. Lower levels (ToolCall, FileChange) and upper levels (Thread,
 Decade) are target design.
 
 ```
-H(FileChange) = SHA256(path || old_content || new_content)
-H(ToolCall)   = SHA256(tool_name || input_hash || output_hash || timestamp)
-H(Action)     = SHA256(H(ToolCall_0) || H(ToolCall_1) || ... || H(ToolCall_n))
-H(Phase)      = SHA256(agent || provider || H(Action) || H(previous_phase))
-H(WorkItem)   = SHA256(H(Phase_0) || H(Phase_1) || ... || H(Phase_n))
-H(Thread)     = SHA256(H(WorkItem_0) || H(WorkItem_1) || ... || H(WorkItem_m))
-H(Decade)     = SHA256(H(Thread_0) || H(Thread_1) || ... || H(Thread_k))
+H(FileChange)        = SHA256(path || old_content || new_content)
+H(ToolCall)          = SHA256(tool_name || input_hash || output_hash || timestamp)
+H(Action)            = SHA256(H(ToolCall_0) || H(ToolCall_1) || ... || H(ToolCall_n))
+H(Phase)             = SHA256(agent_definition || workload_identity || provider || H(Action) || H(previous_phase))
+H(WorkItem)          = SHA256(H(Phase_0) || H(Phase_1) || ... || H(Phase_n))
+H(WorkItemGroup)     = SHA256(H(WorkItem_0) || H(WorkItem_1) || ... || H(WorkItem_m))
+H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... || H(WorkItemGroup_k))
 ```
 
-> **Implementation mapping**: in the rosary reference implementation, "WorkItem"
-> is a *bead* (a file-scoped task tracked in `.beads/`). The hash structure is
-> orchestrator-agnostic — any APAS implementation supplies its own work-item
-> primitive that satisfies the H(WorkItem) contract.
+`H(Phase)` inputs:
+- `agent_definition` — content hash of the agent's `.md` file (the persona).
+- `workload_identity` — the workload's bridge-cert subject / SPIFFE ID (the running dispatch instance).
+- `provider` — model provider string (`anthropic`, `openai`, etc.).
+- Both `agent_definition` and `workload_identity` are present so a Phase
+  binds the *what-was-supposed-to-run* to *what-actually-ran*.
+
+> **Implementation mapping**: in the rosary reference implementation:
+> - `WorkItem` → *bead* (a file-scoped task tracked in `.beads/`).
+> - `WorkItemGroup` → *thread* (an ordered group of related beads).
+> - `WorkItemLifecycle` → *decade* (an ADR-level grouping of threads).
+>
+> The hash hierarchy is orchestrator-agnostic — any APAS implementation
+> supplies its own work-item / grouping / lifecycle primitives that
+> satisfy the corresponding `H(...)` contract. rosary-specific names
+> appear elsewhere in this spec (Glossary, §7 Reference Implementation)
+> as illustrative anchors, not as normative wire vocabulary.
 
 ### 4.2 Chain Properties
 
