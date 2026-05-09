@@ -5,7 +5,7 @@
 **Authors**: Agentic Research
 **Date**: 2026-05-09
 
-> **0.2.0 changes**: (1) genericized work-item terminology in spec sections — orchestrator-specific terms (rosary "bead", BDR, Thread, Decade) are kept only in the reference-implementation section and the glossary; (2) distinguished **agent** (persona/definition) from **workload** (running dispatch instance with SVID); (3) updated L2 status: in-toto + DSSE handoff envelope is **shipped** in rosary (`src/dsse.rs`, predicate `https://rosary.dev/Handoff/v1`).
+> **0.2.0 changes**: (1) genericized work-item terminology in spec sections — orchestrator-specific terms (rosary "bead", BDR, Thread, Decade) are kept only in the reference-implementation section and the glossary; (2) distinguished **agent** (persona/definition) from **dispatch** (a specific running execution of that agent — the unit of cryptographic identity, bearing a per-dispatch bridge cert); (3) updated L2 status: in-toto + DSSE handoff envelope is **shipped** in rosary (`src/dsse.rs`, predicate `https://rosary.dev/Handoff/v1`).
 
 > **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today
 > in the rosary reference implementation. Sections marked **[TARGET]** describe the
@@ -27,7 +27,7 @@ APAS builds on and references these existing specifications rather than reinvent
 | Spec | Source | APAS Usage |
 |------|--------|-----------|
 | Signet Token Format | [`docs/design/001-signet-tokens.md`](../design/001-signet-tokens.md) | Identity tokens (CBOR + COSE/Ed25519) |
-| Signet Bridge Certificates | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) | Delegated identity for workloads |
+| Signet Bridge Certificates | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) | Delegated identity for dispatches |
 | Signet Identity Model | [`pkg/sigid/`](../../pkg/sigid/) | 4-entity decomposition (Owner/Machine/Actor/Identity) |
 | Ley-line CMS Signing | `ley-line/rs/crates/sign/src/cms.rs` | Ed25519 CMS/PKCS#7 (RFC 5652 + RFC 8419) |
 | in-toto Statement | https://in-toto.io/Statement/v1 | Attestation envelope format |
@@ -59,16 +59,19 @@ SBOMs (CycloneDX, SPDX) answer "what components are in this software?" Agent pro
 |----------|------|-----------------|
 | Scope | Components | Decisions + Actions |
 | Temporal | Point-in-time | Causal chain |
-| Identity | Package origin | Workload (running dispatch) + agent persona + orchestrator + user |
+| Identity | Package origin | Dispatch (the running execution) + agent persona + orchestrator + user |
 | Verification | Hash matching | Signature chain |
 | Trust model | Publisher attestation | Multi-party attestation |
 
 > **Terminology**: APAS distinguishes the **agent** (a persona/role definition,
 > e.g. `dev-agent`, `staging-agent` — described by a `.md` file) from the
-> **workload** (a specific running instance of that agent on a specific
-> dispatch — the entity that bears the SVID/bridge-cert and is sandboxed at
-> L3). One agent definition can produce many workloads. Borrowed from SPIFFE,
-> where a workload is the unit of cryptographic identity.
+> **dispatch** (a specific running execution of that agent — the entity that
+> bears the bridge-cert as its identity and is sandboxed at L3). One agent
+> definition can produce many dispatches. The dispatch is the unit of
+> cryptographic identity in APAS; analogous to SPIFFE's "workload," but the
+> term "workload" is avoided because it implies deterministic execution of a
+> known program, whereas an AI agent dispatch is non-deterministic by
+> construction (same definition + same inputs ↛ same outputs).
 
 ## 2. Conformance Levels
 
@@ -76,9 +79,9 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 ### Level 1: Audit Trail (L1) **[CURRENT — partial]**
 
-**Requirement**: Every workload action is recorded with structured metadata.
+**Requirement**: Every dispatch action is recorded with structured metadata.
 
-- Dispatch manifest captures: workload identity, agent definition, provider, model, permissions, work-item reference, timestamps
+- Dispatch manifest captures: dispatch identity (bridge-cert subject), agent definition, provider, model, permissions, work-item reference, timestamps
 - Tool calls logged to a stream file (e.g. `.rsry-stream.jsonl` in the rosary reference implementation)
 - Pipeline phase transitions recorded with handoff documents
 - All records are JSON, machine-parseable
@@ -116,27 +119,27 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 ### Level 3: Isolated Execution (L3) **[TARGET — foundation in ACP]**
 
-**Requirement**: Workload execution is isolated from the attestation authority.
+**Requirement**: Dispatch execution is isolated from the attestation authority.
 
-- Workloads run in sandboxed environments (container, VM, or OS sandbox); each running dispatch instance is one workload
-- The orchestrator that writes attestations cannot modify the workload's workspace
+- Dispatches execute in sandboxed environments (container, VM, or OS sandbox); each running execution is one dispatch
+- The orchestrator that writes attestations cannot modify the dispatch's workspace
 - Tool calls are mediated through a permission boundary (ACP `request_permission`)
 - Network access is restricted to declared endpoints
 - File system access is scoped to the workspace
 
-**What it proves**: "The workload operated within declared boundaries." The fox and henhouse are separated.
+**What it proves**: "The dispatch operated within declared boundaries." The fox and henhouse are separated.
 
-**What it does NOT prove**: The workload's inputs were not poisoned.
+**What it does NOT prove**: The dispatch's inputs were not poisoned.
 
 ### Level 4: Verified Inputs (L4) **[TARGET — future]**
 
-**Requirement**: Workload inputs are themselves attested and verified.
+**Requirement**: Dispatch inputs are themselves attested and verified.
 
 - CLAUDE.md / system prompts are content-hashed and included in attestation
 - MCP server responses are logged and hashed
 - Work-item descriptions are immutable after dispatch (content_hash in the orchestrator's work-item record; in the rosary reference impl this is `BeadSpec::content_hash`)
 - Model provider responses are logged (for forensic reconstruction, not real-time verification)
-- Agent definition + workload binary/version are attested (SBOM of the runtime itself)
+- Agent definition + dispatch runtime binary/version are attested (SBOM of the runtime itself)
 
 **What it proves**: "The full chain from input to output is verifiable." End-to-end provenance.
 
@@ -272,15 +275,15 @@ key format — it delegates to signet's existing specifications.
 |-------|----------|----------|------------|
 | User master key | Ed25519 | Long-lived | [`pkg/crypto/algorithm/ed25519.go`](../../pkg/crypto/algorithm/ed25519.go) |
 | Orchestrator bridge cert | X.509 + Ed25519 | Short-lived, per-dispatch | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) |
-| Workload session key | Ephemeral Ed25519 | Per-session | [`pkg/crypto/epr/proof.go`](../../pkg/crypto/epr/proof.go) |
+| Dispatch session key | Ephemeral Ed25519 | Per-session | [`pkg/crypto/epr/proof.go`](../../pkg/crypto/epr/proof.go) |
 
 The 4-entity identity model from [`pkg/sigid/`](../../pkg/sigid/) decomposes identity as:
 - **Owner**: the human user who authorized the dispatch
-- **Machine**: the host running the workload (Fly machine, local Mac)
+- **Machine**: the host running the dispatch (Fly machine, local Mac)
 - **Actor**: the agent persona (dev-agent, staging-agent) — a definition, not a running instance
-- **Identity**: the cryptographic key binding all three to the running **workload** (the dispatch instance carrying the SVID/bridge-cert)
+- **Identity**: the cryptographic key binding all three to the running **dispatch** (the execution carrying the bridge-cert)
 
-The bridge cert IS the workload's SVID. One Actor (agent definition) can produce many workloads (running dispatches), each with its own short-lived bridge cert.
+The bridge cert IS the dispatch's identity. One Actor (agent definition) can produce many dispatches, each with its own short-lived bridge cert.
 
 Signing implementation uses ley-line's Rust CMS crate (`ley-line/rs/crates/sign/src/cms.rs`)
 which supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA).
@@ -314,7 +317,7 @@ Decade) are target design.
 H(FileChange)        = SHA256(path || old_content || new_content)
 H(ToolCall)          = SHA256(tool_name || input_hash || output_hash || timestamp)
 H(Action)            = SHA256(H(ToolCall_0) || H(ToolCall_1) || ... || H(ToolCall_n))
-H(Phase)             = SHA256(agent_definition || workload_identity || provider || H(Action) || H(previous_phase))
+H(Phase)             = SHA256(agent_definition || dispatch_identity || provider || H(Action) || H(previous_phase))
 H(WorkItem)          = SHA256(H(Phase_0) || H(Phase_1) || ... || H(Phase_n))
 H(WorkItemGroup)     = SHA256(H(WorkItem_0) || H(WorkItem_1) || ... || H(WorkItem_m))
 H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... || H(WorkItemGroup_k))
@@ -322,9 +325,9 @@ H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... ||
 
 `H(Phase)` inputs:
 - `agent_definition` — content hash of the agent's `.md` file (the persona).
-- `workload_identity` — the workload's bridge-cert subject / SPIFFE ID (the running dispatch instance).
+- `dispatch_identity` — the dispatch's bridge-cert subject (the running execution that produced this Phase).
 - `provider` — model provider string (`anthropic`, `openai`, etc.).
-- Both `agent_definition` and `workload_identity` are present so a Phase
+- Both `agent_definition` and `dispatch_identity` are present so a Phase
   binds the *what-was-supposed-to-run* to *what-actually-ran*.
 
 > **Implementation mapping**: in the rosary reference implementation:
@@ -372,11 +375,11 @@ H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... ||
 
 | Threat | L1 | L2 | L3 | L4 |
 |--------|----|----|----|----|
-| Forged workload identity | - | Detected | Detected | Detected |
+| Forged dispatch identity | - | Detected | Detected | Detected |
 | Tampered attestation | - | Detected | Detected | Detected |
 | Phantom work-item injection | - | Detected (breaks chain) | Detected | Detected |
 | Unauthorized tool use | - | - | Prevented | Prevented |
-| Poisoned workload input | - | - | - | Detected |
+| Poisoned dispatch input | - | - | - | Detected |
 | Compromised model provider | - | - | - | Forensic only |
 
 ### 5.2 Threats NOT Addressed (Red Team Findings)
@@ -461,12 +464,12 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 ## Appendix A: Glossary
 
 - **APAS**: Agent Provenance Attestation Standard
-- **Agent**: A persona / role definition (e.g. `dev-agent`, `staging-agent`) — typically a `.md` file. Not a running thing; one agent definition can produce many workloads.
-- **Workload**: One running dispatch instance executing under an agent definition. The unit of cryptographic identity (carries the SVID / bridge cert). Borrowed from SPIFFE.
-- **Bridge Certificate**: Short-lived X.509 cert delegating identity from master key to a workload. Functionally the workload's SVID.
+- **Agent**: A persona / role definition (e.g. `dev-agent`, `staging-agent`) — typically a `.md` file. Not a running thing; one agent definition can produce many dispatches.
+- **Dispatch**: One specific running execution under an agent definition. The unit of cryptographic identity (bears the bridge cert). The term is preferred over SPIFFE's "workload" because AI dispatches are non-deterministic by construction (same definition + same inputs ↛ same outputs).
+- **Bridge Certificate**: Short-lived X.509 cert delegating identity from master key to a dispatch. Identifies the running execution.
 - **DSSE**: Dead Simple Signing Envelope (in-toto signing format)
 - **Handoff**: Structured context transfer between pipeline phases
-- **Manifest**: Dispatch SBOM — complete record of a single workload execution
+- **Manifest**: Dispatch SBOM — complete record of a single dispatch's execution
 - **Work Item**: An orchestrator-tracked, file-scoped, content-hashed task that is the dispatch target. Implementation-defined; in the rosary reference implementation a work item is a *bead* (tracked in `.beads/`).
 - **Bead** *(rosary-specific)*: rosary's name for a Work Item; tracked in `.beads/`.
 - **BDR** *(rosary-specific)*: Bead Decomposition Record — how ADRs decompose into dispatchable work in rosary.
