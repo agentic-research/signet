@@ -34,8 +34,24 @@ jobs:
           version: 3.x
 
       - name: Install golangci-lint
+        # SHA-pinned per repo convention (PR #116, PR #113). Two pins:
+        #
+        # 1. install.sh URL → commit 35b2189 ("fix: install.sh script #6539",
+        #    2026-05-01). Most recent install.sh-touching commit on `main`
+        #    (golangci-lint renamed default branch from master to main; the
+        #    previous URL still using `master` was already drifting). Bump
+        #    when upstream ships further install.sh fixes.
+        #
+        # 2. golangci-lint version → v2.12.1 (released 2026-05-02). The
+        #    next release v2.12.2 (2026-05-06) ships a tarball whose
+        #    published checksum doesn't match the actual download
+        #    (observed in this repo's CI 2026-05-09: expected 8df580…,
+        #    got fd3a13…), failing install.sh's verify step. Stay on
+        #    v2.12.1 until upstream re-publishes a working v2.12.2 (or
+        #    cuts a v2.12.3); when bumping, update BOTH this pin AND
+        #    the URL pin above to a commit that includes the new release.
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/35b2189782a6a059489289257e6523550167cb64/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.12.1
           golangci-lint --version
 
       - name: Install dependencies
