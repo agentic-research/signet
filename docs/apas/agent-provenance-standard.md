@@ -1,13 +1,18 @@
 # Agent Provenance Attestation Standard (APAS)
 
-**Version**: 0.1.0-draft
+**Version**: 0.2.0-draft
 **Status**: Draft
 **Authors**: Agentic Research
-**Date**: 2026-03-25
+**Date**: 2026-05-09
+
+> **0.2.0 changes**: (1) genericized work-item terminology in spec sections — orchestrator-specific terms (rosary "bead", BDR, Thread, Decade) are kept only in the reference-implementation section and the glossary; (2) distinguished **agent** (persona/definition) from **dispatch** (a specific running execution of that agent — the unit of cryptographic identity, bearing a per-dispatch bridge cert); (3) updated L2 status: in-toto + DSSE handoff envelope is **shipped** in rosary (`src/dsse.rs`, predicate `https://rosary.dev/Handoff/v1`).
 
 > **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today
 > in the rosary reference implementation. Sections marked **[TARGET]** describe the
-> intended design that is not yet implemented.
+> intended design that is not yet implemented. Sections marked **[PARTIAL]**
+> describe a level whose prerequisites have shipped and whose implementation is
+> in flight — some bullets within the section are shipped (annotated **shipped**)
+> and others are open (annotated **not yet implemented**).
 
 ## Abstract
 
@@ -21,9 +26,9 @@ APAS builds on and references these existing specifications rather than reinvent
 
 | Spec | Source | APAS Usage |
 |------|--------|-----------|
-| Signet Token Format | `signet/docs/design/001-signet-tokens.md` | Identity tokens (CBOR + COSE/Ed25519) |
-| Signet Bridge Certificates | `signet/docs/design/004-bridge-certs.md` | Delegated identity for agents |
-| Signet Identity Model | `signet/pkg/sigid/` | 4-entity decomposition (Owner/Machine/Actor/Identity) |
+| Signet Token Format | [`docs/design/001-signet-tokens.md`](../design/001-signet-tokens.md) | Identity tokens (CBOR + COSE/Ed25519) |
+| Signet Bridge Certificates | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) | Delegated identity for dispatches |
+| Signet Identity Model | [`pkg/sigid/`](../../pkg/sigid/) | 4-entity decomposition (Owner/Machine/Actor/Identity) |
 | Ley-line CMS Signing | `ley-line/rs/crates/sign/src/cms.rs` | Ed25519 CMS/PKCS#7 (RFC 5652 + RFC 8419) |
 | in-toto Statement | https://in-toto.io/Statement/v1 | Attestation envelope format |
 | DSSE | Dead Simple Signing Envelope | Signature wrapper |
@@ -54,9 +59,19 @@ SBOMs (CycloneDX, SPDX) answer "what components are in this software?" Agent pro
 |----------|------|-----------------|
 | Scope | Components | Decisions + Actions |
 | Temporal | Point-in-time | Causal chain |
-| Identity | Package origin | Agent + orchestrator + user |
+| Identity | Package origin | Dispatch (the running execution) + agent persona + orchestrator + user |
 | Verification | Hash matching | Signature chain |
 | Trust model | Publisher attestation | Multi-party attestation |
+
+> **Terminology**: APAS distinguishes the **agent** (a persona/role definition,
+> e.g. `dev-agent`, `staging-agent` — described by a `.md` file) from the
+> **dispatch** (a specific running execution of that agent — the entity that
+> bears the bridge-cert as its identity and is sandboxed at L3). One agent
+> definition can produce many dispatches. The dispatch is the unit of
+> cryptographic identity in APAS; analogous to SPIFFE's "workload," but the
+> term "workload" is avoided because it implies deterministic execution of a
+> known program, whereas an AI agent dispatch is non-deterministic by
+> construction (same definition + same inputs ↛ same outputs).
 
 ## 2. Conformance Levels
 
@@ -64,10 +79,10 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 ### Level 1: Audit Trail (L1) **[CURRENT — partial]**
 
-**Requirement**: Every agent action is recorded with structured metadata.
+**Requirement**: Every dispatch action is recorded with structured metadata.
 
-- Dispatch manifest captures: agent identity, provider, model, permissions, bead reference, timestamps
-- Tool calls logged to stream file (`.rsry-stream.jsonl` or equivalent)
+- Dispatch manifest captures: dispatch identity (bridge-cert subject), agent definition, provider, model, permissions, work-item reference, timestamps
+- Tool calls logged to a stream file (e.g. `.rsry-stream.jsonl` in the rosary reference implementation)
 - Pipeline phase transitions recorded with handoff documents
 - All records are JSON, machine-parseable
 
@@ -81,16 +96,15 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 > debugging and audit, but an attacker who compromises the orchestrator can forge
 > records. Do not treat L1 as a security boundary.
 
-### Level 2: Signed Attestations (L2) **[TARGET — prerequisite shipped]**
+### Level 2: Signed Attestations (L2) **[PARTIAL — handoff path shipped, dispatch/commit pending]**
 
 **Requirement**: Every attestation is cryptographically signed by the entity that produced it.
 
 - Hash chain links content hashes, not file paths — **shipped** (rosary PR #117, `Handoff::previous_chain_hash`)
+- Handoff documents wrapped in DSSE envelope around in-toto Statement v1, ed25519-signed — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`)
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
-- Handoff documents signed by the phase's agent key (or orchestrator on behalf) — **not yet implemented**
-- Commit signatures via signet bridge certificates (see `signet/docs/design/004-bridge-certs.md`) — **not yet implemented**
-- Attestations use in-toto envelope format with APAS predicate type — **not yet implemented**
-- Signing uses ley-line's CMS/Ed25519 implementation (`ley-line/rs/crates/sign/`) — **not yet implemented**
+- Commit signatures via signet bridge certificates (see [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
+- Shared CMS/Ed25519 implementation via ley-line (`ley-line/rs/crates/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; consolidation onto leyline-sign is pending the wasm32 emit per `ley-line-c764c6`)
 
 **What it proves**: "We know what happened AND who attests to it." Tamper-evident.
 
@@ -105,27 +119,27 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 ### Level 3: Isolated Execution (L3) **[TARGET — foundation in ACP]**
 
-**Requirement**: Agent execution is isolated from the attestation authority.
+**Requirement**: Dispatch execution is isolated from the attestation authority.
 
-- Agents run in sandboxed environments (container, VM, or OS sandbox)
-- The orchestrator that writes attestations cannot modify agent workspace
+- Dispatches execute in sandboxed environments (container, VM, or OS sandbox); each running execution is one dispatch
+- The orchestrator that writes attestations cannot modify the dispatch's workspace
 - Tool calls are mediated through a permission boundary (ACP `request_permission`)
 - Network access is restricted to declared endpoints
 - File system access is scoped to the workspace
 
-**What it proves**: "The agent operated within declared boundaries." The fox and henhouse are separated.
+**What it proves**: "The dispatch operated within declared boundaries." The fox and henhouse are separated.
 
-**What it does NOT prove**: The agent's inputs were not poisoned.
+**What it does NOT prove**: The dispatch's inputs were not poisoned.
 
 ### Level 4: Verified Inputs (L4) **[TARGET — future]**
 
-**Requirement**: Agent inputs are themselves attested and verified.
+**Requirement**: Dispatch inputs are themselves attested and verified.
 
 - CLAUDE.md / system prompts are content-hashed and included in attestation
 - MCP server responses are logged and hashed
-- Bead descriptions are immutable after dispatch (content_hash in BeadSpec)
+- Work-item descriptions are immutable after dispatch (content_hash in the orchestrator's work-item record; in the rosary reference impl this is `BeadSpec::content_hash`)
 - Model provider responses are logged (for forensic reconstruction, not real-time verification)
-- Agent binary/version is attested (SBOM of the agent itself)
+- Agent definition + dispatch runtime binary/version are attested (SBOM of the runtime itself)
 
 **What it proves**: "The full chain from input to output is verifiable." End-to-end provenance.
 
@@ -141,7 +155,7 @@ APAS uses the in-toto attestation framework with a custom predicate type.
   "subject": [
     {
       "name": "rosary-11214e",
-      "digest": { "sha256": "<bead_content_hash>" }
+      "digest": { "sha256": "<work_item_content_hash>" }
     }
   ],
   "predicateType": "https://notme.bot/provenance/dispatch/v1",
@@ -159,9 +173,9 @@ APAS uses the in-toto attestation framework with a custom predicate type.
 ```json
 {
   "dispatchDefinition": {
-    "beadRef": {
+    "workItemRef": {
       "repo": "rosary",
-      "beadId": "rosary-11214e",
+      "workItemId": "rosary-11214e",
       "contentHash": "sha256:abc123..."
     },
     "pipeline": {
@@ -212,7 +226,7 @@ APAS uses the in-toto attestation framework with a custom predicate type.
       "highestTier": 2,
       "tiers": [
         {"name": "commit-check", "passed": true},
-        {"name": "bead-ref-check", "passed": true},
+        {"name": "work-item-ref-check", "passed": true},
         {"name": "diff-sanity", "passed": true}
       ]
     },
@@ -224,7 +238,7 @@ APAS uses the in-toto attestation framework with a custom predicate type.
     "outcome": {
       "success": true,
       "stopReason": "end_turn",
-      "beadClosed": false
+      "workItemClosed": false
     },
     "handoffChain": {
       "phaseHash": "sha256:<hash of this phase>",
@@ -259,15 +273,17 @@ key format — it delegates to signet's existing specifications.
 
 | Level | Key Type | Lifetime | Defined In |
 |-------|----------|----------|------------|
-| User master key | Ed25519 | Long-lived | `signet/pkg/crypto/algorithm/ed25519.go` |
-| Orchestrator bridge cert | X.509 + Ed25519 | Short-lived, per-dispatch | `signet/docs/design/004-bridge-certs.md` |
-| Agent session key | Ephemeral Ed25519 | Per-session | `signet/pkg/crypto/epr/proof.go` |
+| User master key | Ed25519 | Long-lived | [`pkg/crypto/algorithm/ed25519.go`](../../pkg/crypto/algorithm/ed25519.go) |
+| Orchestrator bridge cert | X.509 + Ed25519 | Short-lived, per-dispatch | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) |
+| Dispatch session key | Ephemeral Ed25519 | Per-session | [`pkg/crypto/epr/proof.go`](../../pkg/crypto/epr/proof.go) |
 
-The 4-entity identity model from `signet/pkg/sigid/` decomposes identity as:
+The 4-entity identity model from [`pkg/sigid/`](../../pkg/sigid/) decomposes identity as:
 - **Owner**: the human user who authorized the dispatch
-- **Machine**: the orchestrator instance (Fly machine, local Mac)
-- **Actor**: the agent persona (dev-agent, staging-agent)
-- **Identity**: the cryptographic key binding all three
+- **Machine**: the host running the dispatch (Fly machine, local Mac)
+- **Actor**: the agent persona (dev-agent, staging-agent) — a definition, not a running instance
+- **Identity**: the cryptographic key binding all three to the running **dispatch** (the execution carrying the bridge-cert)
+
+The bridge cert IS the dispatch's identity. One Actor (agent definition) can produce many dispatches, each with its own short-lived bridge cert.
 
 Signing implementation uses ley-line's Rust CMS crate (`ley-line/rs/crates/sign/src/cms.rs`)
 which supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA).
@@ -280,7 +296,7 @@ which supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA).
 > separates `buildDefinition` from `runDetails` so different parties can attest
 > to different parts. A candidate split:
 >
-> - `https://notme.bot/provenance/dispatch-definition/v1` — what was intended (bead, pipeline, agent)
+> - `https://notme.bot/provenance/dispatch-definition/v1` — what was intended (work-item, pipeline, agent)
 > - `https://notme.bot/provenance/dispatch-execution/v1` — what happened (timing, work, cost)
 > - `https://notme.bot/provenance/dispatch-verification/v1` — what was verified (tiers, outcome)
 >
@@ -293,19 +309,37 @@ which supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA).
 ### 4.1 Element Hashes **[TARGET — only Phase level is implemented]**
 
 Each level in the hierarchy has a content hash. Currently only the Phase level
-(`Handoff::chain_hash()`) and Bead level (`BeadSpec::content_hash()`) are
+(`Handoff::chain_hash()`) and WorkItem level (rosary's `BeadSpec::content_hash()`) are
 implemented. Lower levels (ToolCall, FileChange) and upper levels (Thread,
 Decade) are target design.
 
 ```
-H(FileChange) = SHA256(path || old_content || new_content)
-H(ToolCall)   = SHA256(tool_name || input_hash || output_hash || timestamp)
-H(Action)     = SHA256(H(ToolCall_0) || H(ToolCall_1) || ... || H(ToolCall_n))
-H(Phase)      = SHA256(agent || provider || H(Action) || H(previous_phase))
-H(Bead)       = SHA256(H(Phase_0) || H(Phase_1) || ... || H(Phase_n))
-H(Thread)     = SHA256(H(Bead_0) || H(Bead_1) || ... || H(Bead_m))
-H(Decade)     = SHA256(H(Thread_0) || H(Thread_1) || ... || H(Thread_k))
+H(FileChange)        = SHA256(path || old_content || new_content)
+H(ToolCall)          = SHA256(tool_name || input_hash || output_hash || timestamp)
+H(Action)            = SHA256(H(ToolCall_0) || H(ToolCall_1) || ... || H(ToolCall_n))
+H(Phase)             = SHA256(agent_definition || dispatch_identity || provider || H(Action) || H(previous_phase))
+H(WorkItem)          = SHA256(H(Phase_0) || H(Phase_1) || ... || H(Phase_n))
+H(WorkItemGroup)     = SHA256(H(WorkItem_0) || H(WorkItem_1) || ... || H(WorkItem_m))
+H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... || H(WorkItemGroup_k))
 ```
+
+`H(Phase)` inputs:
+- `agent_definition` — content hash of the agent's `.md` file (the persona).
+- `dispatch_identity` — the dispatch's bridge-cert subject (the running execution that produced this Phase).
+- `provider` — model provider string (`anthropic`, `openai`, etc.).
+- Both `agent_definition` and `dispatch_identity` are present so a Phase
+  binds the *what-was-supposed-to-run* to *what-actually-ran*.
+
+> **Implementation mapping**: in the rosary reference implementation:
+> - `WorkItem` → *bead* (a file-scoped task tracked in `.beads/`).
+> - `WorkItemGroup` → *thread* (an ordered group of related beads).
+> - `WorkItemLifecycle` → *decade* (an ADR-level grouping of threads).
+>
+> The hash hierarchy is orchestrator-agnostic — any APAS implementation
+> supplies its own work-item / grouping / lifecycle primitives that
+> satisfy the corresponding `H(...)` contract. rosary-specific names
+> appear elsewhere in this spec (Glossary, §7 Reference Implementation)
+> as illustrative anchors, not as normative wire vocabulary.
 
 ### 4.2 Chain Properties
 
@@ -341,11 +375,11 @@ H(Decade)     = SHA256(H(Thread_0) || H(Thread_1) || ... || H(Thread_k))
 
 | Threat | L1 | L2 | L3 | L4 |
 |--------|----|----|----|----|
-| Forged agent identity | - | Detected | Detected | Detected |
+| Forged dispatch identity | - | Detected | Detected | Detected |
 | Tampered attestation | - | Detected | Detected | Detected |
-| Phantom bead injection | - | Detected (breaks chain) | Detected | Detected |
+| Phantom work-item injection | - | Detected (breaks chain) | Detected | Detected |
 | Unauthorized tool use | - | - | Prevented | Prevented |
-| Poisoned agent input | - | - | - | Detected |
+| Poisoned dispatch input | - | - | - | Detected |
 | Compromised model provider | - | - | - | Forensic only |
 
 ### 5.2 Threats NOT Addressed (Red Team Findings)
@@ -405,7 +439,7 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 | 3 | L2 | Agent commits signed via signet bridge certs | rosary + signet |
 | 4 | L3 | Container sandbox for agent execution | rosary + rig |
 | 5 | L3 | ACP permission mediation as trust boundary | rosary |
-| 6 | L4 | Input hashing (CLAUDE.md, bead descriptions, MCP responses) | rosary |
+| 6 | L4 | Input hashing (CLAUDE.md, work-item descriptions, MCP responses) | rosary |
 | 7 | L4 | External witness (transparency log, ley-line arena) | ley-line |
 
 ## 8. The 5 Whys
@@ -430,14 +464,17 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 ## Appendix A: Glossary
 
 - **APAS**: Agent Provenance Attestation Standard
-- **Bead**: A file-scoped work item tracked in a repo's `.beads/` directory
-- **BDR**: Bead Decomposition Record — how ADRs decompose into dispatchable work
-- **Bridge Certificate**: Short-lived X.509 cert delegating identity from master key to agent
-- **Decade**: ADR-level grouping of threads
+- **Agent**: A persona / role definition (e.g. `dev-agent`, `staging-agent`) — typically a `.md` file. Not a running thing; one agent definition can produce many dispatches.
+- **Dispatch**: One specific running execution under an agent definition. The unit of cryptographic identity (bears the bridge cert). The term is preferred over SPIFFE's "workload" because AI dispatches are non-deterministic by construction (same definition + same inputs ↛ same outputs).
+- **Bridge Certificate**: Short-lived X.509 cert delegating identity from master key to a dispatch. Identifies the running execution.
 - **DSSE**: Dead Simple Signing Envelope (in-toto signing format)
 - **Handoff**: Structured context transfer between pipeline phases
-- **Thread**: Ordered group of related beads
-- **Manifest**: Dispatch SBOM — complete record of a single agent execution
+- **Manifest**: Dispatch SBOM — complete record of a single dispatch's execution
+- **Work Item**: An orchestrator-tracked, file-scoped, content-hashed task that is the dispatch target. Implementation-defined; in the rosary reference implementation a work item is a *bead* (tracked in `.beads/`).
+- **Bead** *(rosary-specific)*: rosary's name for a Work Item; tracked in `.beads/`.
+- **BDR** *(rosary-specific)*: Bead Decomposition Record — how ADRs decompose into dispatchable work in rosary.
+- **Thread** *(rosary-specific)*: Ordered group of related beads.
+- **Decade** *(rosary-specific)*: ADR-level grouping of threads.
 
 ## Appendix B: Domain Separation
 
