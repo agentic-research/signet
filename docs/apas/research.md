@@ -229,7 +229,7 @@ The OWASP Agentic Top 10 is the definitive risk taxonomy. Provenance-relevant en
 |------|-------|
 | Late Feb 2026 | TeamPCP exploits misconfiguration in Trivy's GitHub Actions environment, extracts a privileged access token |
 | Mar 1, 2026 | Trivy team discloses incident, rotates credentials --- **but rotation was not fully comprehensive** |
-| Mar 19, ~17:43 UTC | Attacker force-pushes 76 of 77 version tags in `aquasecurity/trivy-action` and all 7 tags in `aquasecurity/setup-trivy` to malicious commits. Compromised `aqua-bot` service account publishes malicious Trivy binary v0.69.4 |
+| Mar 19, ~17:43 UTC | Attacker force-pushes 75 of 76 version tags in `aquasecurity/trivy-action` and all 7 tags in `aquasecurity/setup-trivy` to malicious commits. Compromised `aqua-bot` service account publishes malicious Trivy binary v0.69.4 |
 | Mar 19, ~20:38 UTC | Trivy team identifies and contains the attack |
 | Mar 20, 2026 | Safe versions, user guidance, and IOCs published |
 | Post-Mar 20 | Aqua Security's internal GitHub organization defaced --- all 44 repositories renamed/altered using stolen service account token |
@@ -240,7 +240,7 @@ The OWASP Agentic Top 10 is the definitive risk taxonomy. Provenance-relevant en
 
 **Persistence**: When Trivy rotated credentials on March 1, the rotation was "not fully atomic" --- residual valid credentials remained, giving the attacker continued access.
 
-**Tag poisoning**: The attacker force-pushed 76 version tags (of 77) to point at malicious commits. This is a **git reference attack** --- the tag names stayed the same, but the commits they pointed to changed. Any CI/CD pipeline pinning to a tag (e.g., `uses: aquasecurity/trivy-action@v3`) would silently pull the malicious version.
+**Tag poisoning**: The attacker force-pushed 75 version tags (of 76) in `trivy-action` and all 7 in `setup-trivy` to point at malicious commits. This is a **git reference attack** --- the tag names stayed the same, but the commits they pointed to changed. Any CI/CD pipeline pinning to a tag (e.g., `uses: aquasecurity/trivy-action@v3`) would silently pull the malicious version.
 
 **Payload**: The "TeamPCP Cloud Stealer":
 1. Runs silently before the real scanner (workflows appear to complete normally)
