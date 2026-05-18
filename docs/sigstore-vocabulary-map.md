@@ -89,6 +89,15 @@ This is a substantive *addition* over Sigstore: signet's middleware can revoke a
 
 - The trust-policy subsystem is referred to as **`sigpol`** in older design docs (`docs/design/011-policy-bundles-scim.md`, `docs/design/sigpol-requirements.md`) and in [`signet/CLAUDE.md`](../CLAUDE.md) (the "Trust policy bundles (sigpol)" line). The actual Go package on disk is **`pkg/policy/`** ([`pkg/policy/bundle.go`](../pkg/policy/bundle.go), `pkg/policy/checker.go`, `pkg/policy/compiler.go`). When mapping signet docs to code: `sigpol` → `pkg/policy/` (`TrustPolicyBundle`, `PolicyChecker`, `Compiler` types). The baseline [`_baseline.md`](https://github.com/jamestexas/agents/blob/main/docs/prior-art/_baseline.md) Axis 5 also uses the colloquial "sigpol" name; the canonical name in code is `policy`.
 
+## Note on workload-identity URI scheme
+
+The example `--certificate-identity` argument shown in the Rekor verification flow (`docs/sigstore-integration.md` "Verifying via Rekor" section) points at a GitHub Actions workflow URL — that's *Sigstore's* identity convention, not WIMSE or SPIFFE. But the same cert *also* carries a workload-identity URI in its SANs, and the ART substrate currently has two:
+
+- **signet** (post-L10) emits `URI:spiffe://<trust-domain>/<workload>` ([`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go))
+- **notme** emits `wimse://notme.bot/{context}/{id}` ([`notme/schema/identity.capnp`](https://github.com/agentic-research/notme/blob/main/schema/identity.capnp) `BridgeCertPair.identity`)
+
+For a cosign verifier inspecting a signet-signed-via-Sigstore artifact, the workload-identity URI in the cert is `spiffe://` today. For a verifier inspecting a notme-minted bridge cert, it's `wimse://`. Reconciling these is tracked at bead [`cloister-2f021f`](https://github.com/agentic-research/cloister) (ADR-0026 — pick the canonical scheme). See [`spiffe-vocabulary-map.md`](./spiffe-vocabulary-map.md) §6 for the full divergence note.
+
 ## Cross-references
 
 - [`docs/sigstore-integration.md`](./sigstore-integration.md) — operational walkthrough of cosign + signet
