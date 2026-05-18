@@ -108,3 +108,4 @@ rs/target/
 *.db
 .gemini/docs/archive/
 /signet-agent
+.archive/
