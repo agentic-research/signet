@@ -161,11 +161,13 @@ Use Signet keys with the Sigstore ecosystem (cosign, gitsign):
 go build -o sigstore-kms-signet ./cmd/sigstore-kms-signet
 mv sigstore-kms-signet /usr/local/bin/
 
-# Sign artifacts with cosign using your Signet key
-cosign sign-blob --key signet://default --tlog-upload=false artifact.bin > artifact.sig
+# Sign artifacts with cosign using your Signet key (uploads to Rekor by default)
+cosign sign-blob --key signet://default --tlog-upload=true artifact.bin > artifact.sig
 ```
 
-See [`docs/sigstore-integration.md`](./docs/sigstore-integration.md) for full setup.
+The `--tlog-upload` and Rekor verification flags are handled entirely by `cosign`; the `sigstore-kms-signet` plugin only signs the digest it receives over the KMS plugin protocol.
+
+See [`docs/sigstore-integration.md`](./docs/sigstore-integration.md) for full setup, including a "Verifying via Rekor" section with copy-pasteable `cosign verify-blob` commands.
 
 ### Reverse Proxy (signet-proxy)
 
