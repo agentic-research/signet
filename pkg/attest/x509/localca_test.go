@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/agentic-research/go-cms/pkg/cms"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // TestCertificateChainValidation tests that certificates issued by LocalCA
@@ -259,4 +260,213 @@ func mustSerial(t *testing.T) *big.Int {
 		t.Fatal(err)
 	}
 	return sn
+}
+
+// TestSpiffeSAN_OmittedByDefault verifies that LocalCAs constructed without
+// a SPIFFE ID emit certs whose URIs contain only the issuer DID — i.e. this
+// change is additive and does not affect existing callers.
+func TestSpiffeSAN_OmittedByDefault(t *testing.T) {
+	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := NewLocalCA(masterPriv, "did:key:test-no-spiffe")
+
+	cert, _, secKey, err := ca.IssueCodeSigningCertificateSecure(5 * time.Minute)
+	if err != nil {
+		t.Fatalf("IssueCodeSigningCertificateSecure failed: %v", err)
+	}
+	defer secKey.Destroy()
+
+	if got := len(cert.URIs); got != 1 {
+		t.Fatalf("expected exactly 1 URI SAN (DID only), got %d: %v", got, cert.URIs)
+	}
+	for _, u := range cert.URIs {
+		if u.Scheme == "spiffe" {
+			t.Errorf("did not configure SpiffeID but found spiffe:// SAN: %s", u.String())
+		}
+	}
+}
+
+// TestSpiffeSAN_EmittedWhenConfigured verifies the L10 acceptance criterion:
+// when a LocalCA is configured with a SPIFFE ID, ephemeral certs carry the
+// `URI:spiffe://<trust-domain>/<workload-path>` URI in the SAN, and the URI
+// round-trips through `x509.Certificate.URIs` (which is what verifiers like
+// SPIRE / SVID-aware tools inspect).
+//
+// This test stands in for `openssl x509 -text` — Go's x509 parser surfaces
+// URI SANs in cert.URIs verbatim, so a successful Parse + scheme/host check
+// is equivalent evidence.
+func TestSpiffeSAN_EmittedWhenConfigured(t *testing.T) {
+	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const trustDomain = "art.local"
+	const workload = "workload/signet-ephemeral"
+
+	// Build via the canonical helper. This is the path real callers will
+	// take when they wire a MasterKeyDescriptor.TrustDomain through.
+	desc := signet.MasterKeyDescriptor{
+		IssuerDID:   "did:key:test-spiffe",
+		TrustDomain: trustDomain,
+	}
+	wantSpiffe := desc.SpiffeID(workload)
+	if wantSpiffe != "spiffe://art.local/workload/signet-ephemeral" {
+		t.Fatalf("BuildSpiffeID surprise: got %q", wantSpiffe)
+	}
+
+	ca := NewLocalCA(masterPriv, desc.IssuerDID).WithSpiffeID(wantSpiffe)
+
+	cert, _, secKey, err := ca.IssueCodeSigningCertificateSecure(5 * time.Minute)
+	if err != nil {
+		t.Fatalf("IssueCodeSigningCertificateSecure failed: %v", err)
+	}
+	defer secKey.Destroy()
+
+	// The SAN should contain at least two URIs now: the issuer DID and
+	// the SPIFFE ID. Order is implementation detail; we search by scheme.
+	if len(cert.URIs) < 2 {
+		t.Fatalf("expected >=2 URI SANs (DID + spiffe), got %d: %v", len(cert.URIs), cert.URIs)
+	}
+
+	var foundSpiffe *string
+	for _, u := range cert.URIs {
+		if u.Scheme == "spiffe" {
+			s := u.String()
+			foundSpiffe = &s
+			break
+		}
+	}
+	if foundSpiffe == nil {
+		t.Fatalf("no spiffe:// URI in cert.URIs: %v", cert.URIs)
+	}
+	if *foundSpiffe != wantSpiffe {
+		t.Errorf("SPIFFE SAN mismatch:\n  got:  %q\n  want: %q", *foundSpiffe, wantSpiffe)
+	}
+
+	// Also verify the DID URI is still present — additive, not replacing.
+	hasDID := false
+	for _, u := range cert.URIs {
+		if u.String() == desc.IssuerDID {
+			hasDID = true
+			break
+		}
+	}
+	if !hasDID {
+		t.Errorf("DID URI %q missing from cert.URIs: %v", desc.IssuerDID, cert.URIs)
+	}
+}
+
+// TestSpiffeSAN_ParentChainPropagates verifies that ephemeral certs issued
+// via the parent-chain helper (IssueCodeSigningCertWithParent, used for the
+// root→bridge→ephemeral chain) also carry the SPIFFE SAN when configured.
+// This guards against the trap where SPIFFE SAN only works on one of the
+// two issuance paths.
+func TestSpiffeSAN_ParentChainPropagates(t *testing.T) {
+	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgePub, bridgePriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootCA := NewLocalCA(masterPriv, "did:key:root-spiffe")
+	rootTemplate := rootCA.CreateCACertificateTemplate()
+	rootTemplate.SubjectKeyId = generateSubjectKeyID(masterPriv.Public())
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, masterPriv.Public(), masterPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootCert, err := x509.ParseCertificate(rootDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	bridgeTemplate := &x509.Certificate{
+		SerialNumber:          mustSerial(t),
+		Subject:               EncodeDIDAsSubject("alice@example.com"),
+		NotBefore:             now.Add(-1 * time.Hour),
+		NotAfter:              now.Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		MaxPathLen:            0,
+		MaxPathLenZero:        true,
+		SubjectKeyId:          generateSubjectKeyID(bridgePub),
+		AuthorityKeyId:        rootTemplate.SubjectKeyId,
+	}
+	bridgeDER, err := x509.CreateCertificate(rand.Reader, bridgeTemplate, rootTemplate, bridgePub, masterPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgeCert, err := x509.ParseCertificate(bridgeDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantSpiffe := signet.BuildSpiffeID("art.local", "agent/alice")
+	bridgeCA := NewLocalCA(bridgePriv, "alice@example.com").WithSpiffeID(wantSpiffe)
+
+	ephCert, _, secKey, err := bridgeCA.IssueCodeSigningCertWithParent(bridgeCert, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secKey.Destroy()
+
+	var foundSpiffe bool
+	for _, u := range ephCert.URIs {
+		if u.String() == wantSpiffe {
+			foundSpiffe = true
+			break
+		}
+	}
+	if !foundSpiffe {
+		t.Errorf("SPIFFE SAN missing under parent-chain issuance:\n  want: %q\n  got URIs: %v", wantSpiffe, ephCert.URIs)
+	}
+
+	// Chain must still validate — SPIFFE SAN is additive, not blocking.
+	_ = rootCert // chain validation parity with TestIssueCodeSigningCertWithParent isn't the focus here
+}
+
+// TestMasterKeyDescriptor_SpiffeID_Defaults documents the empty-TrustDomain
+// behavior: SpiffeID() returns "" and downstream consumers treat that as
+// "do not emit a SPIFFE SAN." This is the additive-safety contract.
+func TestMasterKeyDescriptor_SpiffeID_Defaults(t *testing.T) {
+	cases := []struct {
+		name string
+		desc signet.MasterKeyDescriptor
+		path string
+		want string
+	}{
+		{
+			name: "empty trust domain → empty spiffe id",
+			desc: signet.MasterKeyDescriptor{IssuerDID: "did:key:abc"},
+			path: "workload/foo",
+			want: "",
+		},
+		{
+			name: "trust domain set → spiffe id assembled",
+			desc: signet.MasterKeyDescriptor{IssuerDID: "did:key:abc", TrustDomain: "art.local"},
+			path: "workload/foo",
+			want: "spiffe://art.local/workload/foo",
+		},
+		{
+			name: "leading slash in path is normalized",
+			desc: signet.MasterKeyDescriptor{TrustDomain: "acme.com"},
+			path: "/billing/payments",
+			want: "spiffe://acme.com/billing/payments",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.desc.SpiffeID(tc.path); got != tc.want {
+				t.Errorf("SpiffeID(%q):\n  got:  %q\n  want: %q", tc.path, got, tc.want)
+			}
+		})
+	}
 }

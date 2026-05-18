@@ -29,6 +29,15 @@ type LocalCA struct {
 
 	// cachedCAPEM is the cached CA certificate PEM (generated once, stable)
 	cachedCAPEM []byte
+
+	// spiffeID is the optional SPIFFE ID URI to embed as a SAN on ephemeral
+	// certificates issued by this CA. When non-empty it MUST parse as a
+	// `spiffe://<trust-domain>/<workload-path>` URI. When empty, no SPIFFE
+	// SAN is emitted (existing behavior, additive change).
+	//
+	// See pkg/signet.BuildSpiffeID for the canonical helper used to build
+	// this string from a MasterKeyDescriptor's TrustDomain.
+	spiffeID string
 }
 
 // NewLocalCA creates a new Local CA with the given master key and DID
@@ -37,6 +46,27 @@ func NewLocalCA(masterKey crypto.Signer, issuerDID string) *LocalCA {
 		masterKey: masterKey,
 		issuerDID: issuerDID,
 	}
+}
+
+// WithSpiffeID returns the LocalCA after setting its SPIFFE ID URI. Ephemeral
+// certificates minted after this call will carry the SPIFFE URI as an
+// additional SAN (alongside the existing DID URI). Passing an empty string
+// disables SPIFFE SAN emission (the default).
+//
+// This is additive — existing callers that never invoke WithSpiffeID see the
+// same cert shape they did before this field was added.
+//
+// Returns the receiver for chaining: `NewLocalCA(k, did).WithSpiffeID("…")`.
+func (ca *LocalCA) WithSpiffeID(spiffeID string) *LocalCA {
+	ca.spiffeID = spiffeID
+	return ca
+}
+
+// SpiffeID returns the SPIFFE ID URI configured on this CA, or "" if none is
+// set. Exposed for test introspection and for callers that want to surface
+// the workload identity alongside the issued cert.
+func (ca *LocalCA) SpiffeID() string {
+	return ca.spiffeID
 }
 
 // IssueCodeSigningCertificateSecure creates an X.509 certificate
@@ -329,7 +359,12 @@ func (ca *LocalCA) CACertPEM() ([]byte, error) {
 }
 
 // CreateCertificateTemplate creates a basic X.509 certificate template
-// for an ephemeral certificate
+// for an ephemeral certificate.
+//
+// When the LocalCA has a non-empty SpiffeID (see WithSpiffeID), the SPIFFE
+// URI is appended to the certificate's SAN URIs list alongside the issuer
+// DID URI. This makes the cert SVID-shape for any CNCF-aware verifier
+// without changing the cert's wire format or threat model.
 func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x509.Certificate {
 	serialNumber, err := GenerateSerialNumber()
 	if err != nil {
@@ -342,6 +377,17 @@ func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x5
 	// Parse DID as URI for SAN
 	didURI, _ := url.Parse(ca.issuerDID)
 
+	// Always include the DID URI; optionally append the SPIFFE URI when
+	// the CA has been configured with one. Malformed SPIFFE IDs are
+	// skipped silently — callers should use signet.BuildSpiffeID, which
+	// produces well-formed URIs by construction.
+	uris := []*url.URL{didURI}
+	if ca.spiffeID != "" {
+		if spiffeURI, err := url.Parse(ca.spiffeID); err == nil && spiffeURI != nil {
+			uris = append(uris, spiffeURI)
+		}
+	}
+
 	return &x509.Certificate{
 		SerialNumber:          serialNumber,
 		Subject:               EncodeDIDAsSubject(ca.issuerDID),
@@ -350,7 +396,7 @@ func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x5
 		NotAfter:              now.Add(validityDuration),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
-		URIs:                  []*url.URL{didURI},
+		URIs:                  uris,
 		IsCA:                  false,
 		BasicConstraintsValid: true,
 	}
