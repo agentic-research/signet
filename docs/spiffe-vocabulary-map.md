@@ -90,7 +90,23 @@ SPIFFE's trust-bundle spec collapses these into a single `spiffe_sequence` monot
 
 Mapping rule: SPIFFE consumers should treat signet's `(Epoch, Seqno)` tuple as the lexicographic equivalent of `spiffe_sequence`. Renaming `Epoch` → `Sequence` is tracked as substrate-IDL non-leaf NL6 (held off pending call-site enumeration).
 
-### 6. Federation is not supported
+### 7. WIMSE vs SPIFFE: signet and notme picked different IETF tracks
+
+This map is named "SPIFFE" because L10 (now landed at commit `8a79f9a`, bead `signet-965dc7`) emits `URI:spiffe://<trust-domain>/<workload-path>` SANs. But sibling repo **notme** (`auth.notme.bot`) chose a different workload-identity URI scheme: `wimse://notme.bot/{context}/{id}`, per [`notme/schema/identity.capnp`](https://github.com/agentic-research/notme/blob/main/schema/identity.capnp) `BridgeCertPair.identity` field. WIMSE is the newer IETF Workload Identity Management & Security for Enterprise track; SPIFFE is the older CNCF-graduated track that solves the same problem with a different namespace.
+
+Today the ART substrate uses both, in different surfaces:
+
+| Surface | URI scheme | Source |
+|---|---|---|
+| signet ephemeral X.509 SAN (post-L10) | `spiffe://<trust-domain>/<workload>` | `signet/pkg/attest/x509/localca.go` |
+| notme `BridgeCertPair` identity | `wimse://notme.bot/{context}/{id}` | `notme/schema/identity.capnp` |
+| interlace-spec cluster identity | (implicit — 32-byte master pubkey) | `cloister/interlace-spec/0.1.0/README.md` §1.1 |
+
+This is the kind of cross-repo drift the substrate-IDL track was set up to prevent. An ADR-needed bead is filed at `cloister-2f021f` to decide which scheme is canonical for the substrate. Until the ADR lands, treat both as "the same concept, different namespaces" — a SPIFFE-aware consumer reading a notme bridge cert (or vice versa) will not see the URI they expect.
+
+The follow-on bead `signet-2f6b68` tracks moving signet's `MasterKeyDescriptor` (introduced by L10 at `pkg/signet/signet.go`) into `notme/schema/identity.capnp` via schema-bridge codegen — so the descriptor's `TrustDomain` field comes from a shared capnp type rather than a signet-only Go struct.
+
+### 8. Federation is not supported
 
 SPIFFE Federation lets two trust domains exchange bundles so a workload in `acme.com` can verify an SVID from `widgets.io`. Signet has one trust domain and no federation primitive. The eventual federation analogue is the interlace-spec "third-party caveat + discharge protocol" (substrate-IDL NL2, see `docs/prior-art/macaroons.md` §Adopt), not a signet-level mechanism.
 
