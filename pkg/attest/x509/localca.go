@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/agentic-research/signet/pkg/crypto/keys"
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // LocalCA provides the logic to issue self-signed, short-lived X.509 certificates
@@ -31,9 +32,12 @@ type LocalCA struct {
 	cachedCAPEM []byte
 
 	// spiffeID is the optional SPIFFE ID URI to embed as a SAN on ephemeral
-	// certificates issued by this CA. When non-empty it MUST parse as a
-	// `spiffe://<trust-domain>/<workload-path>` URI. When empty, no SPIFFE
-	// SAN is emitted (existing behavior, additive change).
+	// certificates issued by this CA. When non-empty it is always a
+	// well-formed `spiffe://<trust-domain>/<workload-path>` URI — the value
+	// is validated by signet.ValidateSpiffeID at config time (in
+	// WithSpiffeID/WithSpiffeIDChecked), so the CreateCertificateTemplate
+	// site can re-parse without rechecking. When empty, no SPIFFE SAN is
+	// emitted (existing behavior, additive change).
 	//
 	// See pkg/signet.BuildSpiffeID for the canonical helper used to build
 	// this string from a MasterKeyDescriptor's TrustDomain.
@@ -56,10 +60,43 @@ func NewLocalCA(masterKey crypto.Signer, issuerDID string) *LocalCA {
 // This is additive — existing callers that never invoke WithSpiffeID see the
 // same cert shape they did before this field was added.
 //
+// Validation: a non-empty spiffeID is validated via signet.ValidateSpiffeID
+// before being stored. **Panics on invalid input.** This is a config-time
+// call site — callers wire up their CA at startup with a known-good SPIFFE
+// ID (typically built via signet.BuildSpiffeID), so a panic here surfaces
+// misconfiguration immediately rather than silently dropping the SAN at
+// cert-mint time. For runtime input (e.g., values from a config file or
+// HTTP request that should fail loudly without crashing), use
+// WithSpiffeIDChecked which returns an error.
+//
 // Returns the receiver for chaining: `NewLocalCA(k, did).WithSpiffeID("…")`.
 func (ca *LocalCA) WithSpiffeID(spiffeID string) *LocalCA {
+	if spiffeID != "" {
+		if err := signet.ValidateSpiffeID(spiffeID); err != nil {
+			panic(fmt.Sprintf("LocalCA.WithSpiffeID: invalid SPIFFE ID %q: %v "+
+				"(use WithSpiffeIDChecked for runtime input)", spiffeID, err))
+		}
+	}
 	ca.spiffeID = spiffeID
 	return ca
+}
+
+// WithSpiffeIDChecked is the error-returning variant of WithSpiffeID. Use this
+// for SPIFFE IDs that come from runtime sources (config files, env vars,
+// HTTP requests) where silent panic-on-invalid is the wrong shape. Empty
+// spiffeID is valid and disables SPIFFE SAN emission (matches WithSpiffeID).
+//
+// Returns the receiver (for chaining-on-success patterns) and a non-nil
+// error when validation fails; when an error is returned the CA is
+// unchanged (the field is not set).
+func (ca *LocalCA) WithSpiffeIDChecked(spiffeID string) (*LocalCA, error) {
+	if spiffeID != "" {
+		if err := signet.ValidateSpiffeID(spiffeID); err != nil {
+			return ca, fmt.Errorf("LocalCA.WithSpiffeIDChecked: %w", err)
+		}
+	}
+	ca.spiffeID = spiffeID
+	return ca, nil
 }
 
 // SpiffeID returns the SPIFFE ID URI configured on this CA, or "" if none is
@@ -378,9 +415,11 @@ func (ca *LocalCA) CreateCertificateTemplate(validityDuration time.Duration) *x5
 	didURI, _ := url.Parse(ca.issuerDID)
 
 	// Always include the DID URI; optionally append the SPIFFE URI when
-	// the CA has been configured with one. Malformed SPIFFE IDs are
-	// skipped silently — callers should use signet.BuildSpiffeID, which
-	// produces well-formed URIs by construction.
+	// the CA has been configured with one. ca.spiffeID is pre-validated
+	// by WithSpiffeID/WithSpiffeIDChecked at config time (which call
+	// signet.ValidateSpiffeID), so the parse here cannot fail in the
+	// normal flow. If url.Parse does somehow return an error, drop the
+	// SAN — the DID URI in the cert remains the canonical identity.
 	uris := []*url.URL{didURI}
 	if ca.spiffeID != "" {
 		if spiffeURI, err := url.Parse(ca.spiffeID); err == nil && spiffeURI != nil {

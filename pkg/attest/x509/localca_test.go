@@ -312,7 +312,10 @@ func TestSpiffeSAN_EmittedWhenConfigured(t *testing.T) {
 		IssuerDID:   "did:key:test-spiffe",
 		TrustDomain: trustDomain,
 	}
-	wantSpiffe := desc.SpiffeID(workload)
+	wantSpiffe, err := desc.SpiffeID(workload)
+	if err != nil {
+		t.Fatalf("desc.SpiffeID returned error: %v", err)
+	}
 	if wantSpiffe != "spiffe://art.local/workload/signet-ephemeral" {
 		t.Fatalf("BuildSpiffeID surprise: got %q", wantSpiffe)
 	}
@@ -409,7 +412,10 @@ func TestSpiffeSAN_ParentChainPropagates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantSpiffe := signet.BuildSpiffeID("art.local", "agent/alice")
+	wantSpiffe, err := signet.BuildSpiffeID("art.local", "agent/alice")
+	if err != nil {
+		t.Fatalf("BuildSpiffeID failed: %v", err)
+	}
 	bridgeCA := NewLocalCA(bridgePriv, "alice@example.com").WithSpiffeID(wantSpiffe)
 
 	ephCert, _, secKey, err := bridgeCA.IssueCodeSigningCertWithParent(bridgeCert, 5*time.Minute)
@@ -430,7 +436,19 @@ func TestSpiffeSAN_ParentChainPropagates(t *testing.T) {
 	}
 
 	// Chain must still validate — SPIFFE SAN is additive, not blocking.
-	_ = rootCert // chain validation parity with TestIssueCodeSigningCertWithParent isn't the focus here
+	// Build the same root + intermediate pools TestIssueCodeSigningCertWithParent
+	// uses, then verify the ephemeral cert chains up cleanly.
+	roots := x509.NewCertPool()
+	roots.AddCert(rootCert)
+	intermediates := x509.NewCertPool()
+	intermediates.AddCert(bridgeCert)
+	if _, err := ephCert.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+	}); err != nil {
+		t.Errorf("ephemeral cert with SPIFFE SAN failed chain verify: %v", err)
+	}
 }
 
 // TestMasterKeyDescriptor_SpiffeID_Defaults documents the empty-TrustDomain
@@ -438,13 +456,14 @@ func TestSpiffeSAN_ParentChainPropagates(t *testing.T) {
 // "do not emit a SPIFFE SAN." This is the additive-safety contract.
 func TestMasterKeyDescriptor_SpiffeID_Defaults(t *testing.T) {
 	cases := []struct {
-		name string
-		desc signet.MasterKeyDescriptor
-		path string
-		want string
+		name    string
+		desc    signet.MasterKeyDescriptor
+		path    string
+		want    string
+		wantErr bool
 	}{
 		{
-			name: "empty trust domain → empty spiffe id",
+			name: "empty trust domain → empty spiffe id (safe default)",
 			desc: signet.MasterKeyDescriptor{IssuerDID: "did:key:abc"},
 			path: "workload/foo",
 			want: "",
@@ -461,10 +480,38 @@ func TestMasterKeyDescriptor_SpiffeID_Defaults(t *testing.T) {
 			path: "/billing/payments",
 			want: "spiffe://acme.com/billing/payments",
 		},
+		{
+			name:    "trust domain set + empty path → error (workload path required)",
+			desc:    signet.MasterKeyDescriptor{TrustDomain: "art.local"},
+			path:    "",
+			wantErr: true,
+		},
+		{
+			name:    "trust domain with spaces → error (invalid SPIFFE ID)",
+			desc:    signet.MasterKeyDescriptor{TrustDomain: "bad host with spaces"},
+			path:    "x",
+			wantErr: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.desc.SpiffeID(tc.path); got != tc.want {
+			got, err := tc.desc.SpiffeID(tc.path)
+			if err != nil {
+				// In the defaults-test cases below, error is only expected
+				// when TrustDomain is set but path is empty. Empty
+				// TrustDomain returns ("", nil) — both arms test the
+				// safe-default contract.
+				if tc.wantErr {
+					return // expected
+				}
+				t.Errorf("SpiffeID(%q): unexpected error: %v", tc.path, err)
+				return
+			}
+			if tc.wantErr {
+				t.Errorf("SpiffeID(%q): expected error, got %q", tc.path, got)
+				return
+			}
+			if got != tc.want {
 				t.Errorf("SpiffeID(%q):\n  got:  %q\n  want: %q", tc.path, got, tc.want)
 			}
 		})

@@ -8,14 +8,14 @@
 
 ## TL;DR
 
-Signet is consciously SPIRE-shaped on the trust-bundle + revocation axis (`pkg/revocation/` uses the same monotonic-sequence + bundle-rotation pattern as SPIFFE's `spiffe_sequence`). It does **not** ship the SPIRE Server / SPIRE Agent topology or the SPIFFE Workload API (Unix-socket gRPC) — that's the wrong shape for signet's deployment surface (CF Workers, developer laptops, GHA runners). Signet's ephemeral certs are SVID-shaped in lifetime and intent, but **do not currently embed `URI:spiffe://...` SANs** — that work is tracked in a separate bead (`signet-965dc7`, the upstream L10 leaf of the substrate-IDL decomposition). When that lands, the SAN row below becomes concrete.
+Signet is consciously SPIRE-shaped on the trust-bundle + revocation axis (`pkg/revocation/` uses the same monotonic-sequence + bundle-rotation pattern as SPIFFE's `spiffe_sequence`). It does **not** ship the SPIRE Server / SPIRE Agent topology or the SPIFFE Workload API (Unix-socket gRPC) — that's the wrong shape for signet's deployment surface (CF Workers, developer laptops, GHA runners). Signet's ephemeral certs are SVID-shaped in lifetime and intent, and **optionally embed `URI:spiffe://<trust-domain>/<workload-path>` SANs** — L10 (bead `signet-965dc7`) landed at commit `8a79f9a`, adding `LocalCA.WithSpiffeID` / `WithSpiffeIDChecked` (validating via `signet.ValidateSpiffeID`) plus the `signet.MasterKeyDescriptor` descriptor type. The SAN is opt-in: when no SPIFFE ID is configured, certs preserve the existing DID-URI-only shape bit-for-bit.
 
 ## Mapping
 
 | SPIFFE / SPIRE term | Signet equivalent | File / type / function |
 |---|---|---|
-| SPIFFE ID (`spiffe://<trust-domain>/<workload-path>`) | Signet issuer DID + ephemeral cert Subject CN — no native URI form today; planned via L10 (bead `signet-965dc7`) | [`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go) — `EncodeDIDAsSubject(did string) pkix.Name`; `LocalCA.issuerDID`. **No `URI:spiffe://` SAN emitted** — only the DID URL (`url.Parse(ca.issuerDID)`) is currently embedded as a `URIs` SAN. L10 is the bead that will add the SPIFFE-shaped URI SAN. |
-| Trust domain (`acme.com` in `spiffe://acme.com/foo`) | Implicit — "whoever signed the master key." No explicit `TrustDomain` field today; planned via L10 bead `signet-965dc7` | `pkg/attest/x509/localca.go` — `LocalCA` struct (no `TrustDomain` field as of this doc); `pkg/signet/token.go` `Token.IssuerID` string is the closest analogue today |
+| SPIFFE ID (`spiffe://<trust-domain>/<workload-path>`) | Signet issuer DID (always emitted as `URIs` SAN) + optional SPIFFE URI SAN (post-L10) | [`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go) — `LocalCA.spiffeID` field; configured via `LocalCA.WithSpiffeID(string) *LocalCA` (validates + panics on bad input) or `LocalCA.WithSpiffeIDChecked(string) (*LocalCA, error)` (validates + returns error). When set, `CreateCertificateTemplate` appends the URI alongside the DID URI in `URIs`. [`pkg/signet/signet.go`](../pkg/signet/signet.go) — `signet.BuildSpiffeID(td, path) (string, error)` + `signet.ValidateSpiffeID(id) error` are the canonical constructors/validators. |
+| Trust domain (`acme.com` in `spiffe://acme.com/foo`) | Optional `MasterKeyDescriptor.TrustDomain` (post-L10) | [`pkg/signet/signet.go`](../pkg/signet/signet.go) — `signet.MasterKeyDescriptor{TrustDomain string}`; `desc.SpiffeID(workloadPath) (string, error)` derives the SPIFFE ID. The descriptor is the platform-level pointer for "we hold the trust root for trust-domain X" — zero-valued descriptor is valid and emits no SAN (safe default). When `TrustDomain` is unset, signet continues to fall back to the implicit "whoever signed the master key" identity (existing `pkg/signet/token.go` `Token.IssuerID` is the analogue) — the descriptor is additive. |
 | X.509-SVID (short-lived workload cert) | Signet ephemeral X.509 cert (5-minute default) | [`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go) — `LocalCA.IssueCodeSigningCertificateSecure`, `IssueCertificateForSigner`, `IssueEphemeralCertificate`; tests at `pkg/attest/x509/localca_test.go` and `bridge_test.go` all mint with `5*time.Minute` |
 | JWT-SVID (workload identity as JWT) | **No equivalent** — signet's wire format is COSE Sign1 / SIG1 (CBOR), not JWT | [`pkg/crypto/cose/cose.go`](../pkg/crypto/cose/cose.go) — `GenericSigner[K]`, `NewEd25519Signer`; [`pkg/signet/sig1.go`](../pkg/signet/sig1.go) — `SIG1.<CBOR>.<COSE_Sign1>` wire format |
 | Trust bundle (RFC 7517 JWK Set with `spiffe_sequence`) | Signet CA bundle (CBOR, signed, with `Epoch` + `Seqno`) | [`pkg/revocation/types/types.go`](../pkg/revocation/types/types.go) — `CABundle` struct (fields: `Epoch`, `Seqno`, `Keys map[string][]byte`, `KeyID`, `PrevKeyID`, `IssuedAt`, `Signature`); also exposed via `/.well-known/ca-bundle.pem` (PEM form) by `cmd/signet/authority.go:187` |
@@ -38,30 +38,43 @@ Signet is consciously SPIRE-shaped on the trust-bundle + revocation axis (`pkg/r
 
 These are the places where signet does something *materially different* from SPIFFE/SPIRE — not just a rename. They are the rows where an external reader's expectations will mislead them.
 
-### 1. No `URI:spiffe://...` SAN in certs (yet)
+### 1. `URI:spiffe://...` SAN is opt-in, not always-on
 
-This is the single most-visible difference today. SPIFFE's whole identity model rests on the SVID-shape URI in the cert's Subject Alternative Names.
+SPIFFE's whole identity model rests on the SVID-shape URI in the cert's Subject Alternative Names. SPIRE-deployed certs ALWAYS carry that URI; signet's certs **optionally** carry it (post-L10, commit `8a79f9a`).
 
-Signet's ephemeral certs currently embed only the issuer DID as a `URIs` SAN. From [`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go) `CreateCertificateTemplate` (lines 333-357):
+Signet's ephemeral certs always embed the issuer DID as a `URIs` SAN. From [`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go) `CreateCertificateTemplate`:
 
 ```go
 didURI, _ := url.Parse(ca.issuerDID)
-return &x509.Certificate{
-    ...
-    URIs: []*url.URL{didURI},
-    ...
+uris := []*url.URL{didURI}
+if ca.spiffeID != "" {
+    if spiffeURI, err := url.Parse(ca.spiffeID); err == nil && spiffeURI != nil {
+        uris = append(uris, spiffeURI)
+    }
+}
+// ... URIs: uris ...
+```
+
+The SPIFFE SAN is appended only when the CA has been configured via `LocalCA.WithSpiffeID(id)` (panics on invalid input — config-time guard) or `LocalCA.WithSpiffeIDChecked(id)` (returns error). When no SPIFFE ID is configured, the cert shape is identical to pre-L10 (safe default).
+
+The implication for SPIRE-aware consumers: signet certs that haven't been configured with a SPIFFE ID will not present an SVID URI, even though the cert is otherwise SVID-shaped (5-minute lifetime, ed25519, scoped key usage). A workload-identity verifier expecting `cert.URIs` to contain a `spiffe://` entry needs to either treat the absence as a soft-failure or require deployment to set the SPIFFE ID.
+
+### 2. `TrustDomain` is optional metadata, not a required field
+
+SPIFFE's trust-domain abstraction is explicit — every SVID names its trust domain. Signet's trust domain is **optional**: zero-valued descriptors emit no SPIFFE SAN and fall back to the implicit "whoever signed the master key" identity.
+
+The post-L10 surface ([`pkg/signet/signet.go`](../pkg/signet/signet.go) commit `8a79f9a`):
+
+```go
+type MasterKeyDescriptor struct {
+    IssuerDID   string  // always set; DID-style identifier for the master key
+    TrustDomain string  // optional; when set, ephemeral certs carry a SPIFFE SAN
 }
 ```
 
-**This will change** once L10 (bead `signet-965dc7`) lands — that bead extends the cert template to accept a SPIFFE ID and emit it as a `URI:spiffe://<trust-domain>/<workload-path>` SAN. This vocabulary map cites the equivalence without pre-empting L10's implementation; once L10 ships, the "SPIFFE ID" row in the mapping table above becomes a concrete column-3 reference.
+When `TrustDomain` is unset (the default), behavior is identical to pre-L10 — the descriptor is purely additive. When set, downstream issuers (`LocalCA.WithSpiffeID` callers) emit `URI:spiffe://<TrustDomain>/<workload>` SANs alongside the existing DID URI.
 
-### 2. No `TrustDomain` field on the master-key descriptor
-
-SPIFFE's trust-domain abstraction is explicit — every SVID names its trust domain. Signet's trust domain is *implicit*: "whoever signed the master key."
-
-There is no `TrustDomain string` field on `LocalCA` (see [`pkg/attest/x509/localca.go:23-32`](../pkg/attest/x509/localca.go) — `LocalCA` carries `masterKey crypto.Signer`, `issuerDID string`, `cachedCAPEM []byte` only), on [`pkg/signet/token.go`](../pkg/signet/token.go) `Token` (the CBOR fields go through 19 with no trust-domain entry), or on any of the master-key descriptor sites today.
-
-L10 plans to add it (per [`docs/prior-art/spiffe.md`](https://github.com/jamestexas/agents/blob/main/docs/prior-art/spiffe.md) §Decision item 2). Until then: an external SPIFFE-aware verifier reading a signet cert cannot tell which trust domain the cert claims membership in.
+This is a deliberate divergence from SPIRE: SPIRE doesn't ship a "trust domain unset" mode. Signet does, because the deployment surface (CF Workers, dev laptops, GHA runners) has historically run without an explicit trust domain and breaking that contract would force every consumer to set one before any upgrade lands. An external SPIFFE-aware verifier reading a signet cert without a SPIFFE SAN should treat the cert as "no claim about trust domain" rather than an error.
 
 ### 3. Wire format: COSE Sign1 / CBOR (signet) vs JWT (SPIFFE JWT-SVID)
 
