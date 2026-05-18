@@ -32,7 +32,8 @@ import (
 // trust root. When set, downstream issuers (e.g. pkg/attest/x509 LocalCA)
 // can emit `URI:spiffe://<TrustDomain>/<workload-path>` SANs on ephemeral
 // certificates, giving SPIFFE/SVID-aware verifiers a stable name for the
-// workload. See docs/prior-art/spiffe.md §Decision item 2.
+// workload. See the SPIFFE vocabulary map (docs/spiffe-vocabulary-map.md)
+// for the equivalences between signet types and SPIFFE concepts.
 type MasterKeyDescriptor struct {
 	// IssuerDID is the DID-style identifier for the master key (e.g.
 	// "did:key:z6Mk..."). This is the same string used as the X.509 cert

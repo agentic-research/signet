@@ -53,7 +53,7 @@ cosign verify-blob \
 
 #### Air-gapped / offline mode
 
-If you have a regulatory or operational reason to keep signatures off the public log, you can pass the negated form of `--tlog-upload` to `cosign sign-blob` (see `cosign sign-blob --help` for the exact flag spelling). This trades transparency-log auditability for local-only provenance, and verifiers must in turn disable Rekor inclusion checking on `cosign verify-blob` (also a defaults-off knob — never enable it unless you control both ends of the trust path).
+If you have a regulatory or operational reason to keep signatures off the public log, pass `--tlog-upload=false` to `cosign sign-blob`. This trades transparency-log auditability for local-only provenance. Verifiers must then run `cosign verify-blob --insecure-ignore-tlog` (or its equivalent for your cosign version — see `cosign verify-blob --help`) to skip the Rekor inclusion check that would otherwise reject an unlogged signature. **Only use this combination when you control both signer and verifier**: the missing transparency-log entry is the cost of going air-gapped, and an attacker who can produce signatures will also use `--insecure-ignore-tlog` to slip past untrusted verifiers.
 
 ### With Gitsign (Commit Signing)
 
