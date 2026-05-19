@@ -87,7 +87,7 @@ This is a substantive *addition* over Sigstore: signet's middleware can revoke a
 
 ## Internal naming drift to flag
 
-- The trust-policy subsystem is referred to as **`sigpol`** in older design docs (`docs/design/011-policy-bundles-scim.md`, `docs/design/sigpol-requirements.md`) and in [`signet/CLAUDE.md`](../CLAUDE.md) (the "Trust policy bundles (sigpol)" line). The actual Go package on disk is **`pkg/policy/`** ([`pkg/policy/bundle.go`](../pkg/policy/bundle.go), `pkg/policy/checker.go`, `pkg/policy/compiler.go`). When mapping signet docs to code: `sigpol` → `pkg/policy/` (`TrustPolicyBundle`, `PolicyChecker`, `Compiler` types). The baseline [`_baseline.md`](https://github.com/jamestexas/agents/blob/main/docs/prior-art/_baseline.md) Axis 5 also uses the colloquial "sigpol" name; the canonical name in code is `policy`.
+- The trust-policy subsystem is referred to as **`sigpol`** in older design docs (`docs/design/011-policy-bundles-scim.md`, `docs/design/sigpol-requirements.md` — both forward-looking, see the status banner). [`signet/CLAUDE.md`](../CLAUDE.md) now names the canonical path as `pkg/policy/`; the older "(sigpol)" parenthetical was dropped in signet-a90695. The actual Go package on disk is **`pkg/policy/`** ([`pkg/policy/bundle.go`](../pkg/policy/bundle.go), `pkg/policy/checker.go`, `pkg/policy/compiler.go`). When mapping signet docs to code: `sigpol` → `pkg/policy/` (`TrustPolicyBundle`, `PolicyChecker`, `Compiler` types). The baseline [`_baseline.md`](https://github.com/jamestexas/agents/blob/main/docs/prior-art/_baseline.md) Axis 5 also uses the colloquial "sigpol" name; the canonical name in code is `policy`.
 
 ## Note on workload-identity URI scheme
 

@@ -72,9 +72,9 @@ ADR-010 Section 5 defines Pillar 4 (Context) with three sub-dimensions. Here is 
 | Geographic region | `eu-sovereign-cloud` example | `Boundary.Region` field | Type defined, validation not implemented |
 | Domain boundary | Implied | `Boundary.Domain` field + domain match validation | Implemented (cell provider) |
 | CBOR field 22 extraction | Token format design | `FieldBoundary = 22` constant defined | Cell provider can deserialize field 22, basic provider stubs it |
-| `BoundaryValidator` interface | Implied by pluggable design | Defined in `provider.go` | Interface exists, no standalone implementations |
+| `BoundaryValidator` interface | Implied by pluggable design | Removed in signet-a963d0 | Was defined in `provider.go` but never adopted; validation is inline in the cell provider. |
 
-**Net**: Boundary is partially implemented. VPC CIDR and domain validation exist in the cell provider. Region validation is missing. The `BoundaryValidator` interface exists but is not used — validation is inline in the cell provider.
+**Net**: Boundary is partially implemented. VPC CIDR and domain validation exist in the cell provider. Region validation is missing. The `BoundaryValidator` interface was defined in `provider.go` and removed in signet-a963d0 since no implementations adopted it — validation is inline in the cell provider. If a future pluggable-validator design is needed, the interface can be re-introduced alongside a concrete consumer.
 
 ### 2.4 Context Provider Plugin Architecture
 
@@ -183,7 +183,7 @@ signet (Go workspace root)
     ├── sigid/                   (absorbed module)
     │   ├── context.go           (Context, Provenance, Environment, Boundary, Attestation)
     │   ├── identity.go          (Identity, CertIdentityProvider, MachineFingerprint)
-    │   ├── provider.go          (ContextProvider, AttestationProvider, BoundaryValidator)
+    │   ├── provider.go          (ContextProvider, AttestationProvider — BoundaryValidator was removed in signet-a963d0)
     │   ├── cell.go              (SignetAuthCell, PolicyStatement)
     │   ├── token_ext.go         (TokenWithChain, ChainFromToken, field 20-23 constants)
     │   └── providers/
@@ -221,7 +221,7 @@ pkg/http/middleware/  → could import pkg/sigid for AuthContext enrichment (fut
 pkg/sigid/
 ├── context.go              # Context, Provenance, Environment, Boundary, Attestation
 ├── identity.go             # Identity, CertIdentityProvider, MachineFingerprint
-├── provider.go             # ContextProvider, AttestationProvider, BoundaryValidator interfaces
+├── provider.go             # ContextProvider, AttestationProvider interfaces (BoundaryValidator was removed in signet-a963d0)
 ├── token_ext.go            # CBOR field 20-23 extension helpers
 ├── doc.go                  # Package documentation
 ├── context_test.go
@@ -262,7 +262,7 @@ pkg/sigid/
 ### Fully Implemented (ready to absorb as-is)
 - Core types: `Context`, `Provenance`, `Environment`, `Boundary`, `Attestation`
 - Identity extraction: `Identity`, `CertIdentityProvider`, `MachineFingerprint`
-- Provider interfaces: `ContextProvider`, `AttestationProvider`, `BoundaryValidator`
+- Provider interfaces: `ContextProvider`, `AttestationProvider` (the `BoundaryValidator` interface was defined and removed in signet-a963d0; validation is inline in the cell provider)
 - Basic provider: ppid derivation (HMAC-SHA256), legacy token fallback
 - Cell provider: chain verification, CBOR field 20-22 deserialization, VPC/domain validation
 - Cert provider: bridge cert identity extraction with OID + CN fallback
@@ -273,7 +273,7 @@ pkg/sigid/
 - `basic.Provider.extractEnvironment()` — returns empty `Environment`
 - `basic.Provider.extractBoundary()` — returns empty `Boundary`
 - Region boundary validation — field exists, no validation logic
-- `BoundaryValidator` interface — defined, not used (validation is inline in cell provider)
+- `BoundaryValidator` interface — was defined, removed in signet-a963d0 (no consumers; validation is inline in cell provider)
 
 ### Missing (designed in ADRs, not coded)
 - Attestation provider implementations (SPIRE, TPM, Sigstore, cloud metadata)

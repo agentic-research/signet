@@ -79,7 +79,7 @@ func (p *Provider) ValidateContext(ctx *sigid.Context, request *http.Request) er
 // Reads the typed Token fields directly. Falls back to legacy Actor/Delegator
 // (fields 14/15) because the typed Token struct does not currently expose the
 // sigid Provenance field (CBOR key 20). Callers that need field-20 access
-// should use cell.Provider.ExtractContextFromCBOR, which decodes the raw
+// should use cell.CellProvider.ExtractContextFromCBOR, which decodes the raw
 // payload to map[int]interface{} and reads fields 20-22 directly. See
 // pkg/sigid/providers/cell/provider.go for the reference pattern.
 func (p *Provider) extractProvenance(token *signet.Token) (*sigid.Provenance, error) {
@@ -116,7 +116,7 @@ func (p *Provider) extractProvenance(token *signet.Token) (*sigid.Provenance, er
 // Returns an empty Environment by design: the typed *signet.Token does not
 // expose CBOR field 21 (sigid Environment). The cell provider reads field 21
 // (cluster ID, image digest, attestations) from a raw map[int]interface{} —
-// see cell.Provider.extractEnvironmentFromMap. To wire field 21 here either
+// see cell.CellProvider.extractEnvironmentFromMap. To wire field 21 here either
 // (a) add a typed Environment accessor to signet.Token and read it directly,
 // or (b) add an ExtractContextFromCBOR variant to this provider that mirrors
 // the cell provider's raw-decode path. Until one of those lands, callers
@@ -132,7 +132,7 @@ func (p *Provider) extractEnvironment(_ *signet.Token) *sigid.Environment {
 // Returns an empty Boundary by design: the typed *signet.Token does not
 // expose CBOR field 22 (sigid Boundary, carrying VPC/region/domain). The
 // cell provider reads field 22 from a raw map — see
-// cell.Provider.extractBoundaryFromMap. See extractEnvironment above for
+// cell.CellProvider.extractBoundaryFromMap. See extractEnvironment above for
 // the two viable paths to wire this here.
 func (p *Provider) extractBoundary(_ *signet.Token) *sigid.Boundary {
 	return &sigid.Boundary{}
