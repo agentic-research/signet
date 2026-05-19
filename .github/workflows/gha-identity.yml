@@ -81,6 +81,8 @@ on:
         description: 'Bridge cert pair expiry as Unix timestamp (notme default TTL = 5 minutes).'
         value: ${{ jobs.exchange.outputs.expires_at }}
 
+permissions: {}
+
 jobs:
   exchange:
     name: OIDC Exchange

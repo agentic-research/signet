@@ -5,14 +5,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  id-token: write
-  contents: read
+permissions: {}
 
 jobs:
   oidc-signing-test:
     name: OIDC Token Exchange E2E
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # mint GHA OIDC token for the exchange
+      contents: read    # checkout
 
     steps:
       - name: Checkout code
