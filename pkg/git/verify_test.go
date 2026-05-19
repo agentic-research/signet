@@ -42,6 +42,15 @@ func TestGetStatusWriter_CustomFdReturnsFileAndCleanupCloses(t *testing.T) {
 	t.Cleanup(func() { _ = r.Close() })
 
 	writer, cleanup := getStatusWriter(int(w.Fd()))
+	// Register cleanup defensively: if any t.Fatalf below fires before the
+	// manual cleanup() call, the pipe-writer fd would otherwise leak. The
+	// `called` flag prevents a double-close.
+	var called bool
+	t.Cleanup(func() {
+		if !called {
+			cleanup()
+		}
+	})
 
 	got, ok := writer.(*os.File)
 	if !ok {
@@ -75,6 +84,7 @@ func TestGetStatusWriter_CustomFdReturnsFileAndCleanupCloses(t *testing.T) {
 	}
 
 	cleanup()
+	called = true
 
 	if _, err := got.WriteString("after-cleanup\n"); err == nil {
 		t.Fatal("expected write after cleanup() to fail (file closed), but it succeeded")

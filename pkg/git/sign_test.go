@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha1" // #nosec G505 — parity with certHexFingerprint's documented use
+	"crypto/sha1"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -35,7 +35,7 @@ func TestCertHexFingerprint_DeterministicSHA1(t *testing.T) {
 	cert := mintTestCert(t)
 	got := certHexFingerprint(cert)
 
-	expected := sha1.Sum(cert.Raw)
+	expected := sha1.Sum(cert.Raw) // #nosec G401 — parity with certHexFingerprint's documented use; not security
 	want := hex.EncodeToString(expected[:])
 	if got != want {
 		t.Fatalf("fingerprint mismatch:\n got: %s\nwant: %s", got, want)
