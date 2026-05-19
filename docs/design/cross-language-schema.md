@@ -32,15 +32,21 @@ Rust from `notme/gen/rust/identity` when wired).
 | `RevocationReason` | Enum: `epochMismatch / unknownKey / rollbackAttack / bundleInvalid / bundleStale`. |
 | `RevocationResult` | `(revoked: Bool, reason: RevocationReason)` returned by the checker. |
 
-### Certificates (ADR-008 dual-cert PoP)
+### Certificates (dual-cert PoP, per notme schema §008)
+
+The dual-cert pair (P-256 mTLS + Ed25519 signing) is a notme schema-version
+convention (see `BridgeCertPair`'s "008:" comment in
+[`notme/schema/identity.capnp`][notme-capnp]); it is not a signet ADR. The
+nearest signet design doc is [`004-bridge-certs.md`](./004-bridge-certs.md),
+which covers the single-cert bridge flow that `BridgeCertResult` represents.
 
 | Capnp struct | Notes |
 |---|---|
-| `BridgeCertResult` | Legacy single-cert result. Kept for wire compat with `DispatchPredicate`; new code should prefer `BridgeCertPair`. |
-| `BridgeCertPair` | The 008 dual-cert result: P-256 mTLS cert + Ed25519 signing cert, with `binding` field proving both certs came from the same OIDC exchange. |
+| `BridgeCertResult` | Legacy single-cert result. Kept for wire compat with `DispatchPredicate`; new code should prefer `BridgeCertPair`. Aligns with signet ADR-004 (bridge certs). |
+| `BridgeCertPair` | Dual-cert result: P-256 mTLS cert + Ed25519 signing cert, with `binding` field proving both certs came from the same OIDC exchange. notme schema-version 008. |
 | `CertScope` | Enum: `bridgeCert / authorityManage / certMint`. |
 | `AuthorityState` | `(epoch, keyId)` snapshot for liveness probes. |
-| `CertPairRequest` / `CertPairPublicKeys` / `CertPairPoP` | The request shapes for the 008 PoP exchange. |
+| `CertPairRequest` / `CertPairPublicKeys` / `CertPairPoP` | The request shapes for the dual-cert PoP exchange. |
 | `CertRequest` | Legacy single-cert request shape. |
 
 ### Authentication (proofs)
@@ -58,7 +64,13 @@ Rust from `notme/gen/rust/identity` when wired).
 | `HandoffPredicate` | The phase-handoff attestation with chain hash: `(fromPhase, toPhase, summary, filesChanged, commitShas, previousChainHash, chainHash, signingCert, certPair)`. |
 | `BeadRef`, `AgentIdentity`, `PipelineContext` | Sub-records for `DispatchPredicate`. |
 
-### Signing Oracle (ssh-agent pattern, ADR-008 §oracle)
+### Signing Oracle (ssh-agent-pattern delegated signing)
+
+The oracle pattern is described inline in the capnp schema (`SignRequest`'s
+comment block in [`notme/schema/identity.capnp`][notme-capnp]) and conceptually
+sits in the same neighborhood as signet's pluggable signer backends design
+([`008-pluggable-signer-backends.md`](./008-pluggable-signer-backends.md)),
+but there is no dedicated signet ADR for the protocol shape.
 
 | Capnp struct | Notes |
 |---|---|
@@ -71,9 +83,9 @@ A follow-up bead may move them in if/when cross-language consumers appear.
 
 | Type | Location | Tracking |
 |---|---|---|
-| `MasterKeyDescriptor` | `pkg/signet/signet.go` (L10, commit `8a79f9a`) | [`signet-2f6b68`][bead-2f6b68] — move into `notme/schema/identity.capnp` via schema-bridge codegen so `TrustDomain` is a shared type. |
-| `Token` (CBOR fields 1-19) | `pkg/signet/token.go` | No bead. Token's wire format is COSE Sign1 with a CBOR payload; cross-language consumers parse CBOR directly today rather than going through a schema. If a TS/Rust consumer appears that wants typed fields, file a bead. |
-| `Boundary`, `Environment`, `Attestation`, `Context`, `Provenance` (the sigid types) | `pkg/sigid/...` | The shape mirrors capnp-style structured records but is not in `identity.capnp`. The sigid drift bead [`signet-a8e3a7`][bead-a8e3a7] covers the broader question of where sigid types should live. |
+| `MasterKeyDescriptor` | [`pkg/signet/signet.go:37`](../../pkg/signet/signet.go) | Bead `signet-2f6b68` — move into `notme/schema/identity.capnp` via schema-bridge codegen so `TrustDomain` is a shared type. |
+| `Token` (CBOR fields 1-19) | [`pkg/signet/token.go`](../../pkg/signet/token.go) | No bead. Token's wire format is COSE Sign1 with a CBOR payload; cross-language consumers parse CBOR directly today rather than going through a schema. If a TS/Rust consumer appears that wants typed fields, file a bead. |
+| `Boundary`, `Environment`, `Attestation`, `Context`, `Provenance` (the sigid types) | [`pkg/sigid/`](../../pkg/sigid) | The shape mirrors capnp-style structured records but is not in `identity.capnp`. Bead `signet-a8e3a7` covers the broader question of where sigid types should live. |
 
 ## Wire-format split
 
@@ -87,7 +99,7 @@ channel is governed by the protocol, not the schema:
 | HTTP request bodies (authority API, MCP) | JSON | Standard REST shape; humans read it; not cryptographically canonical. |
 | CA bundle signature input | Canonical CBOR (Go) — see note below | Deterministic bytes for cross-version verification. |
 
-**Open contract gap (deferred):** The bead [`signet-683223`][bead-683223] flags
+**Open contract gap (deferred):** Bead `signet-683223` flags
 that TypeScript clients have historically signed `CABundle` with **JSON +
 alphabetical key sort** while Go signs with **canonical CBOR**. These produce
 different byte sequences and are not cryptographically interoperable. The
@@ -119,8 +131,10 @@ bead with a "pick one canonical-bytes encoding, deprecate the other" decision.
 
 [notme-capnp]: https://github.com/agentic-research/notme/blob/main/schema/identity.capnp
 [notme-schema-readme]: https://github.com/agentic-research/notme/blob/main/schema/README.md
-[bead-2f6b68]: https://github.com/agentic-research/signet/issues — bead signet-2f6b68
-[bead-a8e3a7]: https://github.com/agentic-research/signet/issues — bead signet-a8e3a7
-[bead-683223]: https://github.com/agentic-research/signet/issues — bead signet-683223
 [adr-002]: ./002-protocol-spec.md
 [adr-010-notme]: https://github.com/agentic-research/notme/blob/main/docs/adr/010-json-vs-cbor.md
+
+> **Bead references:** beads are tracked via the `rsry` MCP / Dolt
+> (`.beads/` directories), not as GitHub issues. Search a bead by ID
+> via `rsry_bead_search` from any repo working tree. The IDs referenced
+> here are `signet-2f6b68`, `signet-a8e3a7`, `signet-683223`.
