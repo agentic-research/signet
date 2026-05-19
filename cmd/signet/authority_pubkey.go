@@ -128,7 +128,7 @@ func pubkeyFromURL(ctx context.Context, base, urlPath string, timeout time.Durat
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", full, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: HTTP %d", full, resp.StatusCode)
 	}
