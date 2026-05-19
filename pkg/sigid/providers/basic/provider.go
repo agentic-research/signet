@@ -75,15 +75,20 @@ func (p *Provider) ValidateContext(ctx *sigid.Context, request *http.Request) er
 }
 
 // extractProvenance extracts provenance information from the token.
-// Falls back to legacy Actor/Delegator fields if sigid fields (20-23) are absent.
+//
+// Reads the typed Token fields directly. Falls back to legacy Actor/Delegator
+// (fields 14/15) because the typed Token struct does not currently expose the
+// sigid Provenance field (CBOR key 20). Callers that need field-20 access
+// should use cell.Provider.ExtractContextFromCBOR, which decodes the raw
+// payload to map[int]interface{} and reads fields 20-22 directly. See
+// pkg/sigid/providers/cell/provider.go for the reference pattern.
 func (p *Provider) extractProvenance(token *signet.Token) (*sigid.Provenance, error) {
 	prov := &sigid.Provenance{
 		Issuer: token.IssuerID,
 	}
 
-	// Extract actor identity
-	// For now, use legacy Actor field (field 14)
-	// TODO: Add support for field 20 (sigid Provenance)
+	// Use legacy Actor (field 14) — field 20 (sigid Provenance) is not
+	// exposed on the typed Token; see method doc above.
 	if token.Actor != nil {
 		if actorID, ok := token.Actor["id"].(string); ok {
 			// Derive ppid from cleartext identity
@@ -107,25 +112,30 @@ func (p *Provider) extractProvenance(token *signet.Token) (*sigid.Provenance, er
 }
 
 // extractEnvironment extracts environment attestations from the token.
-func (p *Provider) extractEnvironment(token *signet.Token) *sigid.Environment {
-	env := &sigid.Environment{
+//
+// Returns an empty Environment by design: the typed *signet.Token does not
+// expose CBOR field 21 (sigid Environment). The cell provider reads field 21
+// (cluster ID, image digest, attestations) from a raw map[int]interface{} —
+// see cell.Provider.extractEnvironmentFromMap. To wire field 21 here either
+// (a) add a typed Environment accessor to signet.Token and read it directly,
+// or (b) add an ExtractContextFromCBOR variant to this provider that mirrors
+// the cell provider's raw-decode path. Until one of those lands, callers
+// that need environment attestations should use the cell provider.
+func (p *Provider) extractEnvironment(_ *signet.Token) *sigid.Environment {
+	return &sigid.Environment{
 		Attestations: []sigid.Attestation{},
 	}
-
-	// TODO: Extract from field 21 (sigid Environment)
-	// TODO: Extract cluster ID, image digest
-
-	return env
 }
 
 // extractBoundary extracts boundary constraints from the token.
-func (p *Provider) extractBoundary(token *signet.Token) *sigid.Boundary {
-	boundary := &sigid.Boundary{}
-
-	// TODO: Extract from field 22 (sigid Boundary)
-	// TODO: Extract VPC, region, domain
-
-	return boundary
+//
+// Returns an empty Boundary by design: the typed *signet.Token does not
+// expose CBOR field 22 (sigid Boundary, carrying VPC/region/domain). The
+// cell provider reads field 22 from a raw map — see
+// cell.Provider.extractBoundaryFromMap. See extractEnvironment above for
+// the two viable paths to wire this here.
+func (p *Provider) extractBoundary(_ *signet.Token) *sigid.Boundary {
+	return &sigid.Boundary{}
 }
 
 // derivePPID derives a pairwise pseudonymous identifier from a cleartext identity.
