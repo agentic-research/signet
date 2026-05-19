@@ -134,8 +134,8 @@ determinism, not byte-equality with the shared fixture.
 
 **Drift canary:** the fxamacker/cbor (Go) and cbor-x (TS) library
 upgrades are the realistic ways this contract can silently break. The
-fixture test is the canary — run `pkg/revocation/...` on a dependency
-bump before shipping.
+fixture test is the canary — run `go test ./pkg/revocation/...` on a
+dependency bump before shipping.
 
 ## How to add a type that needs cross-language sync
 
