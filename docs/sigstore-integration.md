@@ -116,7 +116,7 @@ In this mode the `--certificate-identity` / `--certificate-oidc-issuer` flags do
 ### What Rekor proves (and what it doesn't)
 
 - **Proves:** a signature with the given digest existed at the Rekor entry's `integratedTime` and was witnessed by the log.
-- **Does NOT prove:** that the signer was authorized, that the artifact is benign, or that the cert chain is valid for your trust policy — those are separate checks. Pair Rekor verification with your `sigpol` trust policy bundle (see [`pkg/policy`](../pkg/policy/)) for end-to-end provenance.
+- **Does NOT prove:** that the signer was authorized, that the artifact is benign, or that the cert chain is valid for your trust policy — those are separate checks. Pair Rekor verification with your trust policy bundle (see [`pkg/policy`](../pkg/policy/)) for end-to-end provenance.
 
 ## How it Works
 

@@ -1,5 +1,15 @@
 # sigpol Requirements Analysis
 
+> **Status (2026-05-19):** This is a **forward-looking design doc**. The
+> workspace restructure it proposes (signet + sigid + sigpol as three
+> modules) has NOT shipped — the trust-policy code still lives at
+> `pkg/policy/` in the single signet module today. The "sigpol" name in
+> this doc is the planned name for `pkg/policy/` *after* the restructure
+> per `signet-c796e4` (open). For present-tense canonical name, see
+> `pkg/policy/`; for the "sigpol ↔ pkg/policy" equivalence, see
+> `docs/spiffe-vocabulary-map.md` §"Internal naming drift to flag".
+> Closes drift bead `signet-a90695`.
+
 **Date**: 2026-03-24
 **Context**: Preparation for signet workspace restructuring (signet + sigid + sigpol)
 **Inputs**: ADR-011 (`docs/design/011-policy-bundles-scim.md`), `pkg/policy/` on main, `pkg/policy/` on `feat/trust-policy-bundles`

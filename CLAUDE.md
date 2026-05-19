@@ -62,7 +62,7 @@ task docker-shell           # Interactive shell for debugging
 - ⚠️ **File signing** (`signet sign`) - PARTIAL (sign_test.go regression tests, no integration)
 - ✅ **Auth login** (`signet auth login`) - DOGFOODED (real cert minted 2026-03-24)
 - ✅ **Cert verification** (`signet verify`) - verify_test.go (4 tests: valid, expired, wrong CA, missing)
-- ✅ **Trust policy bundles** (sigpol) - bundle_test.go + checker_test.go + compiler_test.go + golden_path_test.go (37 tests)
+- ✅ **Trust policy bundles** (`pkg/policy/`) - bundle_test.go + checker_test.go + compiler_test.go + golden_path_test.go (37 tests)
 - ✅ **Identity extraction** (sigid) - providers/cert, providers/basic, providers/cell (25+ tests)
 - ✅ **Policy gate** - authority_oidc_test.go TestPolicyGate_* + TestExchangeToken_PolicyCheckerDeniesDeactivated
 - 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)

@@ -13,7 +13,7 @@
 // 1. Offline-first: No network calls during context extraction or validation
 // 2. Privacy-preserving: Use pairwise pseudonymous identifiers (ppids), not cleartext identities
 // 3. Backward compatible: sigid fields are optional; legacy signet tokens work
-// 4. Extensible: Plugin architecture for attestation providers and boundary validators
+// 4. Extensible: Plugin architecture for attestation providers (see AttestationProvider in provider.go)
 //
 // # Token Format
 //

@@ -30,9 +30,3 @@ type AttestationProvider interface {
 	Verify(attestation *Attestation) error
 }
 
-// BoundaryValidator validates boundary claims against actual request context.
-type BoundaryValidator interface {
-	// Validate checks that the claimed boundary matches the actual boundary.
-	// claimed is from the token, actual is derived from the request.
-	Validate(claimed *Boundary, actual *Boundary) error
-}
