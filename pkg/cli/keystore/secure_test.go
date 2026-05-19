@@ -9,6 +9,11 @@ import (
 )
 
 func TestSecureKeystore(t *testing.T) {
+	// Force the keyring branch — CI runners set XDG_CONFIG_HOME in the env,
+	// which would otherwise route this test through the file-based path
+	// added in signet-b30dd4 (XDG-aware loader).
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	// Use mock keyring for testing
 	keyring.MockInit()
 
@@ -87,6 +92,9 @@ func TestSecureKeystore(t *testing.T) {
 }
 
 func TestSecureKeystoreNotFound(t *testing.T) {
+	// Force the keyring branch — see TestSecureKeystore for rationale.
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	// Use mock keyring for testing
 	keyring.MockInit()
 
@@ -109,6 +117,9 @@ func TestSecureKeystoreNotFound(t *testing.T) {
 }
 
 func TestCorruptedKeyringData(t *testing.T) {
+	// Force the keyring branch — see TestSecureKeystore for rationale.
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	// Use a mock keyring for this test
 	keyring.MockInit()
 
