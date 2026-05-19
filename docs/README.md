@@ -13,6 +13,7 @@ Stable design documents explaining technical choices and architecture:
 - `005-memory-security.md` - Sensitive data handling
 - `006-revocation.md` - Revocation strategy
 - `007-http-pop.md` - HTTP proof-of-possession
+- `cross-language-schema.md` - Where cross-language types live (notme/schema canonical, the type/wire-format split)
 
 ### [`implementation/`](./implementation/)
 Historical and work-in-progress feature implementation guides (may be partially outdated):
