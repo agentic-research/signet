@@ -177,6 +177,12 @@ func InitializeSecure(force bool, alg ...algorithm.Algorithm) error {
 	// state and shouldn't be blocked by the developer's real keyring entry.
 	// See signet-b30dd4 for the design rationale.
 	if dir, set := XDGKeystoreDir(); set {
+		// InitializeInsecure only knows how to write Ed25519 today. If the
+		// caller asked for a non-Ed25519 algorithm, refuse explicitly rather
+		// than silently downgrading — a Generic variant is a follow-up.
+		if len(alg) > 0 && alg[0] != "" && alg[0] != algorithm.Ed25519 {
+			return fmt.Errorf("XDG keystore (XDG_CONFIG_HOME=%q): only Ed25519 is supported via the file backend today; %s requires the keyring backend (unset XDG_CONFIG_HOME) — tracked as a follow-up to signet-b30dd4", os.Getenv("XDG_CONFIG_HOME"), alg[0])
+		}
 		return InitializeInsecure(dir, force)
 	}
 
@@ -281,7 +287,11 @@ func InitializeSecure(force bool, alg ...algorithm.Algorithm) error {
 // this caveat applies only to the keyring branch.
 func LoadMasterKeySecure() (*keys.Ed25519Signer, error) {
 	if dir, set := XDGKeystoreDir(); set {
-		return LoadMasterKeyInsecure(dir)
+		signer, err := LoadMasterKeyInsecure(dir)
+		if err != nil {
+			return nil, fmt.Errorf("XDG keystore at %s/master.key: %w (run 'signet-git init' with XDG_CONFIG_HOME set to materialize)", dir, err)
+		}
+		return signer, nil
 	}
 	alg, seed, err := retrieveSeedFromKeyring()
 	if err != nil {
@@ -315,7 +325,7 @@ func LoadMasterKeySecureGeneric() (algorithm.Algorithm, crypto.Signer, error) {
 	if dir, set := XDGKeystoreDir(); set {
 		signer, err := LoadMasterKeyInsecure(dir)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("XDG keystore at %s/master.key: %w (run 'signet-git init' with XDG_CONFIG_HOME set to materialize)", dir, err)
 		}
 		// LoadMasterKeyInsecure always returns Ed25519 (current behavior);
 		// non-Ed25519 algorithms via the XDG file path land as a follow-up.
@@ -355,7 +365,11 @@ func LoadMasterKeySecureGeneric() (algorithm.Algorithm, crypto.Signer, error) {
 // until garbage collected. See package-level documentation for more details.
 func GetKeyIDSecure() (string, error) {
 	if dir, set := XDGKeystoreDir(); set {
-		return GetKeyIDInsecure(dir)
+		kid, err := GetKeyIDInsecure(dir)
+		if err != nil {
+			return "", fmt.Errorf("XDG keystore at %s/master.key: %w (run 'signet-git init' with XDG_CONFIG_HOME set to materialize)", dir, err)
+		}
+		return kid, nil
 	}
 	alg, seed, err := retrieveSeedFromKeyring()
 	if err != nil {
