@@ -12,6 +12,12 @@ import (
 )
 
 func TestReproIssue62_MLDSA44_Signing(t *testing.T) {
+	// Force the keyring branch — XDG_CONFIG_HOME is set on CI runners, and
+	// when set the keystore's XDG path takes precedence over the keyring
+	// (signet-b30dd4). ML-DSA-44 is not supported on the XDG path today,
+	// so this test must explicitly opt out of XDG routing.
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	// 1. Mock the keyring
 	keyring.MockInit()
 
