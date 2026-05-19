@@ -97,16 +97,45 @@ channel is governed by the protocol, not the schema:
 | Signet tokens (`SIG1.<CBOR>.<COSE_Sign1>`) | Canonical CBOR per RFC 8949 §4.2, integer-keyed maps | Deterministic bytes for Ed25519 sign/verify; integer keys for compact tokens. See `pkg/revocation/checker.go:168-188`. |
 | CMS / PKCS#7 signatures (git, file signing) | RFC 5652 DER | Sigstore / gpgsm / gitsign compat. |
 | HTTP request bodies (authority API, MCP) | JSON | Standard REST shape; humans read it; not cryptographically canonical. |
-| CA bundle signature input | Canonical CBOR (Go) — see note below | Deterministic bytes for cross-version verification. |
+| CA bundle signature input | Canonical CBOR (RFC 8949 §4.2), integer-keyed map | Deterministic bytes for cross-language Ed25519 sign/verify. |
 
-**Open contract gap (deferred):** Bead `signet-683223` flags
-that TypeScript clients have historically signed `CABundle` with **JSON +
-alphabetical key sort** while Go signs with **canonical CBOR**. These produce
-different byte sequences and are not cryptographically interoperable. The
-capnp schema does not resolve this — schema parity ≠ wire-format parity. This
-contract gap is a separate, **functional** problem and is intentionally **not
-in scope** for the discoverability fix that this doc lands. It needs its own
-bead with a "pick one canonical-bytes encoding, deprecate the other" decision.
+### CABundle canonical-bytes — cross-runtime contract
+
+All three implementations (signet Go, notme TS, cloister TS) produce
+byte-identical CBOR canonical encoding for the same logical `CABundle` input,
+per the schema:
+
+| Field | Map key | Type |
+|---|---|---|
+| `Epoch` | `1` | uint64 |
+| `Seqno` | `2` | uint64 |
+| `Keys` | `3` | `map[string][]byte` (string keys sorted RFC 8949 §4.2: shorter-first then bytewise) |
+| `KeyID` | `4` | string |
+| `PrevKeyID` | `5` | string (empty when unset) |
+| `IssuedAt` | `6` | int64 (Unix seconds) |
+| `Signature` | — | excluded from canonical bytes (verified against them) |
+
+Implementations:
+
+- **signet (Go):** [`pkg/revocation/canonical.go`](../../pkg/revocation/canonical.go) — `BundleCanonical(*types.CABundle) ([]byte, error)` (uses `fxamacker/cbor` with `CanonicalEncOptions`)
+- **notme (TS):** `worker/src/revocation.ts` — `bundleCanonical()` (uses `cbor-x` with `mapsAsObjects: false`, `useRecords: false`, `tagUint8Array: false`)
+- **cloister (TS):** `src/storage/bundle-canonical.ts` — `bundleCanonical()` (mirrors notme's encoder config)
+
+**Cross-runtime fixture.** A 25-byte canonical encoding for a fixed
+input is pinned in tests on the Go side
+([`pkg/revocation/canonical_test.go::TestBundleCanonical_CrossRuntimeFixture`](../../pkg/revocation/canonical_test.go))
+and on the TS side
+([notme/worker/src/__tests__/bundle-canonical.test.ts](https://github.com/agentic-research/notme/blob/main/worker/src/__tests__/bundle-canonical.test.ts) "matches a hand-computed CBOR fixture"). Both
+tests expect the same byte sequence; CI drift on either side breaks the
+cross-language contract immediately. A follow-up bead may lift the
+fixture into `notme/schema/test-vectors/cabundle/` so cloister's
+canonical test pins the same bytes — today cloister only tests its own
+determinism, not byte-equality with the shared fixture.
+
+**Drift canary:** the fxamacker/cbor (Go) and cbor-x (TS) library
+upgrades are the realistic ways this contract can silently break. The
+fixture test is the canary — run `pkg/revocation/...` on a dependency
+bump before shipping.
 
 ## How to add a type that needs cross-language sync
 

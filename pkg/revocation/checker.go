@@ -12,7 +12,6 @@ import (
 	"github.com/agentic-research/signet/pkg/revocation/cabundle"
 	"github.com/agentic-research/signet/pkg/revocation/types"
 	"github.com/agentic-research/signet/pkg/signet"
-	"github.com/fxamacker/cbor/v2"
 )
 
 const (
@@ -162,30 +161,11 @@ func (c *CABundleChecker) verifyBundleSignature(bundle *types.CABundle) error {
 	copy(signatureCopy, bundle.Signature)
 	defer keys.ZeroizeBytes(signatureCopy) // Clean up sensitive data
 
-	// Create canonical message to verify
-	// We sign the bundle WITHOUT the signature field
-	// Using CBOR integer keys for deterministic encoding
-	message := map[int]interface{}{
-		1: bundle.Epoch,     // epoch
-		2: bundle.Seqno,     // seqno
-		3: bundle.Keys,      // keys map
-		4: bundle.KeyID,     // current key ID
-		5: bundle.PrevKeyID, // previous key ID
-		6: bundle.IssuedAt,  // issued timestamp
-	}
-
-	// Use CBOR deterministic encoding mode to ensure consistent serialization.
-	// IMPORTANT: Bundle signatures depend on bit-identical canonical CBOR across
-	// library versions. A fxamacker/cbor upgrade that changes encoding behavior
-	// will silently break all existing bundle signatures. Pin this dependency or
-	// add a golden-file test when upgrading.
-	encMode, err := cbor.CanonicalEncOptions().EncMode()
-	if err != nil {
-		return fmt.Errorf("failed to create CBOR encoder: %w", err)
-	}
-
-	// Encode to canonical CBOR
-	canonical, err := encMode.Marshal(message)
+	// Build the canonical CBOR signing input via the shared helper. The
+	// helper enforces the cross-runtime contract with notme + cloister
+	// (see canonical.go); changes to the input shape must land there, not
+	// here.
+	canonical, err := BundleCanonical(bundle)
 	if err != nil {
 		return fmt.Errorf("failed to marshal bundle for verification: %w", err)
 	}
