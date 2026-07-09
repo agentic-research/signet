@@ -392,7 +392,7 @@ Signet provides identity and signing infrastructure with four foundational princ
 | `pkg/oidc` | OIDC token exchange: GitHub Actions OIDC -> signet bridge certificate. |
 | `pkg/authflow` | Pluggable auth flow registry (venturi pattern). |
 | `pkg/agent` | gRPC agent server/client for key operations. |
-| `rs/crates/sign` | Ed25519 CMS/PKCS#7 in Rust (for rosary integration). |
+| `ley-line-open` `leyline-sign` (`rs/ll-open/sign/`) | Ed25519 CMS/PKCS#7 in Rust (external dependency; signet's former `rs/crates/sign` fork was retired under bead `signet-d583bd`). |
 
 ### 5.2 The Agent Signing Chain
 
@@ -612,7 +612,7 @@ Based on SLSA's `buildDefinition`/`runDetails` structure, adapted for agent exec
 **Phase 1: Sign what exists** (Low effort, high impact)
 - Sign `.rsry-dispatch.json` manifests with signet bridge certificates
 - Sign handoff files with the orchestrator's bridge certificate
-- Use `rs/crates/sign` (signet's Rust CMS/PKCS#7 crate) for in-process signing
+- Use ley-line-open's `leyline-sign` crate (Rust CMS/PKCS#7) for in-process signing
 - Fix `chain_hash()` to reference previous handoff's content hash, not path
 
 **Phase 2: Wrap in in-toto envelopes** (Medium effort)

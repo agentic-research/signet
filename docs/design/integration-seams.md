@@ -102,13 +102,13 @@ Maps every integration boundary between signet, sigid, sigpol, and their consume
 |-------|-------|
 | **Direction** | ley-line uses Ed25519 CMS/PKCS#7 signing with signet-issued certificates |
 | **Protocol** | In-process Rust library call. `leyline-sign` crate provides `cms::sign_data()` and `cms::verify_signature()`. The `leyline-sign` binary is a gpgsm-compatible CLI for jj commit signing. |
-| **Discovery** | Build-time dependency: `leyline-sign` crate in `ley-line/rs/crates/sign/`. Certificate and key paths are passed as CLI args or loaded from config. The signing cert is expected to be a signet-issued Ed25519 cert. |
+| **Discovery** | Build-time dependency: `leyline-sign` crate in `ley-line-open/rs/ll-open/sign/`. Certificate and key paths are passed as CLI args or loaded from config. The signing cert is expected to be a signet-issued Ed25519 cert. |
 | **Classification** | **Build-time / optional** -- ley-line can operate without signing; signing adds integrity guarantees to manifests |
 | **Failure mode** | If no cert/key available, signing is skipped (unsigned manifests). Verification fails with `VerifyError::InvalidSignature` if the cert doesn't match the key or the signature is invalid. Key mismatch caught by `cert::verify_key_match()`. |
 | **Data contract** | `sign_data(data: &[u8], cert_der: &[u8], private_key: &[u8; 64]) -> Vec<u8>` returns DER-encoded CMS ContentInfo (RFC 5652). Signed attributes: contentType (id-data), messageDigest (SHA-512), signingTime (UTCTime). SignerIdentifier: issuerAndSerialNumber from cert. Verification: `verify_signature(data, signature_der, cert_der) -> bool`. |
-| **Source files** | `ley-line/rs/crates/sign/src/cms.rs` (CMS sign/verify), `ley-line/rs/crates/sign/src/cert.rs` (cert parsing, key match), `ley-line/rs/crates/sign/src/oid.rs` (OID constants), `signet/rs/crates/sign/` (parallel Rust implementation in signet repo) |
+| **Source files** | `ley-line-open/rs/ll-open/sign/src/cms.rs` (CMS sign/verify), `ley-line-open/rs/ll-open/sign/src/cert.rs` (cert parsing, key match), `ley-line-open/rs/ll-open/sign/src/oid.rs` (OID constants) |
 
-**Notes**: Both signet and ley-line have their own `sign` crate. The ley-line crate is the operational one (used by `leyline-sign` binary for jj commit signing). The signet crate (`rs/crates/sign/`) is the reference implementation with FFI and Wasm targets. They share the same CMS format and OIDs but are not yet deduplicated.
+**Notes**: Ed25519 CMS/PKCS#7 signing is centralized in ley-line-open's `leyline-sign` crate, which is both the operational implementation (used by the `leyline-sign` binary for jj commit signing) and the substrate for FFI/Wasm consumers. Signet's former `rs/crates/sign/` fork was dropped under bead `signet-d583bd`; downstream consumers depend on LLO directly.
 
 ---
 
