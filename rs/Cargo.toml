@@ -1,5 +1,0 @@
-[workspace]
-members = [
-    "crates/sign",
-]
-resolver = "2"

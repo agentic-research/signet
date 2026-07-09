@@ -111,17 +111,17 @@ When `/api/cert/register` is handled by the **rig edge worker**, the minted cert
 
 | Component | Status |
 |-----------|--------|
-| `rs/crates/sign` (Rust crate) | Builds as `wasm32-unknown-unknown` (`task rs:wasm`) |
+| `leyline-sign` (LLO `rs/ll-open/sign/`) | Builds as `wasm32-unknown-unknown` from ley-line-open's workspace |
 | Crate type | `cdylib`, `staticlib`, `rlib` — Wasm-compatible |
 | CMS signing | Ed25519 CMS/PKCS#7 per RFC 5652 + RFC 8419 |
-| OID definitions | CMS-level only (`rs/crates/sign/src/oid.rs`) — no Signet extension OIDs yet |
+| OID definitions | CMS-level only (`ley-line-open/rs/ll-open/sign/src/oid.rs`) — no Signet extension OIDs yet |
 | JS/TS bindings | ❌ **None exist** — no `wasm-bindgen` or `wasm-pack` integration |
 | CF Worker usage | Currently uses `@peculiar/x509` (TypeScript) for all cert operations |
 
 **Future state:** The Wasm module replaces `@peculiar/x509` for CMS signing at the edge, eliminating the encoding divergence between Go and TS. Prerequisites:
 
-1. Add `wasm-bindgen` feature and JS bindings to `rs/crates/sign`
-2. Add Signet extension OIDs (`1.3.6.1.4.1.99999.1.*`) to the Rust crate
+1. Add `wasm-bindgen` feature and JS bindings to LLO's `leyline-sign`
+2. Add Signet extension OIDs (`1.3.6.1.4.1.99999.1.*`) to the crate (LLO PR)
 3. Expose a `mint_bridge_cert()` function callable from the CF Worker
 4. Remove `@peculiar/x509` dependency from `signet-edge.ts`
 

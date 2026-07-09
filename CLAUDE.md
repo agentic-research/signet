@@ -24,20 +24,16 @@ task integration-test         # Run in Docker (recommended)
 # Quick development cycle
 task clean && task build && task test
 
-# Build and test everything (Go + Rust)
+# Build and test everything (Go)
 task all
 ```
 
-### Rust (signet-sign crate)
+### Rust CMS signing (relocated to ley-line-open)
 
-```bash
-task rs:build                 # Build signet-sign (debug)
-task rs:test                  # Run signet-sign tests (10 tests)
-task rs:test-ffi              # Run with FFI feature (12 tests)
-task rs:fmt                   # Format Rust code
-task rs:lint                  # Clippy
-task rs:wasm                  # Build wasm32-unknown-unknown target
-```
+The former `rs/crates/sign/` fork was dropped under bead `signet-d583bd`; the
+canonical Ed25519 CMS/PKCS#7 crate now lives in ley-line-open as
+`leyline-sign` (`rs/ll-open/sign/`). Build, test, and Wasm emit happen in the
+LLO workspace; signet has no Rust source of its own.
 
 ### Docker Testing Environment
 
@@ -127,11 +123,14 @@ task security                 # Security scan (requires gosec)
 | `pkg/authflow/` | Pluggable auth flow registry (venturi pattern): Flow interface, Deps, Registry + FlowFactory |
 | `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
 
-### Rust (signet-sign)
+### Rust CMS signing (external)
 
-| Crate | Purpose |
-|-------|---------|
-| `rs/crates/sign/` | Ed25519 CMS/PKCS#7 signing + verification (RFC 5652 + RFC 8419). Rust implementation parallel to go-cms. Targets: rlib (Rust consumers), cdylib/staticlib (C FFI, behind `ffi` feature), wasm32-unknown-unknown (CF Workers). Apache-2.0 OR MIT. |
+Ed25519 CMS/PKCS#7 signing + verification (RFC 5652 + RFC 8419) lives in
+[ley-line-open](https://github.com/agentic-research/ley-line-open) as the
+`leyline-sign` crate (`rs/ll-open/sign/`). Signet's former `rs/crates/sign/`
+fork was retired under bead `signet-d583bd`; edge-worker wiring (bead
+`ley-line-open-a2099a`) will consume LLO's published wasm artifact when
+available.
 
 External: [github.com/agentic-research/go-cms](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), pure Go implementation used for git signing and file signing.
 

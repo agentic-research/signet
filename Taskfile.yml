@@ -84,61 +84,18 @@ tasks:
       - docker run --rm signet-test
 
   # --------------------------------------------------------------------------
-  # Rust / signet-sign
-  # --------------------------------------------------------------------------
-  rs:build:
-    desc: Build signet-sign Rust crate (debug)
-    dir: rs
-    cmds:
-      - cargo build -p signet-sign
-
-  rs:release:
-    desc: Build signet-sign Rust crate (release)
-    dir: rs
-    cmds:
-      - cargo build -p signet-sign --release
-
-  rs:test:
-    desc: Run signet-sign Rust tests
-    dir: rs
-    cmds:
-      - cargo test -p signet-sign
-
-  rs:test-ffi:
-    desc: Run signet-sign Rust tests with FFI feature
-    dir: rs
-    cmds:
-      - cargo test -p signet-sign --features ffi
-
-  rs:fmt:
-    desc: Format Rust code
-    dir: rs
-    cmds:
-      - cargo fmt
-
-  rs:lint:
-    desc: Run Clippy on Rust code
-    dir: rs
-    deps: [rs:fmt]
-    cmds:
-      - cargo clippy --workspace -- -D warnings
-
-  rs:wasm:
-    desc: Build signet-sign as Wasm (wasm32-unknown-unknown)
-    dir: rs
-    cmds:
-      - cargo build --target wasm32-unknown-unknown -p signet-sign --features ffi --lib --release
-
-  # --------------------------------------------------------------------------
   # Combined
   # --------------------------------------------------------------------------
+  # Rust CMS signing has moved to ley-line-open's `leyline-sign` crate
+  # (LLO `rs/ll-open/sign/`). The former `rs/crates/sign/` fork was dropped
+  # under bead signet-d583bd (chore: drop rs/crates/sign fork, depend on
+  # LLO's leyline-sign). Consumers should build/test the crate via LLO's
+  # workspace.
   all:
-    desc: Build and test everything (Go + Rust)
+    desc: Build and test everything (Go)
     cmds:
       - task: build
       - task: test
-      - task: rs:build
-      - task: rs:test
 
   quick:
     desc: Clean, rebuild, and integration test

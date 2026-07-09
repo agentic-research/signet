@@ -29,7 +29,7 @@ APAS builds on and references these existing specifications rather than reinvent
 | Signet Token Format | [`docs/design/001-signet-tokens.md`](../design/001-signet-tokens.md) | Identity tokens (CBOR + COSE/Ed25519) |
 | Signet Bridge Certificates | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) | Delegated identity for dispatches |
 | Signet Identity Model | [`pkg/sigid/`](../../pkg/sigid/) | 4-entity decomposition (Owner/Machine/Actor/Identity) |
-| Ley-line CMS Signing | `ley-line/rs/crates/sign/src/cms.rs` | Ed25519 CMS/PKCS#7 (RFC 5652 + RFC 8419) |
+| Ley-line CMS Signing | `ley-line-open/rs/ll-open/sign/src/cms.rs` | Ed25519 CMS/PKCS#7 (RFC 5652 + RFC 8419) |
 | in-toto Statement | https://in-toto.io/Statement/v1 | Attestation envelope format |
 | DSSE | Dead Simple Signing Envelope | Signature wrapper |
 | SLSA v1.0 | https://slsa.dev/spec/v1.0 | Conformance level model |
@@ -104,7 +104,7 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 - Handoff documents wrapped in DSSE envelope around in-toto Statement v1, ed25519-signed — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`)
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
 - Commit signatures via signet bridge certificates (see [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
-- Shared CMS/Ed25519 implementation via ley-line (`ley-line/rs/crates/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; consolidation onto leyline-sign is pending the wasm32 emit per `ley-line-c764c6`)
+- Shared CMS/Ed25519 implementation via ley-line-open (`ley-line-open/rs/ll-open/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; consolidation onto leyline-sign is pending the wasm32 emit per `ley-line-open-a2099a`)
 
 **What it proves**: "We know what happened AND who attests to it." Tamper-evident.
 
@@ -285,7 +285,7 @@ The 4-entity identity model from [`pkg/sigid/`](../../pkg/sigid/) decomposes ide
 
 The bridge cert IS the dispatch's identity. One Actor (agent definition) can produce many dispatches, each with its own short-lived bridge cert.
 
-Signing implementation uses ley-line's Rust CMS crate (`ley-line/rs/crates/sign/src/cms.rs`)
+Signing implementation uses ley-line-open's Rust CMS crate (`ley-line-open/rs/ll-open/sign/src/cms.rs`)
 which supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA).
 
 ### 3.5 Predicate Splitting (Future)
@@ -426,7 +426,7 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 
 ### 7.3 Ley-line (Signing + Storage)
 
-- `rs/crates/sign/` — CMS/PKCS#7 Ed25519 signing (L2)
+- `ley-line-open/rs/ll-open/sign/` (`leyline-sign` crate) — CMS/PKCS#7 Ed25519 signing (L2)
 - Arena storage — Content-addressed immutable snapshots (L2, L4)
 
 ### 7.4 Implementation Phases
