@@ -151,6 +151,20 @@ func WithRequiredPurposes(purposes ...string) Option {
 	}
 }
 
+// WithProtectedResourceMetadata makes the middleware advertise OAuth 2.0
+// Protected Resource Metadata (RFC 9728). Two effects: the metadata document is
+// served, unauthenticated, at WellKnownProtectedResourcePath; and every 401
+// gains a `WWW-Authenticate: Bearer resource_metadata="…"` challenge pointing at
+// it. Together these let a cold OAuth/MCP client discover which authorization
+// server to authenticate against. The metadata's Resource field is REQUIRED and
+// validated at middleware construction (a missing/relative resource is a config
+// error, not a silent misconfiguration).
+func WithProtectedResourceMetadata(m ProtectedResourceMetadata) Option {
+	return func(c *Config) {
+		c.ProtectedResource = &m
+	}
+}
+
 // staticKeyProvider implements KeyProvider with a single static key
 type staticKeyProvider struct {
 	key crypto.PublicKey
