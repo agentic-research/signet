@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -65,8 +66,28 @@ func (m *ProtectedResourceMetadata) validate() error {
 	if strings.TrimSpace(m.Resource) == "" {
 		return fmt.Errorf("protected resource metadata: `resource` is required (RFC 9728 §2)")
 	}
-	if !strings.HasPrefix(m.Resource, "https://") && !strings.HasPrefix(m.Resource, "http://") {
-		return fmt.Errorf("protected resource metadata: `resource` must be an absolute URL, got %q", m.Resource)
+	u, err := url.Parse(m.Resource)
+	if err != nil {
+		// Also the header-injection tripwire: url.Parse rejects control chars,
+		// so a CRLF-bearing Resource never reaches challenge().
+		return fmt.Errorf("protected resource metadata: `resource` is not a valid URL (%q): %w", m.Resource, err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("protected resource metadata: `resource` must be an http(s) URL, got scheme %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("protected resource metadata: `resource` must include a host, got %q", m.Resource)
+	}
+	// RFC 9728 §3.3 requires the served `resource` to be IDENTICAL to the
+	// identifier a client used to reach the document. A query, fragment, or
+	// userinfo makes that unsatisfiable and (pre-fix, LOW-1) produced a
+	// malformed discovery URL like `https://host?x=y/.well-known/...`. Reject
+	// at construction rather than emit a broken WWW-Authenticate at runtime.
+	if u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("protected resource metadata: `resource` must not carry a query or fragment, got %q", m.Resource)
+	}
+	if u.User != nil {
+		return fmt.Errorf("protected resource metadata: `resource` must not contain userinfo, got %q", m.Resource)
 	}
 	return nil
 }
@@ -83,16 +104,16 @@ func (m *ProtectedResourceMetadata) challenge() string {
 	if m == nil {
 		return ""
 	}
-	origin := strings.TrimRight(m.Resource, "/")
-	// Trim any path component to the origin so the well-known suffix lands at
-	// host root (the host-level form documented above).
-	if i := strings.Index(origin, "://"); i >= 0 {
-		if slash := strings.Index(origin[i+3:], "/"); slash >= 0 {
-			origin = origin[:i+3+slash]
-		}
+	u, err := url.Parse(m.Resource)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		// validate() rejects these at construction; this is a defensive no-op
+		// so a bad Resource can never emit a malformed challenge.
+		return ""
 	}
-	url := origin + WellKnownProtectedResourcePath
-	return fmt.Sprintf("Bearer resource_metadata=%q", url)
+	// Origin only (scheme://host) so the well-known suffix lands at host root —
+	// the host-level form documented above — regardless of any path component.
+	metadataURL := u.Scheme + "://" + u.Host + WellKnownProtectedResourcePath
+	return fmt.Sprintf("Bearer resource_metadata=%q", metadataURL)
 }
 
 // ProtectedResourceMetadataHandler returns an http.Handler that serves the

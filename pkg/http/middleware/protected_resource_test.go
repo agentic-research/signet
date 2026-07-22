@@ -19,6 +19,11 @@ func TestProtectedResourceMetadata_Validate(t *testing.T) {
 		{"whitespace resource rejected", &ProtectedResourceMetadata{Resource: "   "}, true},
 		{"relative resource rejected", &ProtectedResourceMetadata{Resource: "/mcp"}, true},
 		{"bare host without scheme rejected", &ProtectedResourceMetadata{Resource: "mcp.example.com"}, true},
+		{"scheme-only (no host) rejected", &ProtectedResourceMetadata{Resource: "https://"}, true},
+		{"query rejected (LOW-1)", &ProtectedResourceMetadata{Resource: "https://host?x=y"}, true},
+		{"fragment rejected (LOW-1)", &ProtectedResourceMetadata{Resource: "https://host#frag"}, true},
+		{"userinfo rejected (LOW-1)", &ProtectedResourceMetadata{Resource: "https://u:p@host"}, true},
+		{"CRLF rejected (header-injection guard)", &ProtectedResourceMetadata{Resource: "https://host\r\nX-Injected: 1"}, true},
 		{"https absolute accepted", &ProtectedResourceMetadata{Resource: "https://mcp.example.com"}, false},
 		{"http absolute accepted", &ProtectedResourceMetadata{Resource: "http://localhost:8080"}, false},
 	}
