@@ -69,6 +69,9 @@ type CertIdentityProvider interface {
 
 // MachineFingerprint computes a hex-encoded SHA-256 fingerprint of a public key.
 // This identifies the machine/device independent of the cert that wraps it.
+//
+// NOTE: this is the FULL-WIDTH (256-bit) device fingerprint, deliberately
+// distinct from CanonicalKeyID (the 128-bit kid). Do not conflate them.
 func MachineFingerprint(pub crypto.PublicKey) (string, error) {
 	der, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
@@ -76,4 +79,32 @@ func MachineFingerprint(pub crypto.PublicKey) (string, error) {
 	}
 	hash := sha256.Sum256(der)
 	return hex.EncodeToString(hash[:]), nil
+}
+
+// CanonicalKeyID computes the canonical key identifier (kid) for a public key,
+// per signet ADR-012 (docs/design/012-canonical-key-id.md):
+//
+//	kid = lowercasehex( SHA-256( canonical SPKI DER )[:16] )   // 128-bit, 32 hex
+//
+// The Go leg of the cross-language contract: notme's keyIdFromSpki (TypeScript)
+// reproduces the same value, pinned by the shared conformance vector (the fixed
+// Ed25519 pubkey 00..1f → 9408457aefd071cec127c1f985399308).
+//
+// Canonicalize-then-hash (ADR-012 R2): the input is the CANONICAL
+// SubjectPublicKeyInfo DER. MarshalPKIXPublicKey re-encodes the *parsed* key, so
+// two valid SPKI encodings of one key — e.g. Ed25519 `parameters` ABSENT (RFC
+// 8410) vs a lenient encoder's NULL — collapse to the same kid rather than
+// producing two divergent ones (the bug that split notme from signet before
+// notme adopted canonicalize-then-hash).
+//
+// Distinct from MachineFingerprint (full 256-bit device fingerprint) and from
+// an RFC 7638 JWK thumbprint / DPoP `jkt` (base64url of a canonical JWK) — see
+// ADR-012 for why these must not be conflated.
+func CanonicalKeyID(pub crypto.PublicKey) (string, error) {
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return "", fmt.Errorf("marshal public key: %w", err)
+	}
+	hash := sha256.Sum256(der)
+	return hex.EncodeToString(hash[:16]), nil
 }
