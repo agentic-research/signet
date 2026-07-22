@@ -56,10 +56,38 @@ kid = lowercasehex( SHA-256( SPKI_DER )[:16] )
   against *accidental* collision, but an adversary who can influence
   key-rotation timing (mint many ephemeral keys, grind for a `kid` prefix
   match against a target) is a rotation-volume attacker, and 64-bit is
-  grindable at scale. 128-bit puts a second-preimage/collision grind beyond
-  any realistic adversary while staying compact enough for a header value.
+  grindable at scale. 128-bit puts the **second-preimage** grind (match a fixed
+  victim kid) at 2^128 — beyond any adversary — while staying compact enough for
+  a header value. This holds *only* under the parity invariant (see R1 in the
+  review verdict): kid is compared for equality against an already-authenticated
+  key, never used as the sole selector into an attacker-seedable key set. Where
+  that invariant fails, the relevant bound drops to the **birthday** 2^64 and
+  128-bit is no longer sufficient — so the invariant, not the bit-count, is what
+  makes the width safe.
 - **Encoding: lowercase hex.** Deterministic, case-normalized (so comparison is
   plain byte-equality), matches notme + `MachineFingerprint`.
+- **Canonicalization (MUST, R2).** The input is *re-encoded* canonical DER, not
+  the SPKI bytes as received: parse the key, re-marshal via `MarshalPKIXPublicKey`
+  (or an equivalent canonical SPKI serializer), then hash. Hashing as-received is
+  forbidden — the same key has multiple *valid* SPKI encodings (Ed25519
+  `parameters` ABSENT per RFC 8410 vs a lenient encoder's `NULL`; ECDSA
+  named-curve vs explicit-parameters), and each hashes to a different `kid`.
+  Verified: the same Ed25519 key under absent-params vs NULL-params DER yields
+  `9408457a…` vs `694c79f4…`. Implementations MUST reject ECDSA
+  explicit-parameters SPKI. notme's current `keyIdFromSpki` hashes as-received
+  (`worker/src/key-id.ts:31`) and is therefore non-conformant until fixed — see
+  the R2 bead.
+- **Parity, not lookup (MUST, R1).** `kid` is compared for equality against a key
+  that is *already authenticated* against a pinned root / cert chain; it MUST NOT
+  be the sole selector into any key set an attacker can add entries to. Under
+  this invariant the attack bound is second-preimage (2^128). If a future
+  multi-issuer JWKS or peer/discovery cache is ever keyed by `kid`, the bound
+  drops to birthday (2^64) and *that* deployment MUST use full 256-bit.
+- **Shape validation (MUST, R4).** Every boundary that accepts a `kid` MUST
+  reject any value not matching `^[0-9a-f]{32}$`. This is what structurally keeps
+  a `jkt` (43 base64url chars), a full-length hash (64 hex), or a
+  `MachineFingerprint` (of which the canonical `kid` is a 32-char prefix) from
+  being silently accepted where a `kid` is expected.
 
 Truncation takes the **leading** bytes, so widths are **prefix-compatible**:
 the 64-bit id is the first 16 hex chars of the 128-bit id (see the vector).
@@ -133,17 +161,161 @@ other's code.
 - Downstream conformance (`notme-254f03`, `cloister-2508ec`,
   `ley-line-open-24bd97`) can proceed against a fixed target.
 
-## Open questions (for the adversarial review)
+## Resolved questions (adversarial review, 2026-07-22)
 
-1. Is 128-bit the right point, or does the rotation-timing threat justify the
-   full 256-bit (no truncation) for the `kid`, accepting the longer header?
-2. SPKI DER vs raw-SubjectPublicKey *bit string* (the inner key, no
-   AlgorithmIdentifier): SPKI folds the algorithm OID into the hash, so the
-   same raw key under two algorithm identifiers yields two kids — is that a
-   feature (algorithm binding) or a footgun (kid changes if the OID encoding
-   shifts)?
-3. Does truncating the *leading* bytes interact badly with any structure in
-   SHA-256 output over the highly-regular SPKI prefix? (Believed no — SHA-256
-   is not length-extendable in a way that helps a prefix-grinder — but the
-   trust-root reviewer should confirm the grind cost is 2^64 for a 128-bit
-   prefix match, not less.)
+The three open questions were adjudicated by the trust-root review below.
+Verdicts:
+
+1. **Width — 128-bit is ratified, conditional on the parity invariant (R1).**
+   128-bit is correct *because* `kid` is used only as an equality check against
+   an already-authenticated key, never as the sole selector into an
+   attacker-influenceable key set. Under that invariant the relevant bound is
+   **second-preimage = 2^128** (grind your own key to match a fixed victim
+   kid), which no adversary reaches. The rotation-timing "grind" the Decision
+   section worried about is a **birthday** attack (2^64) that only bites if a
+   verifier resolves the verifying key *by kid* from a multi-origin set the
+   attacker can seed — i.e. a confused-deputy, not a brute-force cost. The fix
+   for that is the invariant, not more bits: full 256-bit without R1 would be
+   false comfort. **Do not widen to 256-bit; adopt R1 instead.**
+2. **SPKI over raw — keep, but hash *canonical re-encoded* DER, not
+   as-received bytes (R2).** Folding the algorithm OID in is a feature
+   (algorithm binding, stops cross-alg raw-byte collision). The footgun is
+   real but is DER-canonicality, not the OID: the same key has multiple *valid*
+   SPKI encodings (Ed25519 `parameters` ABSENT per RFC 8410 vs a lenient
+   encoder's `NULL`; ECDSA named-curve vs explicit-parameters), and each hashes
+   to a different kid. Demonstrated: the same Ed25519 key under absent-params
+   vs NULL-params DER yields `9408457a…` vs `694c79f4…`. The scheme MUST
+   specify *canonicalize-then-hash* (parse → re-marshal via
+   `MarshalPKIXPublicKey` / a canonical SPKI serializer → hash), never
+   *hash-as-received*, and MUST reject ECDSA explicit-parameters SPKI.
+3. **Leading truncation is safe.** SHA-256 avalanche makes every output byte a
+   uniform function of the whole input; the regular SPKI prefix induces no
+   structure in any output region, and length-extension does not help a
+   truncated-preimage grinder. Grind cost for a 128-bit prefix match is
+   **2^128 second-preimage / 2^64 collision**, identical to trailing
+   truncation — confirmed. The only caveat is migration (R3): leading
+   truncation is what makes 64-bit ids a live prefix of 128-bit ids, which
+   preserves the 64-bit attack surface until every 64-bit comparator is retired.
+
+## Review verdict (trust-root, 2026-07-22)
+
+**Bottom line:** 128-bit + SPKI + leading-truncation is **safe to ratify**, but
+only with three normative additions the current draft leaves implicit. No
+finding flips the *width*; two findings (R1, R2) are load-bearing correctness
+conditions that the width alone does not provide, and one (R3) closes a
+migration-window downgrade. Ship 128-bit; do not go to 256-bit — the residual
+risks are logic invariants, not bit-count, and 256-bit would paper over them.
+
+The independently recomputed conformance vector matches byte-for-byte
+(`SHA-256(SPKI)=9408457aefd071cec127c1f98539930861ad1ba94c940db975c972c09fc68b68`,
+kid128 `9408457aefd071cec127c1f985399308`, kid64 prefix `9408457aefd071ce`).
+
+### R1 — Pin "kid is a parity check, not a lookup key" as a normative invariant (HIGH)
+
+The width decision is only sound under this invariant, so it must be written,
+not assumed. Two distinct adversary bounds apply and the Decision section
+conflates them:
+
+- **Second-preimage (2^128):** attacker grinds *their own* keypairs to match a
+  *fixed, not-attacker-chosen* victim kid. Beyond any adversary. This is the
+  bound that holds when kid only ever confirms an already-authenticated key.
+- **Collision / birthday (2^64):** attacker finds *two of their own* keys
+  sharing a kid, registers one as trusted, later substitutes the other. 2^64
+  SHA-256+keygen is *not* "beyond any realistic adversary" — it is
+  nation-state / large-ASIC-farm reachable over months. This bound bites **iff**
+  a verifier selects the verifying key *by kid* from a set the attacker can
+  seed (a merged/multi-issuer JWKS, a peer/discovery cache keyed by kid).
+
+Current code satisfies the invariant, which is *why* 128-bit is fine:
+`verifyAccessToken(token, publicKey)` (`notme worker/src/auth/token.ts:96`)
+takes the pubkey as a parameter; `notme worker/src/revocation.ts:364` is a pure
+`token.keyId !== bundle.keyId && !== bundle.prevKeyId` equality gate, and the
+bundle itself is verified against the pinned root pubkey (`revocation.ts:341`),
+not a kid-resolved key. The one kid-indexed structure,
+`keys: { [keyId]: pubKeyB64 }` (`notme worker/src/signing-authority.ts:448`), is
+a single-entry map notme builds from its own key — not attacker-injectable.
+
+**Fix:** state normatively that (a) the verifying key is always authenticated
+against a pinned root / cert chain, and kid is compared for equality *after*;
+(b) kid MUST NOT be the sole selector into any set an attacker can add entries
+to; (c) if a future multi-issuer JWKS or peer cache is ever keyed by kid, the
+relevant bound becomes 2^64 and *that* deployment must widen to full 256-bit.
+With the invariant, 128-bit is correct and generous.
+
+### R2 — Canonicalize-then-hash; the vector must pin *canonical* DER (HIGH)
+
+`notme keyIdFromSpki` (`worker/src/key-id.ts:30`) hashes the received
+`spkiB64` bytes directly — *hash-as-received*. A peer that sends a valid but
+non-canonical SPKI (Ed25519 `parameters: NULL` instead of absent; ECDSA
+explicit-parameters instead of named-curve; any BER-ish re-encoding) gets a
+**different kid than signet** computes for the identical key, silently breaking
+the "one identifier everywhere" guarantee. Demonstrated above with a real
+byte-level divergence. `signet MachineFingerprint`
+(`pkg/sigid/identity.go:72`) already re-marshals via `MarshalPKIXPublicKey`
+(canonical), so signet and notme will *disagree* on any non-canonical input
+until notme also re-canonicalizes.
+
+**Fix:** the Decision + conformance-vector section must state the input is the
+**canonical DER re-encoding** (parse → `MarshalPKIXPublicKey` / canonical TS
+serializer → hash), and implementations MUST reject ECDSA explicit-parameters
+encodings and MUST NOT hash wire bytes without re-marshalling. Add a negative
+conformance vector: the NULL-params Ed25519 encoding above MUST be rejected or
+re-canonicalized to `9408457a…`, never accepted as `694c79f4…`.
+
+### R3 — Prefix-compatibility is a downgrade-persistence during migration (MEDIUM–HIGH)
+
+The doc frames kid64 = kid128[:16 hex] as pure upside. Adversarially it means
+**the system's second-preimage floor is 2^64, not 2^128, for as long as any
+64-bit comparator stays live** — and prefix-compatibility is precisely what
+keeps old 64-bit consumers working, so it *guarantees* such comparators persist.
+An attacker grinds a key whose 64-bit kid matches a victim's (2^64
+second-preimage against a specific id; 2^32 birthday if the attacker also
+registered the victim-era id) and presents it to any consumer still deriving or
+comparing at 64-bit. notme's own gate is length-sensitive (`===`, not prefix)
+so it is safe *as written*, but `rotate()` writes the raw `oldKeyId` into
+`prevKeyId` (`notme worker/src/signing-authority.ts:487`), so across the
+boundary a **64-bit value is live in `prevKeyId`** and compared by equality at
+`revocation.ts:364`.
+
+**Fix:** (a) hard flag-day after which 64-bit derivation/acceptance is
+*rejected*, not merely drained (the 5-min cert-TTL drain covers certs, not
+JWKS kids or persisted `keyId`/`prevKeyId` rows); (b) consumers MUST compare
+full-length and MUST NOT prefix-match a short id against a wide registered key;
+(c) on the first rotation across the boundary, `prevKeyId` MUST carry the
+previous key re-derived at **128-bit**, never the stored 64-bit value, so no
+comparator is ever handed a 64-bit token post-migration. State explicitly that
+until the flag-day the effective floor is 2^64.
+
+### R4 — kid vs jkt distinction is documented, not enforced (MEDIUM)
+
+The shapes differ (32 hex chars vs 43 base64url), so accidental substitution
+usually fails a `===`, but nothing *rejects* a mis-typed value: a full 64-char
+hex (untruncated), a jkt, or a `MachineFingerprint` (which is literally kid's
+64-char superstring — kid == `MachineFingerprint[:32]`) could slip through a
+naive comparator or a prefix-match. The distinction is enforceable but not
+currently enforced.
+
+**Fix:** pin a format validator (`^[0-9a-f]{32}$` for kid) at every
+kid-consuming boundary, so a 256-bit hex, a base64url jkt, or a full
+MachineFingerprint cannot be silently accepted where a kid is expected. Note in
+the doc that `kid == MachineFingerprint[:32]` and that no code path may
+prefix-compare the two.
+
+### Detection / recovery notes
+
+- **Detection:** an R2 encoding mismatch surfaces as a spurious `unknown_key`
+  (kid disagreement) — observable but easily misread as benign churn; add a
+  metric distinguishing "kid computed differs from kid on record for a
+  bit-identical key." An R1 confused-deputy (if the invariant is ever violated)
+  is **silent** — a kid-resolved wrong key verifies cleanly. R3 exploitation is
+  silent at the 64-bit comparator.
+- **Recovery:** all three are closed by design changes, not key rotation —
+  rotation does not help if the derivation itself is ambiguous (R2) or the floor
+  is 64-bit (R3). R1/R2/R3 must land *before* downstream conformance
+  (`notme-254f03`, `cloister-2508ec`, `ley-line-open-24bd97`) pins to the
+  scheme, or the conformance vector locks in the hash-as-received behavior.
+
+**Confidence:** High on R2 and R3 (empirically demonstrated / traced to
+file:line). High on R1 as a required invariant; the *current* code satisfies it,
+so it is a "keep it true" gate rather than a live break. Medium on R4
+(shape-mismatch makes exploitation hard, but enforcement is absent).
