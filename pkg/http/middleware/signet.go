@@ -63,6 +63,22 @@ func SignetMiddleware(opts ...Option) (func(http.Handler) http.Handler, error) {
 		return nil, fmt.Errorf("invalid middleware configuration: %w", err)
 	}
 
+	// RFC 9728: wrap the error handler ONCE so the WWW-Authenticate challenge
+	// is attached to every 401 no matter which ErrorHandler the caller supplied.
+	// The header must be set before the inner handler writes the status, so the
+	// wrapper sets it first, then delegates.
+	if config.ProtectedResource != nil {
+		if challenge := config.ProtectedResource.challenge(); challenge != "" {
+			inner := config.ErrorHandler
+			config.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+				if errorToHTTPStatus(err) == http.StatusUnauthorized {
+					w.Header().Set("WWW-Authenticate", challenge)
+				}
+				inner(w, r, err)
+			}
+		}
+	}
+
 	// Create the middleware
 	middleware := func(next http.Handler) http.Handler {
 		return &signetHandler{
@@ -95,6 +111,14 @@ func matchesSkipPath(requestPath, skipPath string) bool {
 
 // ServeHTTP implements http.Handler with full two-step verification
 func (h *signetHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// RFC 9728: serve the Protected Resource Metadata document publicly, before
+	// any authentication. Discovery must be reachable by a client that does not
+	// yet hold a credential — that is the entire point of the challenge.
+	if h.config.ProtectedResource != nil && r.URL.Path == WellKnownProtectedResourcePath {
+		ProtectedResourceMetadataHandler(h.config.ProtectedResource).ServeHTTP(w, r)
+		return
+	}
+
 	// Check if this path should skip authentication
 	for _, skip := range h.config.SkipPaths {
 		if matchesSkipPath(r.URL.Path, skip) {
@@ -380,6 +404,14 @@ type Config struct {
 	// Advanced options
 	SkipPaths        []string
 	RequiredPurposes []string
+
+	// ProtectedResource, when set, makes this middleware advertise OAuth 2.0
+	// Protected Resource Metadata (RFC 9728): it serves the metadata document
+	// publicly at WellKnownProtectedResourcePath and adds a
+	// `WWW-Authenticate: Bearer resource_metadata="…"` challenge to every 401,
+	// so a cold OAuth/MCP client can discover which authorization server to
+	// authenticate against. Nil = no discovery advertised (default).
+	ProtectedResource *ProtectedResourceMetadata
 }
 
 // validate checks if the configuration is valid
@@ -395,6 +427,9 @@ func (c *Config) validate() error {
 	}
 	if c.ClockSkew < 0 {
 		return fmt.Errorf("clock skew must be non-negative")
+	}
+	if err := c.ProtectedResource.validate(); err != nil {
+		return err
 	}
 	return nil
 }
