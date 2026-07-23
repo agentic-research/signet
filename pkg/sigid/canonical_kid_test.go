@@ -41,7 +41,7 @@ func TestCanonicalKeyID_Shape(t *testing.T) {
 		t.Fatalf("kid length = %d, want 32 (128-bit)", len(kid))
 	}
 	for _, c := range kid {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Fatalf("kid %q contains a non-lowercase-hex char %q", kid, c)
 		}
 	}
