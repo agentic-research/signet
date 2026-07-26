@@ -1,11 +1,16 @@
 # Agent Provenance Attestation Standard (APAS)
 
-**Version**: 0.2.0-draft
+**Version**: 0.2.1-draft
 **Status**: Draft
 **Authors**: Agentic Research
-**Date**: 2026-05-09
+**Date**: 2026-07-26
 
-> **0.2.0 changes**: (1) genericized work-item terminology in spec sections — orchestrator-specific terms (rosary "bead", BDR, Thread, Decade) are kept only in the reference-implementation section and the glossary; (2) distinguished **agent** (persona/definition) from **dispatch** (a specific running execution of that agent — the unit of cryptographic identity, bearing a per-dispatch bridge cert); (3) updated L2 status: in-toto + DSSE handoff envelope is **shipped** in rosary (`src/dsse.rs`, predicate `https://rosary.dev/Handoff/v1`).
+> **0.2.1 changes**: Reconciled implementation-status language with the code as
+> shipped. Rosary emits in-toto handoff statements in DSSE envelopes and signs
+> them only when an attestation key is configured; dispatch-manifest and commit
+> signing remain targets. Clarified that ley-line provides a compatible signing
+> primitive, while Cloister receipts and Mache context projection are adjacent
+> ecosystem capabilities rather than APAS conformance claims.
 
 > **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today
 > in the rosary reference implementation. Sections marked **[TARGET]** describe the
@@ -101,7 +106,7 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 **Requirement**: Every attestation is cryptographically signed by the entity that produced it.
 
 - Hash chain links content hashes, not file paths — **shipped** (rosary PR #117, `Handoff::previous_chain_hash`)
-- Handoff documents wrapped in DSSE envelope around in-toto Statement v1, ed25519-signed — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`)
+- Handoff documents wrapped in a DSSE envelope around in-toto Statement v1 — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`). Envelopes are Ed25519-signed when an attestation key is configured and otherwise carry an empty signature set, which is not L2-conformant.
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
 - Commit signatures via signet bridge certificates (see [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
 - Shared CMS/Ed25519 implementation via ley-line-open (`ley-line-open/rs/ll-open/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; consolidation onto leyline-sign is pending the wasm32 emit per `ley-line-open-a2099a`)
@@ -164,9 +169,9 @@ APAS uses the in-toto attestation framework with a custom predicate type.
 ```
 
 > **URI resolution**: `notme.bot` is the canonical namespace for APAS predicate schemas.
-> The running identity authority is deployed at `auth.notme.bot` (Cloudflare Workers
-> with SigningAuthority DO). `notme.bot` hosts the standard itself — the separation
-> from any orchestrator is intentional because APAS is implementation-agnostic.
+> The identity authority is available at `auth.notme.bot`. `notme.bot` hosts the
+> standard itself — the separation from any orchestrator is intentional because
+> APAS is implementation-agnostic.
 
 ### 3.2 Predicate: `dispatch/v1`
 
@@ -186,8 +191,8 @@ APAS uses the in-toto attestation framework with a custom predicate type.
     "agent": {
       "name": "dev-agent",
       "definition": "sha256:<hash of agent .md file>",
-      "provider": "claude",
-      "model": "claude-opus-4-6",
+      "provider": "provider-name",
+      "model": "model-version",
       "permissionProfile": "implement"
     }
   },
@@ -279,14 +284,16 @@ key format — it delegates to signet's existing specifications.
 
 The 4-entity identity model from [`pkg/sigid/`](../../pkg/sigid/) decomposes identity as:
 - **Owner**: the human user who authorized the dispatch
-- **Machine**: the host running the dispatch (Fly machine, local Mac)
+- **Machine**: the host running the dispatch
 - **Actor**: the agent persona (dev-agent, staging-agent) — a definition, not a running instance
 - **Identity**: the cryptographic key binding all three to the running **dispatch** (the execution carrying the bridge-cert)
 
 The bridge cert IS the dispatch's identity. One Actor (agent definition) can produce many dispatches, each with its own short-lived bridge cert.
 
-Signing implementation uses ley-line-open's Rust CMS crate (`ley-line-open/rs/ll-open/sign/src/cms.rs`)
-which supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA).
+Ley-line-open's Rust CMS crate (`ley-line-open/rs/ll-open/sign/src/cms.rs`)
+supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA). Rosary's
+shipped handoff-envelope path currently uses `ed25519_dalek` directly;
+consolidation onto the shared ley-line signing primitive remains a target.
 
 ### 3.5 Predicate Splitting (Future)
 
@@ -326,7 +333,7 @@ H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... ||
 `H(Phase)` inputs:
 - `agent_definition` — content hash of the agent's `.md` file (the persona).
 - `dispatch_identity` — the dispatch's bridge-cert subject (the running execution that produced this Phase).
-- `provider` — model provider string (`anthropic`, `openai`, etc.).
+- `provider` — implementation-defined model provider identifier.
 - Both `agent_definition` and `dispatch_identity` are present so a Phase
   binds the *what-was-supposed-to-run* to *what-actually-ran*.
 
@@ -404,14 +411,18 @@ H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... ||
 
 ## 7. Reference Implementation
 
-The reference implementation is split across three repositories in the ART ecosystem.
+The reference implementation and its supporting primitives span several
+repositories. A component's presence here does not by itself establish an APAS
+conformance level; the status statements below describe the implemented
+relationship precisely.
 
 ### 7.1 Rosary (Orchestrator)
 
-The running orchestrator implementation is deployed at `rosary.bot` with cert
-issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
+The orchestrator implementation is documented at `rosary.bot`, with identity
+issuance at `auth.notme.bot`.
 
-- `src/handoff.rs` — Phase handoff with chain hashing (L1, partial L2)
+- `src/handoff.rs` — Phase handoff, tool-call records, content-linked chain hashing, and commit-SHA binding (L1, partial L2)
+- `src/dsse.rs` — in-toto Statement v1 handoff envelope, optional Ed25519 signing, and verification (partial L2)
 - `src/manifest.rs` — Dispatch manifest capture (L1)
 - `src/session.rs` — Session tracking (L1)
 - `src/acp.rs` — ACP permission handling (L3 foundation)
@@ -426,21 +437,36 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 
 ### 7.3 Ley-line (Signing + Storage)
 
-- `ley-line-open/rs/ll-open/sign/` (`leyline-sign` crate) — CMS/PKCS#7 Ed25519 signing (L2)
-- Arena storage — Content-addressed immutable snapshots (L2, L4)
+- `ley-line-open/rs/ll-open/sign/` (`leyline-sign` crate) — CMS/PKCS#7 Ed25519 signing primitive; Rosary has not yet consolidated its DSSE signer onto it
+- Signed Merkle-CAS heads — content-addressed, verifiable storage primitive for future witnessing
 
-### 7.4 Implementation Phases
+### 7.4 Notme (Public APAS Surface)
 
-| Phase | Conformance | What | Where |
-|-------|-------------|------|-------|
-| 0 (done) | L1 partial | Handoff chain hashing, manifest capture | rosary |
-| 1 | L1 complete | Fix chain_hash to use content hashes, capture tool calls | rosary |
-| 2 | L2 | Sign handoffs + manifests with Ed25519 via ley-line-sign | rosary + ley-line |
-| 3 | L2 | Agent commits signed via signet bridge certs | rosary + signet |
-| 4 | L3 | Container sandbox for agent execution | rosary + rig |
-| 5 | L3 | ACP permission mediation as trust boundary | rosary |
-| 6 | L4 | Input hashing (CLAUDE.md, work-item descriptions, MCP responses) | rosary |
-| 7 | L4 | External witness (transparency log, ley-line arena) | ley-line |
+- `notme.bot/apas` — non-normative summary of this draft
+- `notme.bot/provenance/...` — canonical namespace reserved for APAS predicate schemas
+- `auth.notme.bot` — identity and certificate authority used by the reference stack
+
+### 7.5 Adjacent Systems (Not APAS Conformance)
+
+- **Cloister** verifies Interlace leases and can emit signed response receipts
+  and state attestations. Those receipts do not use the APAS in-toto/DSSE
+  predicates, and optional Phase-1 receipt emission does not establish L3
+  conformance.
+- **Mache** projects structured code and repository context through filesystem
+  and MCP interfaces. Its responses are candidate L4 inputs; APAS hashing and
+  inclusion of those responses are not yet implemented.
+
+### 7.6 Implementation Status and Next Steps
+
+| Status | Conformance | What | Where |
+|--------|-------------|------|-------|
+| Shipped | L1 partial | Dispatch manifests, session streams, handoffs, and tool-call records | rosary |
+| Shipped | L1 / L2 foundation | Content-linked handoff chain including commit SHAs | rosary |
+| Partial | L2 | in-toto handoff statements in DSSE envelopes; signed only when configured | rosary |
+| Target | L2 | Signed dispatch manifests and commits; shared signing implementation | rosary + signet + ley-line |
+| Target | L3 | Isolated execution and enforced permission boundary | rosary |
+| Target | L4 | Hash prompts, work-item descriptions, model context, and MCP responses | rosary + mache |
+| Target | L4 | External witnessing of APAS attestations | ley-line |
 
 ## 8. The 5 Whys
 
@@ -451,7 +477,7 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 -> Because we cannot distinguish agent work from human work after the commit is made.
 
 **Why does that matter?**
--> Because supply chain attacks can inject malicious code via compromised agent pipelines (Trivy precedent).
+-> Because supply chain attacks can inject malicious code via compromised agent pipelines.
 
 **Why can't existing tools catch this?**
 -> Because SBOMs track components (static), not decision chains (temporal + causal + identity-bound).
@@ -481,5 +507,5 @@ issuance at `auth.notme.bot` (Cloudflare Workers, SigningAuthority DO).
 | Domain | Canonical URI | Purpose |
 |--------|--------------|---------|
 | `notme.bot` | `https://notme.bot/provenance/...` | APAS standard — predicate schemas, spec documentation |
-| `auth.notme.bot` | `https://auth.notme.bot/` | Signet identity authority — certificate issuance (CF Workers, SigningAuthority DO) |
+| `auth.notme.bot` | `https://auth.notme.bot/` | Signet identity authority — certificate issuance |
 | `rosary.bot` | `https://rosary.bot/` | Rosary orchestrator — reference implementation docs |
