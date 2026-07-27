@@ -15,11 +15,24 @@ graph LR
     subgraph "Token Structure (Integer Keys)"
         Token[CBOR Map]
         Token --> K1["1: IssuerID (string)"]
-        Token --> K2["2: ConfirmationID (32 bytes)"]
-        Token --> K3["3: ExpiresAt (int64)"]
-        Token --> K4["4: Nonce (16 bytes)"]
-        Token --> K5["5: EphemeralKeyID (32 bytes)"]
-        Token --> K6["6: NotBefore (int64)"]
+        Token --> K2["2: AudienceID (string)"]
+        Token --> K3["3: SubjectPPID (32 bytes)"]
+        Token --> K4["4: ExpiresAt (int64)"]
+        Token --> K5["5: NotBefore (int64)"]
+        Token --> K6["6: IssuedAt (int64)"]
+        Token --> K7["7: CapabilityID (16 bytes)"]
+        Token --> K8["8: CapabilityVer (uint)"]
+        Token --> K9["9: ConfirmationID (32 bytes)"]
+        Token --> K10["10: KeyID (bytes)"]
+        Token --> K11["11: CapTokens (uint array)"]
+        Token --> K12["12: CapCustom (map)"]
+        Token --> K13["13: JTI (bytes)"]
+        Token --> K14["14: Actor (map)"]
+        Token --> K15["15: Delegator (map)"]
+        Token --> K16["16: AudienceStr (string)"]
+        Token --> K17["17: Nonce (bytes)"]
+        Token --> K18["18: EphemeralKeyID (bytes)"]
+        Token --> K19["19: Epoch (uint)"]
     end
 
     Token --> Encode[CBOR Encode]
@@ -31,18 +44,32 @@ graph LR
 
 ## Files
 
-- `token.go` - Token structure and encoding
+- `token.go` - Token structure and canonical CBOR encoding
+- `sig1.go` - SIG1 wire-format encoding, decoding, and verification
 
 ## Token Fields
 
 | Key | Field | Type | Purpose |
 |-----|-------|------|---------|
 | 1 | IssuerID | string | Identity of token issuer |
-| 2 | ConfirmationID | []byte | SHA-256 of master public key |
-| 3 | ExpiresAt | int64 | Unix timestamp expiry |
-| 4 | Nonce | []byte | 16-byte random for replay protection |
-| 5 | EphemeralKeyID | []byte | SHA-256 of ephemeral public key |
-| 6 | NotBefore | int64 | Unix timestamp for activation |
+| 2 | AudienceID | string | Optional audience identifier |
+| 3 | SubjectPPID | []byte | Pairwise subject identifier |
+| 4 | ExpiresAt | int64 | Unix timestamp expiry |
+| 5 | NotBefore | int64 | Unix timestamp for activation |
+| 6 | IssuedAt | int64 | Unix timestamp of issuance |
+| 7 | CapabilityID | []byte | 128-bit capability identifier |
+| 8 | CapabilityVer | uint32 | Optional capability version |
+| 9 | ConfirmationID | []byte | SHA-256 of master public key |
+| 10 | KeyID | []byte | Optional signing key identifier |
+| 11 | CapTokens | []uint64 | Optional capability token IDs |
+| 12 | CapCustom | map | Optional custom capability claims |
+| 13 | JTI | []byte | Token identifier |
+| 14 | Actor | map | Optional actor claims |
+| 15 | Delegator | map | Optional delegator claims |
+| 16 | AudienceStr | string | Optional human-readable audience |
+| 17 | Nonce | []byte | Optional replay-prevention nonce |
+| 18 | EphemeralKeyID | []byte | Optional ephemeral key identifier |
+| 19 | Epoch | uint64 | Optional revocation epoch |
 
 ## Why Integer Keys?
 
@@ -59,25 +86,18 @@ graph LR
 - Deterministic encoding mode available
 - Widely supported across languages
 
-## Wire Format (Planned)
+## Wire Format
 
 ```
 SIG1.<base64url(cbor_token)>.<base64url(signature)>
 ```
 
-**Note:** Full wire format not yet implemented in v0.0.1
+`EncodeSIG1` creates this format with a COSE_Sign1 Ed25519 signature;
+`DecodeSIG1` parses it and `VerifySIG1` verifies the signature.
 
 ## Usage Example
 
 ```go
-token := &Token{
-    IssuerID:        "did:key:signet",
-    ConfirmationID:  sha256(masterPubKey),
-    ExpiresAt:       time.Now().Add(5*time.Minute).Unix(),
-    Nonce:           generateNonce(),
-    EphemeralKeyID:  sha256(ephemeralPubKey),
-    NotBefore:       time.Now().Unix(),
-}
-
-encoded, err := cbor.Marshal(token)  // ~100 bytes
+// Construct a validated Token, then encode it with a COSE signer.
+wire, err := EncodeSIG1(token, signer)
 ```
