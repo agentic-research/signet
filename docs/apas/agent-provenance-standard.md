@@ -86,7 +86,7 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 **Requirement**: Every dispatch action is recorded with structured metadata.
 
-- Dispatch manifest captures: dispatch identity (bridge-cert subject), agent definition, provider, model, permissions, work-item reference, timestamps
+- Dispatch manifest captures: dispatch ID, agent name, provider, model (when reported), permission profile, work-item reference, pipeline phase, and timestamps — **shipped**. Binding the dispatch ID to a bridge-cert subject is **not yet implemented**.
 - Tool calls logged to a stream file (e.g. `.rsry-stream.jsonl` in the rosary reference implementation)
 - Pipeline phase transitions recorded with handoff documents
 - All records are JSON, machine-parseable
@@ -313,12 +313,17 @@ consolidation onto the shared ley-line signing primitive remains a target.
 
 ## 4. Hash Chain Structure
 
-### 4.1 Element Hashes **[TARGET — only Phase level is implemented]**
+### 4.1 Element Hashes **[TARGET — shipped handoff hash is narrower]**
 
-Each level in the hierarchy has a content hash. Currently only the Phase level
-(`Handoff::chain_hash()`) and WorkItem level (rosary's `BeadSpec::content_hash()`) are
-implemented. Lower levels (ToolCall, FileChange) and upper levels (Thread,
-Decade) are target design.
+The hierarchy below is the target contract. Rosary currently implements
+work-item content hashes (`BeadSpec::content_hash()`) and a content-linked
+handoff hash at the Phase boundary (`Handoff::chain_hash()`), but the latter is
+not yet the full `H(Phase)` defined below. The shipped handoff hash covers phase
+number, agent name, work-item ID, summary, changed file paths, commit SHAs, and
+the previous handoff hash. It does not yet cover agent-definition content,
+bridge-cert identity, provider, or tool/action hashes. Lower levels (ToolCall,
+FileChange) and upper levels (WorkItemGroup, WorkItemLifecycle) also remain
+target design.
 
 ```
 H(FileChange)        = SHA256(path || old_content || new_content)
@@ -330,11 +335,11 @@ H(WorkItemGroup)     = SHA256(H(WorkItem_0) || H(WorkItem_1) || ... || H(WorkIte
 H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... || H(WorkItemGroup_k))
 ```
 
-`H(Phase)` inputs:
+Target `H(Phase)` inputs:
 - `agent_definition` — content hash of the agent's `.md` file (the persona).
 - `dispatch_identity` — the dispatch's bridge-cert subject (the running execution that produced this Phase).
 - `provider` — implementation-defined model provider identifier.
-- Both `agent_definition` and `dispatch_identity` are present so a Phase
+- Both `agent_definition` and `dispatch_identity` are required so a conformant Phase
   binds the *what-was-supposed-to-run* to *what-actually-ran*.
 
 > **Implementation mapping**: in the rosary reference implementation:
@@ -349,6 +354,10 @@ H(WorkItemLifecycle) = SHA256(H(WorkItemGroup_0) || H(WorkItemGroup_1) || ... ||
 > as illustrative anchors, not as normative wire vocabulary.
 
 ### 4.2 Chain Properties
+
+The target hierarchy has the properties below. The shipped handoff chain
+currently provides tamper evidence and ordering across Phase handoffs;
+completeness and a root spanning the full work-item hierarchy remain targets.
 
 - **Tamper-evident**: Modifying any element changes its hash, which propagates upward
 - **Ordered**: The chain encodes temporal ordering via sequential hashing
