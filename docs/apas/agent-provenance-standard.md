@@ -6,11 +6,12 @@
 **Date**: 2026-07-26
 
 > **0.2.1 changes**: Reconciled implementation-status language with the code as
-> shipped. Rosary emits in-toto handoff statements in DSSE envelopes and signs
-> them only when an attestation key is configured; dispatch-manifest and commit
-> signing remain targets. Clarified that ley-line provides a compatible signing
-> primitive, while Cloister receipts and Mache context projection are adjacent
-> ecosystem capabilities rather than APAS conformance claims.
+> shipped. Rosary emits signed DSSE handoff envelopes only when an attestation
+> key is configured. Without a key it emits no artifact by default; an explicit
+> forensic opt-in writes a raw in-toto Statement, not an unsigned DSSE envelope.
+> Dispatch-manifest and commit signing remain targets. Ley-line is a compatible
+> signing primitive, while Cloister receipts and Mache context projection are
+> adjacent ecosystem capabilities rather than APAS conformance claims.
 
 > **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today
 > in the rosary reference implementation. Sections marked **[TARGET]** describe the
@@ -106,7 +107,7 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 **Requirement**: Every attestation is cryptographically signed by the entity that produced it.
 
 - Hash chain links content hashes, not file paths — **shipped** (rosary PR #117, `Handoff::previous_chain_hash`)
-- Handoff documents wrapped in a DSSE envelope around in-toto Statement v1 — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`). Envelopes are Ed25519-signed when an attestation key is configured and otherwise carry an empty signature set, which is not L2-conformant.
+- Handoff documents wrapped in a DSSE envelope around in-toto Statement v1 — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`) only when Rosary has an Ed25519 attestation key. Without a key Rosary emits no artifact by default; `emit_unsigned = true` writes a raw `.intoto.json` Statement as L1 forensic/debug evidence, never an unsigned DSSE envelope. A configured but unreadable key does not downgrade to unsigned output.
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
 - Commit signatures via signet bridge certificates (see [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
 - Shared CMS/Ed25519 implementation via ley-line-open (`ley-line-open/rs/ll-open/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; consolidation onto leyline-sign is pending the wasm32 emit per `ley-line-open-a2099a`)
