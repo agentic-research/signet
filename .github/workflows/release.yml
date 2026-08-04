@@ -66,6 +66,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Keyless signing. cosign exchanges this OIDC token with Fulcio for a
+      # short-lived certificate bound to THIS workflow — no key to store, and
+      # nothing an attacker holding only release-write access can forge.
+      id-token: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -77,9 +81,77 @@ jobs:
         working-directory: release-assets
         run: sha256sum signet-* > checksums-sha256.txt
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pinned to the version the sign/verify round-trip was actually
+          # exercised against locally, rather than riding the installer default.
+          cosign-release: v3.1.1
+
+      # Sign every published artifact, then VERIFY WHAT WE JUST SIGNED.
+      #
+      # checksums-sha256.txt already gave integrity — you can tell whether a
+      # download matches what the file says. It gives no AUTHENTICITY: anyone
+      # who can replace the binaries can replace the checksums alongside them.
+      # A keyless signature is what makes that substitution detectable, because
+      # producing one requires this workflow's OIDC identity from Fulcio, which
+      # an attacker holding only release-write access does not have.
+      #
+      # signet is the identity component — its binaries are what other systems
+      # here trust to establish identity — so an unsigned release is the worst
+      # artifact in the set to leave unattested.
+      #
+      # --bundle rather than --output-signature/--output-certificate: one file
+      # per artifact carrying signature, certificate AND Rekor entry, so a
+      # consumer fetches one thing instead of getting three right.
+      - name: Sign + verify release artifacts
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+
+          # Exact identity, not a regex. GITHUB_WORKFLOW_REF is precisely
+          # `owner/repo/.github/workflows/file.yml@ref`. A regex here is
+          # somewhere a too-permissive pattern can hide — an unterminated one
+          # matches every workflow in the repo, so any job holding
+          # `id-token: write` could produce a signature that passes.
+          IDENTITY="https://github.com/${GITHUB_WORKFLOW_REF}"
+          ISSUER="https://token.actions.githubusercontent.com"
+
+          # Guard on the BINARIES specifically. Globbing `signet-*` together
+          # with the literal `checksums-sha256.txt` would make the array
+          # non-empty even with zero binaries — nullglob drops an unmatched
+          # glob, not a literal — so the check would read as a safety net while
+          # never being able to fire.
+          shopt -s nullglob
+          binaries=(signet-*)
+          if [ ${#binaries[@]} -eq 0 ]; then
+            echo "no signet binaries in release-assets — refusing to publish an unsigned release" >&2
+            exit 1
+          fi
+          artifacts=("${binaries[@]}" checksums-sha256.txt)
+
+          for f in "${artifacts[@]}"; do
+            cosign sign-blob --yes "$f" --bundle "${f}.cosign.bundle"
+
+            # Verify in the same job. A signature nothing checks is
+            # indistinguishable from one that silently did not happen — notme
+            # shipped three npm releases whose `--provenance` flag was a no-op
+            # for exactly that reason, because nothing verified the attestation
+            # landed (notme-77ead7). Failing here beats discovering it from a
+            # consumer.
+            cosign verify-blob "$f" \
+              --bundle "${f}.cosign.bundle" \
+              --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer "$ISSUER"
+          done
+
+          echo "signed + verified ${#artifacts[@]} artifact(s) as ${IDENTITY}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           tag_name: ${{ env.TAG }}
           generate_release_notes: true
+          # Globs the .cosign.bundle files too, so every binary ships with its
+          # signature beside it.
           files: release-assets/*
