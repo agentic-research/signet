@@ -56,6 +56,11 @@ on:
         required: false
         type: string
         default: 'notme.bot'
+      authority_url:
+        description: 'Notme authority base URL. Use https://<cloister-host>/identity for cluster-rooted trust.'
+        required: false
+        type: string
+        default: 'https://auth.notme.bot'
       skip_bridge_cert:
         description: 'Set to true to skip bridge cert exchange (octo-sts only)'
         required: false
@@ -113,4 +118,4 @@ jobs:
         uses: agentic-research/notme/action@1ccd3b040fd3af0a437c003b4f3d5cc7a71af9f1 # main 2026-05-18 (signet-7cc130)
         with:
           audience: ${{ inputs.bridge_audience }}
-          authority_url: https://auth.notme.bot
+          authority_url: ${{ inputs.authority_url }}

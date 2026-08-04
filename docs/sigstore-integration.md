@@ -1,65 +1,159 @@
 # Signet + Sigstore Integration
 
-This document describes how to use Signet as a local Key Management System (KMS) provider for the [Sigstore](https://www.sigstore.dev/) ecosystem.
+Signet provides the `sigstore-kms-signet` CLI KMS plugin for standard Sigstore
+tools such as `cosign` and `gitsign`. It supports two deliberately different
+key lifecycles:
 
-This integration allows you to use standard tools like `cosign` and `gitsign` with your local Signet keys, enabling a fully offline, sovereign signing workflow that is compatible with Sigstore formats and policies.
+- `signet://default`, `signet://master`, or `signet://<hex-key-id>` loads a
+  workstation's long-lived Signet key.
+- `signet://session` connects to a runner-local signer holding a short-lived
+  key certified by Notme. The composite GitHub Action manages this mode; users
+  do not create session sockets themselves.
 
-## Prerequisite: The Plugin
-
-Signet provides a helper binary `sigstore-kms-signet` that bridges the Sigstore plugin protocol to your local Signet keystore.
-
-### Installation
+## Install the plugin for local signing
 
 ```bash
-# From the signet repository root
 go build -o sigstore-kms-signet ./cmd/sigstore-kms-signet
-
-# Move it to your PATH
 mv sigstore-kms-signet /usr/local/bin/
-```
-
-### Verification
-
-Ensure the plugin is found:
-```bash
 which sigstore-kms-signet
 ```
 
-## Usage
+## Local or workstation signing
 
-You can reference your Signet keys using the URI scheme: `signet://<key-id>`
-
-The special ID `default` (or `master`) will load your primary Signet master key.
-
-### With Cosign (Artifact Signing)
-
-You can sign any blob, container, or artifact using `cosign`. By default Signet's recommended flow uploads to the public Rekor transparency log so that downstream verifiers can prove the signature existed at a point in time without trusting the signer's local clock.
+The aliases `default` and `master` load the primary key from the OS keyring,
+falling back to `~/.signet/master.key` for an explicitly configured local
+installation.
 
 ```bash
-# Sign a file (uploads signature metadata to Rekor)
 cosign sign-blob \
   --key signet://default \
   --tlog-upload=true \
   artifact.bin > artifact.sig
 
-# Verify the signature (also checks Rekor inclusion proof by default)
 cosign verify-blob \
   --key signet://default \
   --signature artifact.sig \
   artifact.bin
 ```
 
-> **Note:** The `--tlog-upload` flag is interpreted by `cosign` itself, **not** by `sigstore-kms-signet`. The plugin only sees the signing request over the Sigstore KMS plugin protocol (stdin/stdout) — it has no knowledge of, or control over, whether the artifact metadata is uploaded to Rekor. See [`cmd/sigstore-kms-signet/main.go`](../cmd/sigstore-kms-signet/main.go) for the plugin's actual surface.
+`--tlog-upload` is a cosign decision. The KMS plugin receives only public-key
+and signing operations and has no Rekor client of its own.
 
-#### Air-gapped / offline mode
+For a controlled air-gapped environment, cosign supports
+`--tlog-upload=false`; the corresponding verifier must opt out with
+`--insecure-ignore-tlog`. That removes the transparency witness and is only
+appropriate when signer and verifier share an out-of-band trust policy.
 
-If you have a regulatory or operational reason to keep signatures off the public log, pass `--tlog-upload=false` to `cosign sign-blob`. This trades transparency-log auditability for local-only provenance. Verifiers must then run `cosign verify-blob --insecure-ignore-tlog` (or its equivalent for your cosign version — see `cosign verify-blob --help`) to skip the Rekor inclusion check that would otherwise reject an unlogged signature. **Only use this combination when you control both signer and verifier**: the missing transparency-log entry is the cost of going air-gapped, and an attacker who can produce signatures will also use `--insecure-ignore-tlog` to slip past untrusted verifiers.
+## Secretless GitHub Actions signing
 
-### With Gitsign (Commit Signing)
+Use the language-neutral Action for Go, Rust, JavaScript, Python, or any other
+repository that produces files:
 
-*Note: gitsign integration with custom KMS plugins is currently experimental. The following describes the intended workflow and may change.*
+```yaml
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-Configure git to use `gitsign` with your Signet key:
+      - run: cargo build --release
+
+      - uses: agentic-research/signet/.github/actions/sign-artifact@<immutable-commit-sha>
+        with:
+          artifacts: |
+            target/release/my-rust-binary
+            checksums-sha256.txt
+          authority-url: https://<cloister-host>/identity
+```
+
+Each input path `artifact` receives four adjacent public files:
+
+| File | Purpose |
+|------|---------|
+| `artifact.sigstore.json` | Sigstore bundle used by `cosign verify-blob` |
+| `artifact.signet.crt.pem` | Five-minute Notme certificate for the ephemeral Ed25519 key |
+| `artifact.signet.ca.pem` | Issuing authority's public CA bundle; publish for inspection, but pin trust separately |
+| `artifact.signet.pub` | Ephemeral public key for inspection and certificate/key cross-checks |
+
+The Action does not consume `SIGNET_MASTER_KEY` or any stored GitHub secret.
+It requests a GitHub OIDC token, generates P-256 and Ed25519 keys, and performs
+the same proof-of-possession exchange as `notme/action`. A parent
+`sigstore-kms-signet sign-artifact` process retains the Ed25519 private key in
+memory behind a mode-0600 Unix socket. Child cosign processes invoke the
+standard plugin with `--key signet://session`; the key is destroyed when the
+parent exits.
+
+### Root issuance in a Cloister cluster
+
+The Notme action protocol accepts a generic authority URL. Cloister already
+exposes `/identity/*` and forwards it through its `NOTME` service binding while
+stripping the prefix. Therefore:
+
+```yaml
+authority-url: https://cluster.example/identity
+```
+
+causes the exchange to reach
+`https://cluster.example/identity/cert/gha`, which Cloister forwards to
+Notme's `/cert/gha`. For genuinely cluster-rooted trust, the cluster's `NOTME`
+binding must resolve to its cluster-local `notme-identity` authority rather
+than the global `auth.notme.bot` deployment.
+
+The reusable `.github/workflows/gha-identity.yml` also accepts an
+`authority_url` input for non-artifact consumers.
+
+## Verify a CI-signed artifact
+
+The signing Action verifies every bundle before returning. Downstream
+verification must pin the authority CA independently and require the expected
+WIMSE URI. Do not pass `--key artifact.signet.pub`: the bundle is
+certificate-bearing, and cosign correctly rejects key-only policy for it.
+
+```bash
+# cluster-notme-ca.pem is provisioned from the Cloister cluster's trust
+# configuration, not accepted merely because it sits beside the artifact.
+openssl verify \
+  -CAfile cluster-notme-ca.pem \
+  artifact.signet.crt.pem
+
+openssl x509 \
+  -in artifact.signet.crt.pem \
+  -noout -ext subjectAltName
+# Require the expected URI:wimse://<authority>/gha/<owner>/<repo> value.
+
+AUTHORITY=https://cluster.example/identity
+IDENTITY=wimse://notme.bot/gha/example/my-repo
+
+# Merge the independently trusted cluster CA with Sigstore's public Rekor/TSA
+# keys. Notme bridge certificates are not submitted to Fulcio's CT log.
+cosign trusted-root create \
+  --with-default-services \
+  --no-default-ctfe \
+  --fulcio="url=$AUTHORITY,certificate-chain=cluster-notme-ca.pem" \
+  --out trusted-artifact-root.json
+
+cosign verify-blob \
+  --trusted-root trusted-artifact-root.json \
+  --certificate-identity "$IDENTITY" \
+  --certificate-oidc-issuer-regexp '^$' \
+  --insecure-ignore-sct \
+  --bundle artifact.sigstore.json \
+  artifact
+```
+
+The trusted root binds the ephemeral key to the Cloister/Notme CA; the exact
+identity flag binds it to the expected workload; cosign binds that certificate
+to the artifact and verifies its Rekor inclusion proof. The explicitly named
+`--insecure-ignore-sct` flag skips only Fulcio SCT verification: Notme bridge
+certificates do not carry SCTs, while transparency-log verification remains
+enabled and required.
+
+## Gitsign
+
+Custom KMS integration in gitsign remains experimental. For workstation keys:
 
 ```bash
 git config --global gpg.format x509
@@ -67,83 +161,26 @@ git config --global gpg.x509.program gitsign
 git config --global user.signingkey signet://default
 ```
 
-## Verifying via Rekor
+The ephemeral `signet://session` mode is intentionally scoped to the Action's
+artifact-signing process and is not a general cross-job credential.
 
-When `--tlog-upload=true` is set at signing time, `cosign` writes an entry to the public [Rekor](https://docs.sigstore.dev/logging/overview/) transparency log. Verifiers can then prove that the signature was witnessed by Rekor at a specific time, without needing to trust the signer's clock.
+## Protocol details
 
-For Sigstore's **keyless** (Fulcio + OIDC) flow — which is what Signet's GHA OIDC bridge produces upstream — verification is done against an OIDC identity rather than a public key:
+Sigstore's CLI KMS protocol starts a fresh plugin process for public-key and
+signing operations. A private key held directly by the plugin would therefore
+change between calls. The runner-local session is the stable seam:
 
-```bash
-# Verify a Rekor-logged signature against the signer's OIDC identity
-cosign verify-blob \
-  --signature artifact.sig \
-  --certificate artifact.crt \
-  --certificate-identity "https://github.com/agentic-research/cloister/.github/workflows/release.yml@refs/heads/main" \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  artifact.bin
-```
+1. The parent generates and certifies one ephemeral Ed25519 key.
+2. It starts a user-private Unix socket and exports only the socket path and a
+   random session capability to its child cosign process.
+3. Each KMS plugin invocation obtains the same public key or requests a
+   signature over that socket.
+4. The parent validates the Notme leaf against the returned CA bundle before
+   allowing cosign to sign.
+5. Cosign creates a standard bundle and immediately verifies it.
+6. The parent closes the socket and zeroizes the private key.
 
-Expected output (placeholder — your tlog entry index and SHA will differ):
-
-```text
-tlog entry verified with uuid: 24296fb24b8ad77a... index: 12345678
-Verified OK
-```
-
-### Flag reference
-
-| Flag | Meaning |
-|------|---------|
-| `--certificate-identity` | The SAN / subject the Fulcio cert MUST contain. For GHA OIDC this is the **full workflow path + ref**, e.g. `https://github.com/<org>/<repo>/.github/workflows/<file>.yml@refs/heads/main`. Use `--certificate-identity-regexp` for less brittle matching across refs. |
-| `--certificate-oidc-issuer` | The OIDC issuer URL embedded in the cert. For GitHub Actions ambient OIDC this is always `https://token.actions.githubusercontent.com`. |
-| `--certificate` | The Fulcio-issued cert produced by `cosign sign-blob` (written alongside the `.sig`). |
-| `--signature` | The detached signature output by `cosign sign-blob`. |
-| `--insecure-ignore-tlog` | **Off by default.** Set to `true` only for the air-gapped flow described above; this disables the Rekor inclusion check entirely. |
-
-### Key-based verification (Signet local KMS flow)
-
-If you signed with `--key signet://default` (i.e. the local plugin path, not GHA-bridged Fulcio identity), use the public key form instead — there is no Fulcio cert to check, but Rekor inclusion is still verified:
-
-```bash
-cosign verify-blob \
-  --key signet://default \
-  --signature artifact.sig \
-  artifact.bin
-```
-
-In this mode the `--certificate-identity` / `--certificate-oidc-issuer` flags do not apply. Plugin lookup of `signet://default` is performed by `cosign` invoking the `sigstore-kms-signet` binary on `$PATH`; Signet itself does not participate in the Rekor uploaded/verify decision.
-
-### What Rekor proves (and what it doesn't)
-
-- **Proves:** a signature with the given digest existed at the Rekor entry's `integratedTime` and was witnessed by the log.
-- **Does NOT prove:** that the signer was authorized, that the artifact is benign, or that the cert chain is valid for your trust policy — those are separate checks. Pair Rekor verification with your trust policy bundle (see [`pkg/policy`](../pkg/policy/)) for end-to-end provenance.
-
-## How it Works
-
-1. **Protocol:** When `cosign` sees `signet://`, it looks for an executable named `sigstore-kms-signet` in your `$PATH`.
-2. **Execution:** It runs this binary, passing data to be signed via `stdin`.
-3. **Key Loading:** The plugin loads your Signet master key:
-   - First, it tries the **Secure Keyring** (macOS Keychain, Linux Secret Service).
-   - If that fails (e.g., headless/CI), it falls back to `~/.signet/master.key` (PEM file).
-4. **Signing:** The signature is returned to `cosign` as standard JSON.
-5. **Out of scope:** Whether the signature is uploaded to Rekor (`--tlog-upload`) and how it is verified (`cosign verify-blob`) are controlled entirely by `cosign`. The `sigstore-kms-signet` plugin only implements the [KMS plugin protocol](https://github.com/sigstore/sigstore/tree/main/pkg/signature/kms/cliplugin); it has no Rekor client and no transparency-log opinions of its own.
-
-## CI/CD & Headless Usage
-
-For automated environments (GitHub Actions, etc.) where a GUI keyring prompt is not possible:
-
-1. Export your master key to a file:
-   ```bash
-   # (On your secure machine)
-   # Copy ~/.signet/master.key to your CI secret
-   ```
-2. In the CI runner:
-   ```bash
-   mkdir -p ~/.signet
-   echo "$SIGNET_MASTER_KEY" > ~/.signet/master.key
-   chmod 600 ~/.signet/master.key
-   ```
-3. Run `cosign`:
-   ```bash
-   cosign sign-blob --key signet://default ...
-   ```
+Rekor upload and bundle verification remain cosign responsibilities. Signet
+supplies the signer and validates the Notme/Cloister certificate relationship;
+policy engines such as `sigpol` decide which cluster root and WIMSE identities
+are authorized.

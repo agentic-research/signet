@@ -127,30 +127,39 @@ signet auth status
 
 Sign artifacts in GitHub Actions using ambient OIDC credentials (no secrets needed).
 
-The recommended approach uses the reusable identity workflow from [`agentic-research/notme`](https://github.com/agentic-research/notme):
+The language-neutral Signet Action works for Rust, Go, JavaScript, Python, or
+any repository that produces files:
 
 ```yaml
 jobs:
-  identity:
-    uses: agentic-research/notme/.github/workflows/gha-identity.yml@main
+  release:
+    runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
-
-  sign:
-    needs: identity
     steps:
-      - run: |
-          echo "${{ needs.identity.outputs.bridge_cert }}" | base64 -d > cert.pem
-          echo "${{ needs.identity.outputs.bridge_key }}"  | base64 -d > key.pem
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: cargo build --release
+      - uses: agentic-research/signet/.github/actions/sign-artifact@<immutable-commit-sha>
+        with:
+          artifacts: |
+            target/release/my-rust-binary
+            checksums-sha256.txt
+          authority-url: https://<cloister-host>/identity
 ```
 
-This exchanges a GHA OIDC token at `auth.notme.bot/cert/gha` for a 5-minute bridge cert. Zero secrets in your repo.
+The Action exchanges a GHA OIDC token for a five-minute Notme certificate,
+holds the matching Ed25519 key only in memory, signs through the standard
+`signet://session` KMS URI, and verifies every bundle before returning. Point
+`authority-url` at a Cloister cluster's `/identity` route to use its
+cluster-local Notme CA.
 
 **Features:**
 - Zero secrets stored in repo (uses GHA ambient OIDC identity)
+- Language-neutral artifact paths
+- Standard cosign bundles and immediate verification
 - Bridge certificates with capability X.509 extensions
 - Policy-based authorization (repo, workflow, ref filtering)
-- Optional octo-sts integration for scoped GitHub tokens
 
 ### Sigstore KMS Plugin
 
@@ -239,46 +248,62 @@ Signet's primitives are designed to be used independently:
 
 ### From a Release (verify the signature)
 
-Release binaries are signed in CI with [cosign](https://docs.sigstore.dev/) keyless
-signing, and each ships a `.cosign.bundle` beside it. **Verify before running** —
-the bundle is what distinguishes a binary this project built from one someone
-substituted.
+Release binaries are signed in CI with the cosign-compatible Signet KMS Action.
+Each ships a Sigstore bundle and a five-minute Notme certificate. **Verify
+before running** — pinning the Notme/Cloister CA is what distinguishes a key
+certified for this workload from one an artifact-replacement attacker created.
 
 ```bash
-VERSION=v0.2.1                     # the release you are installing
+VERSION=vX.Y.Z                     # the release you are installing
 PLATFORM=linux-amd64               # or darwin-arm64, linux-arm64
 BASE=https://github.com/agentic-research/signet/releases/download/$VERSION
 
 curl -fLO $BASE/signet-$PLATFORM
-curl -fLO $BASE/signet-$PLATFORM.cosign.bundle
+curl -fLO $BASE/signet-$PLATFORM.sigstore.json
+curl -fLO $BASE/signet-$PLATFORM.signet.crt.pem
 
-cosign verify-blob signet-$PLATFORM \
-  --bundle signet-$PLATFORM.cosign.bundle \
-  --certificate-identity "https://github.com/agentic-research/signet/.github/workflows/release.yml@refs/tags/$VERSION" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+# Obtain this CA from the configured authority's trust channel, not from the
+# release assets you are trying to authenticate. The public-authority default is:
+curl -fsS https://auth.notme.bot/.well-known/ca-bundle.pem \
+  -o trusted-notme-ca.pem
+
+openssl verify \
+  -CAfile trusted-notme-ca.pem \
+  signet-$PLATFORM.signet.crt.pem
+
+openssl x509 \
+  -in signet-$PLATFORM.signet.crt.pem \
+  -noout -ext subjectAltName
+# Require URI:wimse://notme.bot/gha/agentic-research/signet (or the
+# cluster's configured equivalent).
+
+AUTHORITY=https://auth.notme.bot
+IDENTITY=wimse://notme.bot/gha/agentic-research/signet
+
+cosign trusted-root create \
+  --with-default-services \
+  --no-default-ctfe \
+  --fulcio="url=$AUTHORITY,certificate-chain=trusted-notme-ca.pem" \
+  --out trusted-signet-root.json
+
+cosign verify-blob \
+  --trusted-root trusted-signet-root.json \
+  --certificate-identity "$IDENTITY" \
+  --certificate-oidc-issuer-regexp '^$' \
+  --insecure-ignore-sct \
+  --bundle signet-$PLATFORM.sigstore.json \
+  signet-$PLATFORM
 
 chmod +x signet-$PLATFORM && mv signet-$PLATFORM /usr/local/bin/signet
 ```
 
-`--certificate-identity` names the **release workflow at that tag**, not the
-repository. The distinction is the whole control:
-
-- Identity pinned to the workflow — only `release.yml` can produce a signature
-  that passes. This is what you want.
-- Identity loosened to the repo (e.g.
-  `--certificate-identity-regexp 'github.com/agentic-research/signet'`) — **any**
-  workflow in the repo holding `id-token: write` satisfies it. A PR that adds a
-  workflow then produces binaries your check accepts.
-
-If you script this across releases, keep the workflow path anchored and vary only
-the tag:
-
-```bash
---certificate-identity-regexp '^https://github\.com/agentic-research/signet/\.github/workflows/release\.yml@refs/tags/'
-```
-
-Note the `^` and the escaped dots. An unanchored pattern is the loosened case
-above wearing a stricter-looking costume.
+If `SIGNET_AUTHORITY_URL` points at a Cloister cluster, provision that cluster's
+pinned Notme CA instead of the public-authority URL above. Do not trust the
+`.signet.ca.pem` copied beside a release merely because it is present there;
+an attacker who can replace every release asset could replace that file too.
+`--insecure-ignore-sct` is required because Notme bridge certificates are not
+Fulcio CT certificates; it does not disable the Rekor inclusion proof checked
+from the bundle.
 
 `checksums-sha256.txt` is published and signed too, but it is not a substitute:
 checksums tell you a download is intact, not who produced it.

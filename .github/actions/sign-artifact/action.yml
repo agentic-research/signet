@@ -1,0 +1,66 @@
+name: Sign artifacts with Signet
+description: Sign and verify release artifacts with an ephemeral Notme certificate and the cosign-compatible Signet KMS plugin.
+
+inputs:
+  artifacts:
+    description: Newline-delimited exact artifact paths. Paths may contain spaces; shell globs are not expanded.
+    required: true
+  authority-url:
+    description: Notme authority base URL. Use https://<cloister-host>/identity for a Cloister cluster trust root.
+    required: false
+    default: https://auth.notme.bot
+  audience:
+    description: GitHub Actions OIDC audience accepted by the authority.
+    required: false
+    default: notme.bot
+
+runs:
+  using: composite
+  steps:
+    - name: Install Go for the Signet KMS plugin
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      with:
+        go-version-file: ${{ github.action_path }}/../../../go.mod
+        cache: false
+
+    - name: Build the pinned Signet KMS plugin
+      shell: bash
+      env:
+        SIGNET_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        install -d -m 0700 "$RUNNER_TEMP/signet-action-bin"
+        cd "$SIGNET_ACTION_PATH/../../.."
+        go build -trimpath \
+          -o "$RUNNER_TEMP/signet-action-bin/sigstore-kms-signet" \
+          ./cmd/sigstore-kms-signet
+        echo "$RUNNER_TEMP/signet-action-bin" >> "$GITHUB_PATH"
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: v3.1.1
+
+    - name: Sign and verify artifacts
+      shell: bash
+      env:
+        SIGNET_ARTIFACTS: ${{ inputs.artifacts }}
+        SIGNET_AUTHORITY_URL: ${{ inputs.authority-url }}
+        SIGNET_OIDC_AUDIENCE: ${{ inputs.audience }}
+      run: |
+        set -euo pipefail
+        artifacts=()
+        while IFS= read -r artifact || [[ -n "$artifact" ]]; do
+          [[ -z "$artifact" ]] && continue
+          artifacts+=("$artifact")
+        done <<< "$SIGNET_ARTIFACTS"
+
+        if [[ ${#artifacts[@]} -eq 0 ]]; then
+          echo "artifacts input contains no paths" >&2
+          exit 1
+        fi
+
+        sigstore-kms-signet sign-artifact \
+          --authority-url "$SIGNET_AUTHORITY_URL" \
+          --audience "$SIGNET_OIDC_AUDIENCE" \
+          "${artifacts[@]}"
