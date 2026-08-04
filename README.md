@@ -237,6 +237,52 @@ Signet's primitives are designed to be used independently:
 
 ## Installation
 
+### From a Release (verify the signature)
+
+Release binaries are signed in CI with [cosign](https://docs.sigstore.dev/) keyless
+signing, and each ships a `.cosign.bundle` beside it. **Verify before running** —
+the bundle is what distinguishes a binary this project built from one someone
+substituted.
+
+```bash
+VERSION=v0.2.1                     # the release you are installing
+PLATFORM=linux-amd64               # or darwin-arm64, linux-arm64
+BASE=https://github.com/agentic-research/signet/releases/download/$VERSION
+
+curl -fLO $BASE/signet-$PLATFORM
+curl -fLO $BASE/signet-$PLATFORM.cosign.bundle
+
+cosign verify-blob signet-$PLATFORM \
+  --bundle signet-$PLATFORM.cosign.bundle \
+  --certificate-identity "https://github.com/agentic-research/signet/.github/workflows/release.yml@refs/tags/$VERSION" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+chmod +x signet-$PLATFORM && mv signet-$PLATFORM /usr/local/bin/signet
+```
+
+`--certificate-identity` names the **release workflow at that tag**, not the
+repository. The distinction is the whole control:
+
+- Identity pinned to the workflow — only `release.yml` can produce a signature
+  that passes. This is what you want.
+- Identity loosened to the repo (e.g.
+  `--certificate-identity-regexp 'github.com/agentic-research/signet'`) — **any**
+  workflow in the repo holding `id-token: write` satisfies it. A PR that adds a
+  workflow then produces binaries your check accepts.
+
+If you script this across releases, keep the workflow path anchored and vary only
+the tag:
+
+```bash
+--certificate-identity-regexp '^https://github\.com/agentic-research/signet/\.github/workflows/release\.yml@refs/tags/'
+```
+
+Note the `^` and the escaped dots. An unanchored pattern is the loosened case
+above wearing a stricter-looking costume.
+
+`checksums-sha256.txt` is published and signed too, but it is not a substitute:
+checksums tell you a download is intact, not who produced it.
+
 ### From Source
 
 ```bash
