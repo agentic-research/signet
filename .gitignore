@@ -109,3 +109,14 @@ rs/target/
 .gemini/docs/archive/
 /signet-agent
 .archive/
+
+# Dolt migration backup: `rsry bead migrate --commit` renames dolt/ to
+# dolt.bak/ and never deletes it. Binary store — never commit (rosary-05fbe0).
+.beads/dolt.bak/
+.beads/dolt.bak.*/
+
+# Dolt server runtime state — pid/port/log are regenerated on every start and
+# were matched by nothing above, so all three were committable.
+.beads/dolt-server.log
+.beads/dolt-server.pid
+.beads/dolt-server.port
