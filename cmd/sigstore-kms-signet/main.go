@@ -11,11 +11,13 @@ package main
 // URI scheme: signet://<key-id> where key-id can be:
 //   - "default" or "master": loads the primary Signet master key
 //   - hex-encoded public key: loads specific key matching that ID
+//   - "session": connects to the parent process's ephemeral CI signer
 
 import (
 	"context"
 	"crypto"
 	"crypto/ed25519"
+	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
@@ -25,23 +27,40 @@ import (
 
 	"github.com/agentic-research/signet/pkg/cli/config"
 	"github.com/agentic-research/signet/pkg/cli/keystore"
-	"github.com/agentic-research/signet/pkg/crypto/keys"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/kms/cliplugin/handler"
 )
 
 // SignetKMS implements the kms.SignerVerifier interface
 type SignetKMS struct {
-	signer *keys.Ed25519Signer
+	signer kmsSigner
 	pubKey crypto.PublicKey
 }
 
-// NewSignetKMS initializes your signer based on the URI
+type kmsSigner interface {
+	crypto.Signer
+	Destroy()
+}
+
+// NewSignetKMS initializes a signer from Sigstore's plugin key reference.
+// Sigstore uses the signet:// scheme to select this executable, then passes
+// only the portion after :// in InitOptions.KeyResourceID. Accepting the full
+// URI too keeps direct callers and older tests compatible.
 func NewSignetKMS(resourceID string) (*SignetKMS, error) {
-	if !strings.HasPrefix(resourceID, "signet://") {
-		return nil, fmt.Errorf("invalid scheme, expected signet://")
+	expectedKeyID := resourceID
+	if strings.Contains(resourceID, "://") {
+		if !strings.HasPrefix(resourceID, "signet://") {
+			return nil, fmt.Errorf("invalid scheme, expected signet://")
+		}
+		expectedKeyID = strings.TrimPrefix(resourceID, "signet://")
 	}
-	expectedKeyID := strings.TrimPrefix(resourceID, "signet://")
+	if expectedKeyID == "session" {
+		signer, err := newSessionSigner(os.Getenv(sessionSocketEnv), os.Getenv(sessionTokenEnv))
+		if err != nil {
+			return nil, err
+		}
+		return &SignetKMS{signer: signer, pubKey: signer.Public()}, nil
+	}
 
 	// Validate key ID: must be a known alias or valid hex string
 	if expectedKeyID == "" {
@@ -120,30 +139,69 @@ func (s *SignetKMS) PublicKey(opts ...signature.PublicKeyOption) (crypto.PublicK
 const maxSignMessageSize = 10 << 20
 
 func (s *SignetKMS) SignMessage(message io.Reader, opts ...signature.SignOption) ([]byte, error) {
-	limited := io.LimitReader(message, maxSignMessageSize+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, err
+	var digest []byte
+	var requestedOpts crypto.SignerOpts = crypto.Hash(0)
+	for _, opt := range opts {
+		opt.ApplyDigest(&digest)
+		opt.ApplyCryptoSignerOpts(&requestedOpts)
+	}
+
+	data := digest
+	if len(data) == 0 {
+		var err error
+		data, err = io.ReadAll(io.LimitReader(message, maxSignMessageSize+1))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(data) > maxSignMessageSize {
 		return nil, fmt.Errorf("message too large: exceeds %d bytes", maxSignMessageSize)
 	}
 
-	return s.signer.Sign(nil, data, crypto.Hash(0))
+	hashFunc := requestedOpts.HashFunc()
+	if len(digest) == sha512.Size && hashFunc == crypto.Hash(0) {
+		// cosign v3 selects Ed25519ph for transparency-log uploads and passes
+		// the SHA-512 digest through WithDigest without a separate hash option.
+		hashFunc = crypto.SHA512
+	}
+	switch hashFunc {
+	case crypto.Hash(0):
+		return s.signer.Sign(nil, data, crypto.Hash(0))
+	case crypto.SHA512:
+		if len(digest) == 0 {
+			hashed := sha512.Sum512(data)
+			data = hashed[:]
+		}
+		if len(data) != sha512.Size {
+			return nil, fmt.Errorf("Ed25519ph requires a %d-byte SHA-512 digest", sha512.Size)
+		}
+		return s.signer.Sign(nil, data, &ed25519.Options{Hash: crypto.SHA512})
+	default:
+		return nil, fmt.Errorf("unsupported Ed25519 signer hash: %s", hashFunc)
+	}
 }
 
 func (s *SignetKMS) VerifySignature(sig, message io.Reader, opts ...signature.VerifyOption) error {
-	// Sigstore's default verification logic will handle this if we return a valid PublicKey.
-	// However, the interface requires implementation.
-	// We can manually verify using the public key we have.
-
 	sigBytes, err := io.ReadAll(sig)
 	if err != nil {
 		return err
 	}
-	msgBytes, err := io.ReadAll(message)
-	if err != nil {
-		return err
+	var digest []byte
+	var requestedOpts crypto.SignerOpts = crypto.Hash(0)
+	for _, opt := range opts {
+		opt.ApplyDigest(&digest)
+		opt.ApplyCryptoSignerOpts(&requestedOpts)
+	}
+	msgBytes := digest
+	if len(msgBytes) == 0 {
+		var err error
+		msgBytes, err = io.ReadAll(io.LimitReader(message, maxSignMessageSize+1))
+		if err != nil {
+			return err
+		}
+	}
+	if len(msgBytes) > maxSignMessageSize {
+		return fmt.Errorf("message too large: exceeds %d bytes", maxSignMessageSize)
 	}
 
 	edPub, ok := s.pubKey.(ed25519.PublicKey)
@@ -151,8 +209,30 @@ func (s *SignetKMS) VerifySignature(sig, message io.Reader, opts ...signature.Ve
 		return fmt.Errorf("public key is not ed25519.PublicKey")
 	}
 
-	if !ed25519.Verify(edPub, msgBytes, sigBytes) {
-		return fmt.Errorf("invalid signature")
+	hashFunc := requestedOpts.HashFunc()
+	if len(digest) == sha512.Size && hashFunc == crypto.Hash(0) {
+		hashFunc = crypto.SHA512
+	}
+	switch hashFunc {
+	case crypto.Hash(0):
+		if !ed25519.Verify(edPub, msgBytes, sigBytes) {
+			return fmt.Errorf("invalid signature")
+		}
+	case crypto.SHA512:
+		if len(digest) == 0 {
+			hashed := sha512.Sum512(msgBytes)
+			msgBytes = hashed[:]
+		}
+		if err := ed25519.VerifyWithOptions(
+			edPub,
+			msgBytes,
+			sigBytes,
+			&ed25519.Options{Hash: crypto.SHA512},
+		); err != nil {
+			return fmt.Errorf("invalid Ed25519ph signature: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported Ed25519 verifier hash: %s", hashFunc)
 	}
 	return nil
 }
@@ -176,6 +256,10 @@ func (s *SignetKMS) CryptoSigner(ctx context.Context, errFunc func(error)) (cryp
 // run contains the main logic, separated from main() so that deferred
 // cleanup (key zeroization) executes before os.Exit.
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "sign-artifact" {
+		return runSignArtifactCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr)
+	}
+
 	args, err := handler.GetPluginArgs(os.Args)
 	if err != nil {
 		if writeErr := handler.WriteErrorResponse(os.Stdout, err); writeErr != nil {
@@ -199,6 +283,9 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
+		if len(os.Args) > 1 && os.Args[1] == "sign-artifact" {
+			fmt.Fprintf(os.Stderr, "sigstore-kms-signet: %v\n", err)
+		}
 		os.Exit(1)
 	}
 }
