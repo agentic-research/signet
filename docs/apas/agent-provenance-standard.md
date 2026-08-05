@@ -69,8 +69,6 @@ evidence.
 
 APAS builds on and references these existing specifications rather than reinventing them:
 
-| Spec | Source | APAS Usage |
-|------|--------|-----------|
 **External** — publicly resolvable, and the only references a second
 implementation strictly needs:
 
@@ -213,22 +211,37 @@ L3 proves the boundary held. L4 demands that inputs be attested. Between
 them sits the question neither answers: what does it mean for a piece of
 content to have a *known origin*?
 
-This matters because the naive way to keep an agent safe is to shrink what
-it may read — a hardcoded safelist of sources. That does not scale, and it
-degrades badly: every new source is a policy change, and an agent denied
-context produces worse work, which pressures operators to widen the list
-without widening the evidence. Content origin inverts the trade. Content
-becomes admissible because it *carries* an origin and a confidence, so a
-deployment can widen the corpus and keep its claims honest, rather than
-choosing between the two.
+This matters because the usual way to keep an agent safe is to shrink what
+it may read — a hardcoded safelist of sources. That does not scale: every
+new source is a policy change, and a context-starved agent produces worse
+work, which pressures operators into widening the list anyway.
+
+Content origin does **not** make a wider corpus safer. Be precise about what
+it buys, because the temptation to overclaim here is exactly how a standard
+becomes a rubber stamp: origin makes the *record* of what was consumed
+complete and attributable. Widening the corpus remains a risk decision. What
+changes is that it becomes an **accountable** one — after an incident you can
+enumerate what the dispatch consumed and who vouched for each source, and
+before one you can require that everything consumed be `origin-attested`
+under your own trust set. A safelist answers "may I read this?" once, at
+policy-authoring time, and then stops recording. Origin answers it
+continuously and leaves evidence.
+
+The honest summary: safelists trade capability for safety; origin trades
+neither, and instead converts an invisible risk into a measured one.
+§5.1's threat table states the residue plainly — poisoned input is
+*attributed*, not *detected*.
 
 **Origin entry.** An origin entry is a pair:
 
     OriginEntry := (uri, vouchedBy)
 
-`uri` names where the content came from. `vouchedBy` is a set of
-**authority identifiers** — names of the parties that vouch for that
-attribution. It is deliberately not a boolean.
+`uri` names where the content came from. `vouchedBy` is a single
+**authority identifier** — the name of the party vouching for that
+attribution. It is deliberately not a boolean, and deliberately not a list:
+content vouched by two authorities is *two entries*, which keeps both the
+ordering comparator and the dedup rule defined over a pair of plain
+strings.
 
 > **Why an authority, not a trust bit.** The point of ingest cannot know
 > the evaluator's trust set. A substrate that stamps `trusted: true` has
@@ -237,14 +250,16 @@ attribution. It is deliberately not a boolean.
 > vouched* keeps the record a statement of fact and defers the judgment to
 > whoever is judging.
 
-An empty `vouchedBy` is an ordinary, expressible state — "ingested,
-unvouched" — not an error and not an absence. A system that cannot express
+An empty `vouchedBy` (the empty string) is an ordinary, expressible state
+— "ingested, unvouched" — not an error and not an absence. A system that cannot express
 "I have this content and nobody vouches for where it came from" will
 instead express nothing, and silence is the worst record.
 
 **Composition.** Content derived from multiple sources carries the union of
-their origin entries, canonically ordered and deduplicated by the *pair*
-(the same URI vouched by two authorities is two facts, not one).
+their origin entries, canonically ordered and deduplicated by the *pair*.
+The same URI vouched by two authorities is two entries, because it is two
+facts — and collapsing them into one entry with two authorities would
+destroy the total ordering that makes origin sets comparable.
 
 **Derived confidence.** Confidence is not stored; it is *derived* at
 evaluation time from an origin set and the evaluator's own trusted-authority
@@ -282,12 +297,23 @@ declaration MUST be **refused, not truncated** — truncating records a claim
 narrower than the caller actually made, which is a forged record rather
 than a partial one.
 
-**Privacy.** An origin set is disclosure surface. Where a provenance record
-travels on a channel a third party can observe, it MUST commit to a
-*digest* of the origin set rather than carrying the set. Source URIs are an
-agent's read history, and publishing them is a strictly richer oracle than
-whatever existence-leak the channel already had. The set is then disclosed
-under scope to parties entitled to it, not broadcast alongside the response.
+**Privacy.** An origin set is disclosure surface: source URIs are an agent's
+read history, and publishing them is a strictly richer oracle than whatever
+existence-leak the carrier already had. The rule therefore depends on *who
+can read the carrier*, not on what kind of artifact it is:
+
+- **Broadcast carriers** — anything readable by parties not entitled to the
+  origins, such as a response header returned to every caller or a public
+  attestation feed — MUST carry only `originsHash`, a digest over the
+  canonical encoding.
+- **Scoped carriers** — a record whose distribution is already restricted
+  to entitled parties, such as an attestation held at rest in an access-
+  controlled store — MAY carry the full array.
+
+An implementation MUST decide which case a given carrier is, and MUST
+default to the digest when unsure. A signed attestation is *not*
+automatically a scoped carrier: signing establishes integrity, never
+confidentiality.
 
 **What it proves**: "This content's attribution is recorded, and named
 authorities stand behind that attribution."
@@ -306,7 +332,7 @@ APAS uses the in-toto attestation framework with a custom predicate type.
   "_type": "https://in-toto.io/Statement/v1",
   "subject": [
     {
-      "name": "rosary-11214e",
+      "name": "example-42f1a3",
       "digest": { "sha256": "<work_item_content_hash>" }
     }
   ],
@@ -335,8 +361,8 @@ APAS uses the in-toto attestation framework with a custom predicate type.
 {
   "dispatchDefinition": {
     "workItemRef": {
-      "repo": "rosary",
-      "workItemId": "rosary-11214e",
+      "repo": "example-repo",
+      "workItemId": "example-42f1a3",
       "contentHash": "sha256:abc123..."
     },
     "pipeline": {
@@ -354,10 +380,10 @@ APAS uses the in-toto attestation framework with a custom predicate type.
   },
   "runDetails": {
     "orchestrator": {
-      "name": "rosary",
+      "name": "example-orchestrator",
       "version": "0.1.0",
       "identity": {
-        "signetToken": "SIG1.<payload>.<signature>",
+        "identityToken": "SIG1.<payload>.<signature>",
         "bridgeCert": "<base64 DER>"
       }
     },
@@ -374,11 +400,11 @@ APAS uses the in-toto attestation framework with a custom predicate type.
       "commits": [
         {
           "sha": "abc123",
-          "message": "[rosary-11214e] fix(dolt): fast-fail connect",
+          "message": "[example-42f1a3] fix(store): fast-fail connect",
           "signature": "<git signature>"
         }
       ],
-      "filesChanged": ["src/dolt/mod.rs", "src/scanner.rs"],
+      "filesChanged": ["src/store/mod.rs", "src/scanner.rs"],
       "linesAdded": 47,
       "linesRemoved": 12
     },
@@ -406,14 +432,15 @@ APAS uses the in-toto attestation framework with a custom predicate type.
       "previousPhaseHash": "sha256:<hash of previous phase>",
       "chainRoot": "sha256:<hash of phase 0>"
     },
+    "_comment": "contentOrigins in full form — valid ONLY for a scoped carrier (§2.5 Privacy). On a broadcast carrier this key is replaced by originsHash.",
     "contentOrigins": [
       {
         "uri": "https://docs.example.com/api/v2",
-        "vouchedBy": ["cloister/lease-gate"]
+        "vouchedBy": "substrate/lease-gate"
       },
       {
-        "uri": "mache://repo/agentic-research/signet#pkg/signet",
-        "vouchedBy": []
+        "uri": "context://repo/example-org/example-repo#pkg/example",
+        "vouchedBy": ""
       }
     ]
   }
@@ -423,17 +450,24 @@ APAS uses the in-toto attestation framework with a custom predicate type.
 **`contentOrigins`** (§2.5, optional) is the origin set for content the
 dispatch consumed. Rules that make it a record rather than a decoration:
 
-- **Absent ≠ empty.** Omitting the field asserts nothing about origins and
-  derives `origin-unknown`. Present-and-empty (`[]`) is the same
-  confidence but a *different statement*: "we looked and there was
-  nothing to record." Verifiers MUST NOT treat either as attested.
-- **`vouchedBy: []`** means ingested-but-unvouched. It is expected in
+- **Absent ≠ empty, where the carrier can express it.** Omitting the field
+  asserts nothing about origins; present-and-empty (`[]`) says "we looked
+  and there was nothing to record". Both derive `origin-unknown` and
+  verifiers MUST NOT treat either as attested — the distinction is
+  provenance about the *record*, not a confidence difference. A carrier
+  that cannot represent it (the reference receipt encoding omits the field
+  entirely when there is nothing to commit, precisely to stay
+  byte-identical to pre-origin receipts) loses the distinction, which is
+  acceptable: nothing normative depends on it.
+- **`vouchedBy: ""`** means ingested-but-unvouched. It is expected in
   normal operation and MUST NOT be normalized away, dropped on
-  serialization, or treated as an error.
-- **Canonical ordering.** Entries are sorted by `(uri, vouchedBy)` with
-  ASCII ordering and deduplicated by the whole pair, so the same set
-  always produces the same bytes. This is what makes an `originsHash`
-  meaningful across implementations.
+  serialization, or treated as an error. It is a single identifier, never
+  a list — see §2.5.
+- **Canonical ordering.** Entries are sorted by `uri` then `vouchedBy`,
+  both compared as ASCII byte sequences, and deduplicated by the whole
+  pair. Because both components are plain strings the comparator is total
+  and implementation-independent — which is what makes an `originsHash`
+  comparable across implementations at all.
 - **No actor entries.** The dispatch's own identity, its orchestrator, and
   any authenticated submitter belong in `runDetails.orchestrator.identity`
   and the bridge cert — never here. See §2.5's category line.
@@ -566,32 +600,38 @@ completeness and a root spanning the full work-item hierarchy remain targets.
 > and the prior chain link — not raw JSON bytes). `chain_hash()` includes this
 > hash, not a file path. Replacing a handoff file without knowing its hash breaks the chain.
 >
-> Rosary PR #130 added `commit_shas: Vec<String>` to `Handoff`, binding the chain to
+> The reference orchestrator added `commit_shas: Vec<String>` to `Handoff`, binding the chain to
 > the actual committed code — two handoffs with identical summaries but different
 > commits produce different hashes.
 >
-> See rosary `src/handoff.rs` for the implementation and chain_hash test suite.
+> See the reference orchestrator's `src/handoff.rs` for the implementation and
+> chain_hash test suite.
 
 ## 5. Adversarial Model
 
 ### 5.1 Threats Addressed
 
-| Threat | L1 | L2 | L3 | §2.5 origin | L4 |
+Columns L1–L4 are cumulative levels. The **origin** column is *not* a level
+and does not sit between L3 and L4 in any ordering — it is a property that
+can be present at any level from L2, shown here so its coverage can be
+compared against the levels' (see §2.5).
+
+| Threat | L1 | L2 | L3 | L4 | *origin* (§2.5) |
 |--------|----|----|----|----|----|
 | Forged dispatch identity | - | Detected | Detected | Detected | Detected |
 | Tampered attestation | - | Detected | Detected | Detected | Detected |
 | Phantom work-item injection | - | Detected (breaks chain) | Detected | Detected | Detected |
-| Unauthorized tool use | - | - | Prevented | Prevented | Prevented |
+| Unauthorized tool use | - | - | Prevented | Prevented | - |
 | Undisclosed content source | - | - | - | Detected | Detected |
-| Identity laundered into content provenance | - | - | - | Prevented (category line) | Prevented |
-| Poisoned dispatch input | - | - | - | **Attributed, not detected** | Detected |
-| Compromised model provider | - | - | - | - | Forensic only |
+| Identity laundered into content provenance | - | - | - | Prevented | Prevented (category line) |
+| Poisoned dispatch input | - | - | - | Detected | **Attributed, not detected** |
+| Compromised model provider | - | - | - | Forensic only | - |
 
-The `§2.5 origin` column is deliberately weaker than L4 on the row that
-matters most. Origin attribution tells you *which source* a poisoned input
-arrived from and *who vouched* for that attribution; it does not tell you
-the input was poisoned. That is L4's job, and the gap between the two
-columns is the honest measure of what a widened corpus costs.
+The origin column is deliberately weaker than L4 on the row that matters
+most. Origin attribution tells you *which source* a poisoned input arrived
+from and *who vouched* for that attribution; it does not tell you the input
+was poisoned. That is L4's job, and the gap between those two cells is the
+honest measure of what a widened corpus costs.
 
 ### 5.2 Threats NOT Addressed (Red Team Findings)
 
@@ -698,7 +738,8 @@ runtime-SBOM requirement is only approximated by image pinning.
 | Partial | §2.5 | Content origin: entries, union, derived confidence, digest commitment | cloister (ADR-0065) |
 | Target | §2.5 | Scoped disclosure of origin sets to entitled parties | cloister |
 | Target | §2.5 | Adopt origin entries in APAS predicates (not only substrate receipts) | rosary + signet |
-| Target | L3 | Isolated execution and enforced permission boundary — the **boundary** is cloister + LLO; the **dispatch** and its attestation remain rosary's | cloister + LLO (mechanism), rosary (attester) |
+| Partial | L3 | The **boundary** mechanism: declared fs/network/port confinement, digested and committed into the bundle certificate, verified before the sandbox is entered | cloister + LLO |
+| Target | L3 | The **attestation** that the boundary held, bound to a dispatch identity | rosary (attester) |
 | Target | L4 | Hash prompts, work-item descriptions, model context, and MCP responses | rosary + mache |
 | Target | L4 | External witnessing of APAS attestations | ley-line |
 
