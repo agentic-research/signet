@@ -111,7 +111,7 @@ When `/api/cert/register` is handled by the **rig edge worker**, the minted cert
 
 | Component | Status |
 |-----------|--------|
-| `leyline-sign` (LLO `rs/ll-open/sign/`) | Builds as `wasm32-unknown-unknown` from ley-line-open's workspace |
+| `leyline-sign` (LLO `rs/ll-open/sign/`) | **Published**: `leyline_sign.wasm` ships as a checksummed GitHub Release asset since LLO v0.14.0 (export surface verified in LLO's release pipeline) |
 | Crate type | `cdylib`, `staticlib`, `rlib` — Wasm-compatible |
 | CMS signing | Ed25519 CMS/PKCS#7 per RFC 5652 + RFC 8419 |
 | OID definitions | CMS-level only (`ley-line-open/rs/ll-open/sign/src/oid.rs`) — no Signet extension OIDs yet |

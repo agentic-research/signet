@@ -128,9 +128,10 @@ task security                 # Security scan (requires gosec)
 Ed25519 CMS/PKCS#7 signing + verification (RFC 5652 + RFC 8419) lives in
 [ley-line-open](https://github.com/agentic-research/ley-line-open) as the
 `leyline-sign` crate (`rs/ll-open/sign/`). Signet's former `rs/crates/sign/`
-fork was retired under bead `signet-d583bd`; edge-worker wiring (bead
-`ley-line-open-a2099a`) will consume LLO's published wasm artifact when
-available.
+fork was retired under bead `signet-d583bd`. LLO publishes
+`leyline_sign.wasm` (+ `SHA256SUMS`) as GitHub Release assets since
+v0.14.0; edge-worker wiring (bead `signet-3a6a7c`) can consume it, though
+JS/TS bindings do not exist yet.
 
 External: [github.com/agentic-research/go-cms](https://github.com/agentic-research/go-cms) — Ed25519 CMS/PKCS#7 (RFC 8410), pure Go implementation used for git signing and file signing.
 
