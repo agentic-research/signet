@@ -22,8 +22,8 @@ assets = [
   "SHA256SUMS",
 ]
 
-# v0.2.1 predates the release-signing workflow. The next patch release is the
-# first production exercise of GitHub OIDC enrollment and bundle publication.
+# v0.2.1 predates the release-signing workflow. The next release is the first
+# production exercise of GitHub OIDC enrollment and bundle publication.
 [[watches]]
 name = "signet: next release is signed"
 bead_ids = []
@@ -32,8 +32,7 @@ bead_ids = []
 remote = "agentic-research/signet"
 
 [watches.condition]
-type = "release_assets"
-tag = "v0.2.2"
+type = "latest_release_assets"
 assets = [
   "signet-darwin-arm64.sigstore.json",
   "signet-linux-amd64.sigstore.json",
