@@ -1,0 +1,42 @@
+# Signet owns the external release facts that gate work in this repository.
+# The global Vigil config adopts this fragment; it must not duplicate these
+# watches inline.
+
+# Keep this name stable. Vigil's notification marker is keyed by watch name,
+# and signet-3a6a7c was already notified under this exact name.
+[[watches]]
+name = "llo v0.14.0 wasm assets"
+bead_ids = ["signet-3a6a7c"]
+on_resolve = "comment"
+
+[watches.repo]
+remote = "agentic-research/ley-line-open"
+
+[watches.condition]
+type = "release_assets"
+tag = "v0.14.0"
+assets = [
+  "leyline_sign.wasm",
+  "leyline_cas_ffi.wasm",
+  "leyline_envelope.wasm",
+  "SHA256SUMS",
+]
+
+# v0.2.1 predates the release-signing workflow. The next patch release is the
+# first production exercise of GitHub OIDC enrollment and bundle publication.
+[[watches]]
+name = "signet: next release is signed"
+bead_ids = []
+
+[watches.repo]
+remote = "agentic-research/signet"
+
+[watches.condition]
+type = "release_assets"
+tag = "v0.2.2"
+assets = [
+  "signet-darwin-arm64.sigstore.json",
+  "signet-linux-amd64.sigstore.json",
+  "signet-linux-arm64.sigstore.json",
+  "checksums-sha256.txt.sigstore.json",
+]
