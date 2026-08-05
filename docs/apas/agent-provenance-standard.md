@@ -10,25 +10,25 @@
 > inputs; nothing said what it means for a piece of content to have a *known
 > origin*, which is the property that lets a deployment widen what an agent
 > may consume without weakening its claims. The model is adopted from
-> Cloister's ADR-0065 as implemented, not as proposed, and its hard-won
-> distinctions are carried with it: a vouching **authority identifier**
-> rather than a trusted/untrusted boolean, confidence **derived at evaluation
-> time** against the evaluator's own trust set, and a category line between
-> *who submitted* and *where content came from*. §5.2 gains the two threats
-> this does not address. §7.5/§7.6 are corrected: Cloister is no longer
-> merely "adjacent", and the L3 row no longer names a repo that does not
-> build the boundary.
+> a shipped implementation rather than from a proposal (§7.5 cites it), and
+> its hard-won distinctions are carried with it: a vouching **authority
+> identifier** rather than a trusted/untrusted boolean, confidence **derived
+> at evaluation time** against the evaluator's own trust set, and a category
+> line between *who submitted* and *where content came from*. §5.2 gains the
+> two threats this does not address. Also: the normative sections now speak
+> in **roles** rather than product names (see Roles, below) — an earlier
+> draft read as a description of one ecosystem rather than a standard — and
+> §7.5/§7.6 are corrected so the isolation substrate is credited with the
+> boundary it actually enforces.
 
 > **0.2.1 changes**: Reconciled implementation-status language with the code as
-> shipped. Rosary emits signed DSSE handoff envelopes only when an attestation
-> key is configured. Without a key it emits no artifact by default; an explicit
-> forensic opt-in writes a raw in-toto Statement, not an unsigned DSSE envelope.
-> Dispatch-manifest and commit signing remain targets. Ley-line is a compatible
-> signing primitive, while Cloister receipts and Mache context projection are
-> adjacent ecosystem capabilities rather than APAS conformance claims.
+> shipped. The orchestrator emits signed DSSE handoff envelopes only when an
+> attestation key is configured; without a key it emits no artifact by default,
+> and an explicit forensic opt-in writes a raw in-toto Statement rather than an
+> unsigned DSSE envelope. Dispatch-manifest and commit signing remain targets.
 
-> **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists today
-> in the rosary reference implementation. Sections marked **[TARGET]** describe the
+> **Reading guide**: Sections marked **[CURRENT]** describe behavior that exists
+> today in the reference implementation (see Roles). Sections marked **[TARGET]** describe the
 > intended design that is not yet implemented. Sections marked **[PARTIAL]**
 > describe a level whose prerequisites have shipped and whose implementation is
 > in flight — some bullets within the section are shipped (annotated **shipped**)
@@ -38,7 +38,32 @@
 
 The Agent Provenance Attestation Standard (APAS) defines a protocol for cryptographically verifiable provenance chains across autonomous AI agent pipelines. It specifies how agent orchestrators record, sign, and verify the complete chain from work decomposition through agent execution to code delivery.
 
-APAS is implementation-agnostic. Rosary + signet serve as the reference implementation.
+APAS is implementation-agnostic.
+
+### Roles
+
+The normative sections (§1–§6 and the appendices) refer to **roles**, never
+to products. A conforming deployment fills each role with something; which
+something is not APAS's business. Named systems appear only in §7, in
+example payloads, and in citations marked as reference-implementation
+evidence.
+
+| Role | Responsibility | Reference implementation |
+|------|----------------|--------------------------|
+| **Orchestrator** | Decomposes work, dispatches agents, writes attestations | rosary |
+| **Identity authority** | Issues the identity a dispatch signs as; defines token and certificate formats | signet |
+| **Signing primitive** | The CMS/DSSE implementation attestations are produced with | ley-line |
+| **Isolation substrate** | Enforces the L3 boundary a dispatch runs inside | cloister + LLO |
+| **Work-item tracker** | Holds the content-hashed task record a dispatch targets | rosary (`.beads/`) |
+| **Context projector** | Serves repository/code context to dispatches as content | mache |
+| **Predicate namespace** | Hosts the schema URIs attestations reference | notme.bot |
+
+> **Why this table exists.** An earlier draft named products throughout its
+> normative text. That reads as a description of one ecosystem rather than
+> a standard — a second implementer could not tell which requirements were
+> essential and which were incidental to how the reference implementation
+> happens to be built. Where a role name would be genuinely ambiguous, the
+> reference implementation is cited parenthetically and marked as such.
 
 ### Normative References
 
@@ -46,15 +71,26 @@ APAS builds on and references these existing specifications rather than reinvent
 
 | Spec | Source | APAS Usage |
 |------|--------|-----------|
-| Signet Token Format | [`docs/design/001-signet-tokens.md`](../design/001-signet-tokens.md) | Identity tokens (CBOR + COSE/Ed25519) |
-| Signet Bridge Certificates | [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md) | Delegated identity for dispatches |
-| Signet Identity Model | [`pkg/sigid/`](../../pkg/sigid/) | 4-entity decomposition (Owner/Machine/Actor/Identity) |
-| Ley-line CMS Signing | `ley-line-open/rs/ll-open/sign/src/cms.rs` | Ed25519 CMS/PKCS#7 (RFC 5652 + RFC 8419) |
+**External** — publicly resolvable, and the only references a second
+implementation strictly needs:
+
+| Spec | Source | APAS Usage |
+|------|--------|-----------|
 | in-toto Statement | https://in-toto.io/Statement/v1 | Attestation envelope format |
 | DSSE | Dead Simple Signing Envelope | Signature wrapper |
 | SLSA v1.0 | https://slsa.dev/spec/v1.0 | Conformance level model |
-| Cloister ADR-0065 | `cloister/docs/adr/0065-*.md` (impl: `cloister/src/wire/origin.ts`) | §2.5 content-origin model — origin entries, vouching authorities, derived confidence |
-| Cloister `confinement/v1` | `cloister/manifest/cluster.capnp` | L3 boundary declaration (fs/network/port) committed into the bundle certificate |
+| RFC 5652 / RFC 8419 | IETF | CMS with PureEdDSA, for the signing primitive |
+
+**Reference-implementation evidence** — cited so claims in this document are
+checkable by someone with access to these repositories, and marked because
+they are *not* required reading to implement APAS:
+
+| Artifact | Where | What it evidences |
+|----------|-------|-------------------|
+| Identity token + bridge cert formats | identity authority, `docs/design/001-*`, `004-*` | The identity a dispatch signs as (§3.3) |
+| 4-entity identity decomposition | identity authority, `pkg/sigid/` | Owner/Machine/Actor/Identity |
+| Content-origin model | isolation substrate, ADR-0065 + `src/wire/origin.ts` | §2.5 — entries, vouching authorities, derived confidence |
+| Boundary declaration (`confinement/v1`) | isolation substrate manifest | §2 L3 — fs/network/port committed into the bundle certificate |
 
 ## 1. Problem Statement
 
@@ -104,7 +140,7 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 **Requirement**: Every dispatch action is recorded with structured metadata.
 
 - Dispatch manifest captures: dispatch ID, agent name, provider, model (when reported), permission profile, work-item reference, pipeline phase, and timestamps — **shipped**. Binding the dispatch ID to a bridge-cert subject is **not yet implemented**.
-- Tool calls logged to a stream file (e.g. `.rsry-stream.jsonl` in the rosary reference implementation)
+- Tool calls logged to an append-only stream file (reference implementation: `.rsry-stream.jsonl`)
 - Pipeline phase transitions recorded with handoff documents
 - All records are JSON, machine-parseable
 
@@ -122,11 +158,11 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 **Requirement**: Every attestation is cryptographically signed by the entity that produced it.
 
-- Hash chain links content hashes, not file paths — **shipped** (rosary PR #117, `Handoff::previous_chain_hash`)
-- Handoff documents wrapped in a DSSE envelope around in-toto Statement v1 — **shipped** (rosary `src/dsse.rs`, predicate type `https://rosary.dev/Handoff/v1`) only when Rosary has an Ed25519 attestation key. Without a key Rosary emits no artifact by default; `emit_unsigned = true` writes a raw `.intoto.json` Statement as L1 forensic/debug evidence, never an unsigned DSSE envelope. A configured but unreadable key does not downgrade to unsigned output.
+- Hash chain links content hashes, not file paths — **shipped** in the reference orchestrator (`Handoff::previous_chain_hash`)
+- Handoff documents wrapped in a DSSE envelope around in-toto Statement v1 — **shipped**, but only when the orchestrator holds an Ed25519 attestation key. Without a key it MUST emit no artifact by default; an explicit forensic opt-in MAY write a raw `.intoto.json` Statement as L1 evidence, never an unsigned DSSE envelope. A configured but unreadable key MUST NOT downgrade to unsigned output.
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
-- Commit signatures via signet bridge certificates (see [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
-- Shared CMS/Ed25519 implementation via ley-line-open (`ley-line-open/rs/ll-open/sign/`) — **partial** (rosary's current DSSE uses `ed25519_dalek` directly; the wasm32 emit shipped in LLO v0.14.0 — `leyline_sign.wasm` is a checksummed GitHub Release asset — but consolidation onto leyline-sign has not happened)
+- Commit signatures via the identity authority's bridge certificates (reference: [`docs/design/004-bridge-certs.md`](../design/004-bridge-certs.md)) — **not yet implemented**
+- A single shared CMS/Ed25519 signing primitive across the ecosystem — **partial**: the reference orchestrator still signs with its own Ed25519 path rather than the shared crate, though the shared crate now publishes a checksummed wasm artifact (see §7.3)
 
 **What it proves**: "We know what happened AND who attests to it." Tamper-evident.
 
@@ -159,13 +195,13 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 - CLAUDE.md / system prompts are content-hashed and included in attestation
 - MCP server responses are logged and hashed
-- Work-item descriptions are immutable after dispatch (content_hash in the orchestrator's work-item record; in the rosary reference impl this is `BeadSpec::content_hash`)
+- Work-item descriptions are immutable after dispatch — the work-item tracker records a `content_hash` (reference implementation: `BeadSpec::content_hash`)
 - Model provider responses are logged (for forensic reconstruction, not real-time verification)
 - Agent definition + dispatch runtime binary/version are attested (SBOM of the runtime itself)
 
 **What it proves**: "The full chain from input to output is verifiable." End-to-end provenance.
 
-### 2.5 Content Origin — a property, not a level **[PARTIAL — implemented in Cloister ADR-0065]**
+### 2.5 Content Origin — a property, not a level **[PARTIAL — implemented in the isolation substrate]**
 
 > This section is **not** "Level 5". Conformance levels are cumulative
 > claims about a *system*; content origin is a property of an individual
@@ -279,10 +315,19 @@ APAS uses the in-toto attestation framework with a custom predicate type.
 }
 ```
 
-> **URI resolution**: `notme.bot` is the canonical namespace for APAS predicate schemas.
-> The identity authority is available at `auth.notme.bot`. `notme.bot` hosts the
-> standard itself — the separation from any orchestrator is intentional because
-> APAS is implementation-agnostic.
+> **URI resolution**: `notme.bot` is the canonical namespace for APAS predicate
+> schemas, and hosts the standard itself. Its separation from any orchestrator
+> is deliberate — a predicate namespace owned by one orchestrator would make
+> the schema hostage to that orchestrator's lifecycle.
+>
+> **Known coupling, stated plainly**: this namespace is a single
+> organization's domain. A predicate URI is an identifier rather than a
+> fetch target, so an implementation does not depend on that domain
+> resolving at verification time — but the *naming authority* is
+> centralized, and a wider adoption of APAS would need to move these URIs
+> under a neutral namespace. Until then, treat the string as a versioned
+> constant: implementations MUST match predicate URIs literally and MUST NOT
+> dereference them to decide how to parse a payload.
 
 ### 3.2 Predicate: `dispatch/v1`
 
@@ -415,8 +460,8 @@ The envelope is signed using DSSE (Dead Simple Signing Envelope):
 
 ### 3.4 Signing Key Hierarchy
 
-Signing uses the identity model defined in signet. APAS does not define its own
-key format — it delegates to signet's existing specifications.
+Signing uses the identity model defined by the identity authority. APAS does not
+define its own key format — it delegates to that role's existing specifications.
 
 | Level | Key Type | Lifetime | Defined In |
 |-------|----------|----------|------------|
@@ -432,10 +477,10 @@ The 4-entity identity model from [`pkg/sigid/`](../../pkg/sigid/) decomposes ide
 
 The bridge cert IS the dispatch's identity. One Actor (agent definition) can produce many dispatches, each with its own short-lived bridge cert.
 
-Ley-line-open's Rust CMS crate (`ley-line-open/rs/ll-open/sign/src/cms.rs`)
-supports both RFC 5652 (signed attributes) and RFC 8419 (PureEdDSA). Rosary's
-shipped handoff-envelope path currently uses `ed25519_dalek` directly;
-consolidation onto the shared ley-line signing primitive remains a target.
+The shared signing primitive supports both RFC 5652 (signed attributes) and
+RFC 8419 (PureEdDSA). The reference orchestrator's shipped handoff-envelope
+path currently signs with its own Ed25519 implementation; consolidation onto
+the shared primitive remains a target (§7.3).
 
 ### 3.5 Predicate Splitting (Future)
 
@@ -457,9 +502,10 @@ consolidation onto the shared ley-line signing primitive remains a target.
 
 ### 4.1 Element Hashes **[TARGET — shipped handoff hash is narrower]**
 
-The hierarchy below is the target contract. Rosary currently implements
-work-item content hashes (`BeadSpec::content_hash()`) and a content-linked
-handoff hash at the Phase boundary (`Handoff::chain_hash()`), but the latter is
+The hierarchy below is the target contract. The reference orchestrator
+currently implements work-item content hashes (`BeadSpec::content_hash()`) and
+a content-linked handoff hash at the Phase boundary (`Handoff::chain_hash()`),
+but the latter is
 not yet the full `H(Phase)` defined below. The shipped handoff hash covers phase
 number, agent name, work-item ID, summary, changed file paths, commit SHAs, and
 the previous handoff hash. It does not yet cover agent-definition content,
@@ -484,16 +530,15 @@ Target `H(Phase)` inputs:
 - Both `agent_definition` and `dispatch_identity` are required so a conformant Phase
   binds the *what-was-supposed-to-run* to *what-actually-ran*.
 
-> **Implementation mapping**: in the rosary reference implementation:
+> **Implementation mapping** *(reference implementation, non-normative)*:
 > - `WorkItem` → *bead* (a file-scoped task tracked in `.beads/`).
 > - `WorkItemGroup` → *thread* (an ordered group of related beads).
 > - `WorkItemLifecycle` → *decade* (an ADR-level grouping of threads).
 >
 > The hash hierarchy is orchestrator-agnostic — any APAS implementation
-> supplies its own work-item / grouping / lifecycle primitives that
-> satisfy the corresponding `H(...)` contract. rosary-specific names
-> appear elsewhere in this spec (Glossary, §7 Reference Implementation)
-> as illustrative anchors, not as normative wire vocabulary.
+> supplies its own work-item / grouping / lifecycle primitives that satisfy
+> the corresponding `H(...)` contract. These names are illustrative anchors,
+> never normative wire vocabulary.
 
 ### 4.2 Chain Properties
 
@@ -514,8 +559,8 @@ completeness and a root spanning the full work-item hierarchy remain targets.
 
 ### 4.3 Content-Linked Chain Hash (Shipped)
 
-> **Resolved in rosary PR #117** (`fix(handoff): content-linked chain hash`).
-> The `Handoff` struct carries `previous_chain_hash: Option<String>` —
+> **Shipped in the reference orchestrator** (`fix(handoff): content-linked
+> chain hash`). Its `Handoff` struct carries `previous_chain_hash: Option<String>` —
 > the hex-encoded SHA-256 produced by `chain_hash()` on the previous phase's
 > `Handoff` struct (hashing phase, agent, bead_id, summary, files, commit SHAs,
 > and the prior chain link — not raw JSON bytes). `chain_hash()` includes this
