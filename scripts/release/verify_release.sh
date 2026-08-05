@@ -165,6 +165,12 @@ for a in "${artifacts[@]}"; do
   fi
 done
 
+# SCT SITES 4 and 5 of 5 (signet-c0d32e). This gate builds its OWN cosign
+# trusted root, independently of cmd/sigstore-kms-signet — so when notme's
+# Static CT log lands, changing only the Go side leaves EVERY RELEASE
+# verified with CT disabled while the transcript still reads "PASS". Both
+# flags below must move in the same change as the Go ones, and --ca-bundle
+# needs a log-key equivalent for the rotation case.
 trusted_root="$workdir/trusted-root.json"
 cosign trusted-root create \
   --with-default-services \

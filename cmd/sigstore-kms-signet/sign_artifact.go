@@ -160,6 +160,13 @@ func createCosignTrustedRoot(
 		"--with-default-services",
 		// Notme/Cloister does not issue RFC 6962 SCTs. Keep public Rekor and
 		// TSA verification material, but do not advertise CTFE for this CA.
+		//
+		// SCT SITE 1 of 5 (signet-c0d32e). When notme's Static CT log runs,
+		// this becomes --ctfe AND the --insecure-ignore-sct below must go in
+		// the SAME change — configuring a log while still ignoring SCTs
+		// yields a green test that verifies nothing. The other sites are
+		// sign_artifact_test.go, scripts/release/verify_release.sh, and
+		// .github/actions/sign-artifact/README.md.
 		"--no-default-ctfe",
 		fulcioSpec,
 		"--out", trustedRootPath,
@@ -202,6 +209,12 @@ func cosignVerifyBlobArgs(artifact string, outputs artifactOutputs, trustedRootP
 		"--certificate-oidc-issuer-regexp", "^$",
 		// Notme/Cloister bridge certificates are not submitted to a CT log.
 		// Rekor inclusion remains required by the generated trusted root.
+		//
+		// SCT SITE 2 of 5 (signet-c0d32e) — the load-bearing one. While this
+		// flag is present cosign ignores SCTs entirely, so the CT bead's
+		// negative control ("a cert with no valid SCT is rejected") CANNOT
+		// fail as required. Removing it is what turns --ctfe from a
+		// declaration into an enforcement.
 		"--insecure-ignore-sct",
 		"--bundle", outputs.Bundle,
 		artifact,
