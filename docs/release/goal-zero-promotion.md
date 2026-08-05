@@ -193,6 +193,17 @@ Phases 2→3 never rebuild — promotion only flips release metadata.
 Probed live and read from source 2026-08-05. **Sequencing gates** block a
 phase of this train; **parallel** items proceed independently.
 
+Notme's own merge gate, as reported by that side of the train
+(2026-08-05), is short: `notme-28959a` (P0, parked on signet's pin),
+the remaining collisions in `notme-1532eb`, `notme-191328` (production
+redeploy for the rate limiters), and two decisions owed by signet —
+key custody (`notme-41d0d3`) and registration policy (`notme-2c4209`,
+itself blocked on cloister's ADR). Each appears as a row below with
+its effect on **this** train stated separately from its effect on
+notme's, because the two are not the same: only the action-bundle P0
+touches a path signet executes, and even that one misses the release
+signing path.
+
 | Boundary | Contract signet needs | Observed state | Class |
 |---|---|---|---|
 | notme: `POST /cert/gha` + `GET /.well-known/ca-bundle.pem` | OIDC→5-min cert enrollment for release signing; CA bundle for independent verification | **Healthy** (401-without-token / 200; oidc-signing.yml green per main push). Deployed from the **public** `notme` monorepo `worker/` — confirmed by diffing the live discovery doc against both candidate repos | Gate for Phases 1–3 — currently **met** |
@@ -202,6 +213,11 @@ phase of this train; **parallel** items proceed independently.
 | notme: identity schema (`schema/identity.capnp`) | Wire-compat evidence for tokens/certs/bundles | **No machine-checkable pin** — prose "schema-version 008"; enforcement is two hand-maintained vectors (canonical CA-bundle CBOR, ADR-012 kid `9408457a…`); shared fixture suite named in notme's skipped test does not exist; spiffe:// vs wimse:// URI divergence | Near-term evidence = both vector tests green at the release commit; long-term fix `signet-2f6b68` |
 | notme staging | A staging authority to soak against | **None exists** (no `[env.*]` in any committed wrangler config). `auth-staging.notme.bot` support is in-flight, uncommitted, on notme's `goalzero` branch | Parallel for v0.3.0 (artifact train soaks against prod authority, which the continuous oidc-signing canary already exercises); becomes a gate for future service-plane trains |
 | notme.bot (private repo) | Nobody clobbers the deployed Worker | Second repo declares the same script name/routes, no CI, hand `task ship`, 1,700 lines behind, **no rate limiters** — a ship from it would roll back the authority | Standing hazard, recorded here + `signet-c0a34f` (repo not rosary-registered, so no bead can live there) |
+| notme: `action/dist/index.js` bundle | An action signet executes with `id-token: write` must not ship known-vulnerable deps | **`notme-28959a` (P0)**: the committed bundle embeds undici 6.25.0 with three unpatched advisories; the workspace override to ^6.28.0 never reached the bundle. signet pins that commit at `gha-identity.yml:118` | **Blocking for the resign/identity path** (`signet-resign.yml`, rig); **advisory for the v0.3.0 artifact train** — release.yml builds `cmd/sigstore-kms-signet` in-repo and never invokes the action. signet side: `signet-6d2bcd`, formally blocked on `notme-28959a` |
+| notme: rate limiters in production | The authority enforces the limits it declares | **`notme-191328` (P1)**: TOKEN/CERT/PASSKEY limiter bindings exist only in `wrangler.toml.example`; `worker.ts` guards each call with `if (env.X_LIMITER)`, so an absent binding is a **silent no-op**. Needs a production redeploy | Advisory for the artifact train (release signing does not depend on rate limiting), but it is a live authority-hardening gap the release notes should not imply is closed |
+| notme: staging CA naming | A staging credential must be distinguishable from production | **`notme-1532eb` (P1)**: the staging CA is name-identical to production — same WIMSE trust domain, same CA subject DN, same GHA owner scope. Disposable KEY, non-disposable NAMES | Gate for any future staging-authority soak (plan §4 "notme staging" row); not a gate for v0.3.0, which soaks against production |
+| notme: key custody | Root key protection at least as strong as the leaves | **`notme-41d0d3` (P1)** — decision owed by signet: CA master + delegated JWT private keys sit as plaintext JWK in DO SQLite while cloister's vault envelope-encrypts. Root weaker than leaves | Signet input required; tracked as a cross-repo decision, not a v0.3.0 code gate |
+| notme: registration policy | Whether the CA accepts open registration | **`notme-2c4209` (P1)** — decision owed by signet, itself blocked on cloister's ADR: only `isFirstUser` needs a bootstrap code, so anyone can register a passkey and exchange it for a CA-signed bridge cert pair | Signet input required; the release notes must not describe the authority as closed-registration while this stands |
 | go-cms (CMS verify/sign) | A verifier without known bypasses | **Resolved 2026-08-05**: v0.0.5 tagged with the three RFC 5652 verifier bypass fixes (Version, eContentType on the no-signedAttrs path, non-canonical DER lengths) and pinned; `pkg/git/cms_roundtrip_test.go` covers the path Docker-free. A v0.0.4-produced signature still verifies under v0.0.5 — no backward-compat break | Gate **met** (`signet-e6a047`, `signet-279902`) |
 | LLO: `leyline-sign` wasm | Published artifact for future edge verification | **Shipped since v0.14.0** (v0.17.0: `leyline_sign.wasm` 269,641 B, in `SHA256SUMS`, export-surface-verified in LLO CI). No JS/TS bindings; assets checksummed but **unsigned** (LLO `ley-line-open-545e17`) | Parallel — `signet-3a6a7c` unblocked, still P3. LLO adopting signet's sign-artifact action (`ley-line-open-a28476`) only needs SHA `8af4e08` to stay reachable |
 | LLO: kid derivation | One canonical key-id across the substrate | signet owns the vector (`pkg/sigid/identity.go`); LLO defers explicitly (`kid.rs:9-11`) | Met — invariant held by per-side vector tests |
@@ -260,6 +276,8 @@ files, safe for concurrent dispatch):
   `ANTHROPIC_API_KEY`).
 - `signet-de29d1` (P3): automate the Phase 3 flip behind
   `task verify-release`.
+- `signet-6d2bcd` (P1): advance the `notme/action` pin once the
+  rebuilt bundle ships. Formally depends on `notme-28959a`.
 
 **From the adversarial review of this plan** (both fixed on this
 branch):
@@ -318,6 +336,14 @@ lands first, or the v0.3.0 release notes state plainly that
 `signet authority exchange-github-token` and `signet auth register` are
 non-functional against the default authority. Silence is not an option
 for an identity project's release notes.
+
+The same honesty rule applies to the notme-side gates in §4. None of
+them blocks the v0.3.0 artifact train, but two constrain what the
+release notes may *claim*: the production authority's rate limiters are
+declared-but-unbound (`notme-191328`), and passkey registration to the
+CA is effectively open (`notme-2c4209`). A release describing the
+authority as rate-limited or closed-registration would be wrong on
+both counts today.
 
 The path from NO-GO to GO is fully beaded: `signet-ddb0f3` →
 `signet-ddd7d7` → `signet-de0589`. Both hard prerequisites of the final
