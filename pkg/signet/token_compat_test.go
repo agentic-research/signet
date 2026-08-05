@@ -69,6 +69,27 @@ func TestLegacyOverlappingKeysNotReinterpreted(t *testing.T) {
 	}
 }
 
+// The minimal payload from the adversarial review that originally defeated
+// this boundary, pinned verbatim: {1: "iss", 6: 1710000000, "x": 0}.
+//
+// It is sharper than the full-legacy-payload evasion cases above. Every
+// integer field in it is type-compatible with the CURRENT schema (key 6 is
+// an int in both layouts), so when the probe failed open on the text key,
+// the struct decode succeeded outright — populating IssuerID and IssuedAt
+// from legacy fields with no error at all. Only `validate()` stopped it,
+// which is the incidental backstop this boundary exists to not depend on.
+// If this test ever fails, the boundary has regressed to fail-open.
+func TestReportedMinimalFailOpenRepro(t *testing.T) {
+	const repro = "a30163697373061a65ec8780617800"
+	tok, err := Unmarshal(mustHex(t, repro))
+	if err == nil {
+		t.Fatalf("fail-open regression: reproducer decoded into a token: %+v", tok)
+	}
+	if !errors.Is(err, ErrLegacyTokenLayout) {
+		t.Fatalf("reproducer must fail at the layout boundary, not incidentally: %v", err)
+	}
+}
+
 func TestGoldenLegacyV001RejectedAtSIG1Layer(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString(mustHex(t, goldenLegacyV001Hex))
 	signature := base64.RawURLEncoding.EncodeToString([]byte("not-a-real-cose-sign1"))
