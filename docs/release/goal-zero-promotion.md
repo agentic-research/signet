@@ -62,7 +62,23 @@ per the bead's instruction not to silently weaken missing gates):
   `signet-ee1f3b` — an earlier hyphen-based rule would have published
   `v0.3.0` as a full release during soak, contradicting Phase 2.)
 
-**Open release blockers (beads):**
+**Release blockers — status as of 2026-08-05 (main at `f7cf34a`):**
+
+Both production gates are **CLOSED**, merged in `c9618b8` (PR #153):
+
+- `signet-62f8e0` (P0) — **closed**. v0.0.1-layout payloads are rejected
+  at a pre-decode boundary that cannot be evaded by key shape;
+  duplicate keys rejected under one strict decode mode shared with
+  `pkg/sigid`; golden vectors pin both layouts; the rule is normative
+  in `docs/design/001-signet-tokens.md`.
+- `signet-e6a047` — **closed**. go-cms v0.0.5 tagged and pinned,
+  carrying the three RFC 5652 verifier bypass fixes; `signet-279902`
+  added Docker-free CMS round-trip coverage for the path it changes.
+
+Also fixed in the same merge: `signet-e6e2d1` (OIDC audience
+resolution), `signet-dd7f9c` (review workflow no longer red).
+
+Historical record of what those blockers were:
 
 - `signet-62f8e0` (P0, bug): SIG1 CBOR integer-key reinterpretation —
   historical v0.0.1 tokens decode with different field meanings under
@@ -186,7 +202,7 @@ phase of this train; **parallel** items proceed independently.
 | notme: identity schema (`schema/identity.capnp`) | Wire-compat evidence for tokens/certs/bundles | **No machine-checkable pin** — prose "schema-version 008"; enforcement is two hand-maintained vectors (canonical CA-bundle CBOR, ADR-012 kid `9408457a…`); shared fixture suite named in notme's skipped test does not exist; spiffe:// vs wimse:// URI divergence | Near-term evidence = both vector tests green at the release commit; long-term fix `signet-2f6b68` |
 | notme staging | A staging authority to soak against | **None exists** (no `[env.*]` in any committed wrangler config). `auth-staging.notme.bot` support is in-flight, uncommitted, on notme's `goalzero` branch | Parallel for v0.3.0 (artifact train soaks against prod authority, which the continuous oidc-signing canary already exercises); becomes a gate for future service-plane trains |
 | notme.bot (private repo) | Nobody clobbers the deployed Worker | Second repo declares the same script name/routes, no CI, hand `task ship`, 1,700 lines behind, **no rate limiters** — a ship from it would roll back the authority | Standing hazard, recorded here + `signet-c0a34f` (repo not rosary-registered, so no bead can live there) |
-| go-cms (CMS verify/sign) | A verifier without known bypasses | Pin v0.0.4 == latest tag, but go-cms main holds **three unreleased RFC 5652 verifier bypass fixes** (Version unchecked; eContentType unchecked on no-signedAttrs path; non-canonical DER lengths) that signet's `pkg/git/verify.go:134` lacks | **Gate for Phase 3**: `signet-e6a047` (cut v0.0.5, bump pin + go directive) |
+| go-cms (CMS verify/sign) | A verifier without known bypasses | **Resolved 2026-08-05**: v0.0.5 tagged with the three RFC 5652 verifier bypass fixes (Version, eContentType on the no-signedAttrs path, non-canonical DER lengths) and pinned; `pkg/git/cms_roundtrip_test.go` covers the path Docker-free. A v0.0.4-produced signature still verifies under v0.0.5 — no backward-compat break | Gate **met** (`signet-e6a047`, `signet-279902`) |
 | LLO: `leyline-sign` wasm | Published artifact for future edge verification | **Shipped since v0.14.0** (v0.17.0: `leyline_sign.wasm` 269,641 B, in `SHA256SUMS`, export-surface-verified in LLO CI). No JS/TS bindings; assets checksummed but **unsigned** (LLO `ley-line-open-545e17`) | Parallel — `signet-3a6a7c` unblocked, still P3. LLO adopting signet's sign-artifact action (`ley-line-open-a28476`) only needs SHA `8af4e08` to stay reachable |
 | LLO: kid derivation | One canonical key-id across the substrate | signet owns the vector (`pkg/sigid/identity.go`); LLO defers explicitly (`kid.rs:9-11`) | Met — invariant held by per-side vector tests |
 | mache: find-smells CI gate | Structural quality ratchet (`signet-c0a416` AC) | Action exists and is consumable (floor **v0.17.0**, latest v0.21.1); **not wired** in signet; the two adoption beads were duplicates with hard-fail pins — consolidated into `signet-5eacae` with corrected instructions | Parallel — adopt before or during soak; not an artifact gate |
@@ -285,13 +301,16 @@ workflow (sign then verify before publish); the verification gate
 armed. The rehearsal is disposable by design — the residual risk of a
 first-run signing failure is exactly what Phase 1 exists to absorb.
 
-**NO-GO — Phase 3 (production), today.** Three observed blockers:
+**NO-GO — Phase 3 (production), today.** One remaining blocker after
+the 2026-08-05 fix merge (`c9618b8`):
 
-1. `signet-62f8e0` (P0): historical SIG1 payloads silently reinterpret
-   under the current CBOR key layout; the release is the flag day.
-2. `signet-e6a047`: shipping a CMS verifier with three known-and-fixed
-   upstream bypasses contradicts the release's integrity claims.
-3. No beta soak has occurred (Phase 2 exit unmet by definition).
+1. ~~`signet-62f8e0` (P0)~~ — **closed**: the wire-layout boundary
+   landed, so the flag day is handled.
+2. ~~`signet-e6a047`~~ — **closed**: go-cms v0.0.5 pinned, with
+   Docker-free round-trip coverage (`signet-279902`).
+3. **No beta soak has occurred** (Phase 2 exit unmet by definition).
+   This one cannot be closed by writing code — it is time under real
+   use, and it starts when the rc rehearsal passes.
 
 Additionally, GA framing must account for `/exchange-token` and
 `/api/cert/register` being down in production: either the rig/notme fix
@@ -301,5 +320,7 @@ non-functional against the default authority. Silence is not an option
 for an identity project's release notes.
 
 The path from NO-GO to GO is fully beaded: `signet-ddb0f3` →
-`signet-ddd7d7` → `signet-de0589`, with `signet-62f8e0` and
-`signet-e6a047` as the two hard prerequisites of the final flip.
+`signet-ddd7d7` → `signet-de0589`. Both hard prerequisites of the final
+flip (`signet-62f8e0`, `signet-e6a047`) are now closed, so the only
+thing standing between here and production is the pipeline itself
+running: rehearse, soak, verify, flip.
