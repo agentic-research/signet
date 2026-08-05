@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Clean-machine verification of a published signet release.
+#
+# Verifies a published tag using ONLY published assets plus an independently
+# fetched trust anchor. This is the staging/production promotion gate from the
+# Goal Zero promotion plan (signet-cf2adc): a release is promotable only when
+# this script passes against the published tag from a machine that took no
+# part in building it.
+#
+# Workflows and hooks invoke this via `task verify-release TAG=<tag>` — do not
+# re-implement these checks inline elsewhere (taskfile-ci-parity).
+#
+# Usage:
+#   verify_release.sh <tag> [--repo OWNER/NAME] [--authority-url URL]
+#                     [--identity-regexp RE] [--ca-bundle FILE] [--keep]
+#
+# Checks, in order:
+#   1. Download every asset of the release for <tag>.
+#   2. Integrity: sha256 checksums match checksums-sha256.txt.
+#   3. Trust anchor: fetch /.well-known/ca-bundle.pem from the authority
+#      (or use --ca-bundle FILE), NOT the copy published beside the
+#      artifacts. Warn when the published .signet.ca.pem copies differ from
+#      the live anchor (CA rotation — see note below).
+#   4. Authenticity: cosign verify-blob each artifact against its
+#      .sigstore.json bundle with a trusted root built from the independent
+#      anchor, pinning the certificate identity regexp and asserting the
+#      Fulcio OIDC issuer extension is absent. Mirrors
+#      cmd/sigstore-kms-signet/sign_artifact.go cosignVerifyBlobArgs.
+#   5. Report the signing identity per artifact and PASS/FAIL.
+#
+# CA rotation: artifacts chain to the CA that was live when they were signed.
+# If the authority has rotated since the release, live-anchor verification
+# fails; re-run with --ca-bundle pointing at the archived trust anchor for
+# that release window, obtained out of band.
+
+set -euo pipefail
+
+REPO="agentic-research/signet"
+AUTHORITY_URL="https://auth.notme.bot"
+IDENTITY_REGEXP="agentic-research/signet"
+CA_BUNDLE=""
+KEEP=0
+TAG="${1:-}"
+
+usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
+
+if [[ -z "$TAG" || "$TAG" == "-h" || "$TAG" == "--help" ]]; then
+  usage
+  exit 2
+fi
+shift
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo) REPO="$2"; shift 2 ;;
+    --authority-url) AUTHORITY_URL="$2"; shift 2 ;;
+    --identity-regexp) IDENTITY_REGEXP="$2"; shift 2 ;;
+    --ca-bundle) CA_BUNDLE="$2"; shift 2 ;;
+    --keep) KEEP=1; shift ;;
+    *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+for tool in gh cosign curl openssl; do
+  command -v "$tool" >/dev/null || { echo "FAIL: required tool not found: $tool" >&2; exit 1; }
+done
+
+sha256_check() {
+  if command -v sha256sum >/dev/null; then
+    sha256sum -c "$1"
+  else
+    shasum -a 256 -c "$1"
+  fi
+}
+
+workdir="$(mktemp -d "${TMPDIR:-/tmp}/signet-verify-release.XXXXXX")"
+cleanup() {
+  if [[ "$KEEP" -eq 1 ]]; then
+    echo "assets kept in $workdir"
+  else
+    rm -rf "$workdir"
+  fi
+}
+trap cleanup EXIT
+
+echo "==> [1/4] downloading assets of $REPO $TAG"
+gh release download "$TAG" --repo "$REPO" --dir "$workdir"
+
+cd "$workdir"
+
+[[ -f checksums-sha256.txt ]] || { echo "FAIL: release has no checksums-sha256.txt" >&2; exit 1; }
+
+echo "==> [2/4] verifying sha256 checksums"
+sha256_check checksums-sha256.txt
+
+# Everything named in the checksum file, plus the checksum file itself, must
+# carry a signature bundle (release.yml signs exactly this set).
+artifacts=()
+while read -r _hash name; do
+  artifacts+=("${name#\*}")
+done < checksums-sha256.txt
+artifacts+=("checksums-sha256.txt")
+
+echo "==> [3/4] establishing independent trust anchor"
+anchor="$workdir/authority-ca.pem"
+if [[ -n "$CA_BUNDLE" ]]; then
+  cp "$CA_BUNDLE" "$anchor"
+  echo "    using supplied CA bundle: $CA_BUNDLE"
+else
+  curl -fsSL "$AUTHORITY_URL/.well-known/ca-bundle.pem" -o "$anchor"
+  echo "    fetched $AUTHORITY_URL/.well-known/ca-bundle.pem"
+fi
+openssl x509 -in "$anchor" -noout >/dev/null \
+  || { echo "FAIL: trust anchor is not a valid PEM certificate" >&2; exit 1; }
+
+for a in "${artifacts[@]}"; do
+  if [[ -f "$a.signet.ca.pem" ]] && ! cmp -s "$a.signet.ca.pem" "$anchor"; then
+    echo "    WARN: published $a.signet.ca.pem differs from the independent anchor (CA rotation?)"
+  fi
+done
+
+trusted_root="$workdir/trusted-root.json"
+cosign trusted-root create \
+  --with-default-services \
+  --no-default-ctfe \
+  --fulcio="url=$AUTHORITY_URL,certificate-chain=$anchor" \
+  --out "$trusted_root"
+
+echo "==> [4/4] verifying signature bundles"
+missing=()
+failed=()
+for a in "${artifacts[@]}"; do
+  bundle="$a.sigstore.json"
+  if [[ ! -f "$bundle" ]]; then
+    missing+=("$bundle")
+    continue
+  fi
+  if cosign verify-blob \
+    --trusted-root "$trusted_root" \
+    --certificate-identity-regexp "$IDENTITY_REGEXP" \
+    --certificate-oidc-issuer-regexp '^$' \
+    --insecure-ignore-sct \
+    --bundle "$bundle" \
+    "$a" >/dev/null 2>&1; then
+    identity="(identity unavailable)"
+    if [[ -f "$a.signet.crt.pem" ]]; then
+      identity="$(openssl x509 -in "$a.signet.crt.pem" -noout -ext subjectAltName 2>/dev/null | tail -n +2 | tr -d ' ' || true)"
+    fi
+    echo "    OK   $a  signed-as: $identity"
+  else
+    failed+=("$a")
+    echo "    FAIL $a"
+  fi
+done
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo
+  echo "FAIL: release $TAG is missing signature bundles:" >&2
+  printf '    %s\n' "${missing[@]}" >&2
+  echo "    (an unsigned release must not be promoted — see docs/release/goal-zero-promotion.md)" >&2
+  exit 1
+fi
+if [[ ${#failed[@]} -gt 0 ]]; then
+  echo
+  echo "FAIL: signature verification failed for: ${failed[*]}" >&2
+  echo "    If the authority rotated its CA since this release, retry with --ca-bundle <archived-anchor>." >&2
+  exit 1
+fi
+
+echo
+echo "PASS: $REPO $TAG — ${#artifacts[@]} artifacts, checksums and signature bundles verified"

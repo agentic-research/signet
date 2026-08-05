@@ -116,6 +116,14 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           generate_release_notes: true
+          # Pre-release tags (any tag with a hyphen: v0.3.0-rc.1) publish as
+          # GitHub prereleases, and no release ever self-promotes to
+          # "latest". Promotion to latest is an explicit human step AFTER
+          # `task verify-release TAG=<tag>` passes from a clean machine:
+          #   gh release edit <tag> --prerelease=false --latest
+          # (Goal Zero promotion plan, signet-cf2adc.)
+          prerelease: ${{ contains(env.TAG, '-') }}
+          make_latest: "false"
           # Includes each .sigstore.json bundle, leaf cert, CA bundle, and
           # ephemeral public key beside the signed artifact.
           files: release-assets/*

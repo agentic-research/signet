@@ -84,6 +84,20 @@ tasks:
       - docker run --rm signet-test
 
   # --------------------------------------------------------------------------
+  # Release
+  # --------------------------------------------------------------------------
+  verify-release:
+    desc: Verify a published release's checksums + signature bundles (TAG=vX.Y.Z)
+    # Single source for the release promotion gate (signet-cf2adc). Promotion
+    # workflows and operators invoke THIS target — never re-implement the
+    # checks inline (taskfile-ci-parity).
+    preconditions:
+      - sh: test -n "{{.TAG}}"
+        msg: "TAG is required: task verify-release TAG=v0.3.0"
+    cmds:
+      - ./scripts/release/verify_release.sh {{.TAG}} {{.CLI_ARGS}}
+
+  # --------------------------------------------------------------------------
   # Combined
   # --------------------------------------------------------------------------
   # Rust CMS signing has moved to ley-line-open's `leyline-sign` crate
