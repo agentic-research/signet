@@ -27,6 +27,11 @@ providers:
     config:
       name: github-actions
       issuer_url: https://token.actions.githubusercontent.com
+      # Must match the audience the CLI requests. By default the CLI's
+      # exchange-github-token --auto uses the --authority-url value as the
+      # audience (this Go authority convention). Deployments that enforce a
+      # fixed audience (auth.notme.bot enforces "notme.bot") need the CLI's
+      # --audience flag set to match.
       audience: https://your-authority.example.com
       certificate_validity: 300000000000  # 5m in nanoseconds (Go time.Duration)
       enabled: true

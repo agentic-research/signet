@@ -67,6 +67,10 @@ jobs:
           #   - This workflow is from the specific repository
           #   - This workflow is running on the specific commit SHA
           #   - This workflow file is the one that triggered the signing
+          # Audience: with --auto the CLI defaults the OIDC audience to the
+          # --authority-url value (the Go authority convention). When the
+          # authority enforces a fixed audience instead — auth.notme.bot
+          # enforces "notme.bot" — add: --audience notme.bot
           signet authority exchange-github-token \
             --authority-url https://signet-authority.example.com \
             --token "$GITHUB_OIDC_TOKEN" \
