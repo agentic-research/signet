@@ -345,6 +345,49 @@ CA is effectively open (`notme-2c4209`). A release describing the
 authority as rate-limited or closed-registration would be wrong on
 both counts today.
 
+### Transparency: what v0.3.0 may and may not claim
+
+This one is easy to overstate in either direction, so state it exactly.
+
+**True, and worth saying.** Every artifact this release signs carries its
+signing certificate into public Rekor. Verified rather than assumed:
+`cosign trusted-root create --with-default-services --no-default-ctfe`
+(cosign v3.1.1, signet's exact invocation) yields **2 Rekor tlogs, 0
+ctlogs, 1 TSA** — `--no-default-ctfe` strips only the CT material, so
+Rekor inclusion remains required by the trusted root both the signer and
+`task verify-release` check against. `cosignSignBlobArgs` passes
+`--certificate` and `--certificate-chain` into `sign-blob`, and nothing in
+`cmd/` or `pkg/` sets `--tlog-upload=false` or `--insecure-ignore-tlog`,
+so the upload is not merely permitted but default-on. The certificate
+therefore reaches an append-only log operated by a third party.
+
+**Not true, and MUST NOT be implied.**
+
+1. *The proof rides the bundle, not the certificate.* A Rekor inclusion
+   proof travels in the `.sigstore.json`; an SCT would travel in the cert.
+   A verifier holding only a certificate cannot check it was ever logged,
+   so the air-gapped case is not covered.
+2. *Rekor samples use; it does not record issuance.* Rekor logs a
+   certificate when it is **used to sign**. A certificate notme issued and
+   nobody used appears nowhere, and nothing rejects it — so this is not an
+   issuance-transparency claim about the authority.
+3. *Nothing enforces logging, and nothing monitors.* CT's actual property
+   is that verifiers **require** an SCT, which is what makes a log
+   complete rather than a sample. Signet does not require one today —
+   `--insecure-ignore-sct` is exactly that requirement switched off
+   (`signet-c0d32e` is the work that flips it). And no monitor watches
+   Rekor for this authority's certificates, so "someone who is not you
+   would notice" is not yet true of anything here.
+
+Suggested phrasing, which claims all of (1) and none of (2):
+
+> Release artifacts are signed with short-lived certificates, and each
+> signature and its signing certificate are recorded in the public Rekor
+> transparency log. The inclusion proof ships in the `.sigstore.json`
+> bundle beside each artifact. Certificates do not yet carry embedded
+> SCTs, so verification of transparency requires the bundle, not the
+> certificate alone.
+
 The path from NO-GO to GO is fully beaded: `signet-ddb0f3` →
 `signet-ddd7d7` → `signet-de0589`. Both hard prerequisites of the final
 flip (`signet-62f8e0`, `signet-e6a047`) are now closed, so the only
