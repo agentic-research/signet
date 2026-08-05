@@ -77,6 +77,22 @@ Key	Name	Type	Description
 17	nonce	bstr(16B)	Nonce (optional)
 18	eph_kid	bstr(32B)	Ephemeral key ID (optional)
 19	epoch	uint	Revocation epoch (optional)
+Version Boundary (v0.0.1 payloads — normative, signet-62f8e0)
+The retired v0.0.1 layout used keys 1 issuer, 2 confirmation, 3 expiry,
+4 nonce, 5 ephemeral key, 6 not-before. The table above reassigned keys
+2–6 (confirmation moved to 9, nonce to 17, ephemeral key to 18), so a
+v0.0.1 payload decoded field-by-field against the current schema would
+silently reinterpret confirmation bytes as an audience, an expiry as a
+subject PPID, and a not-before as an issued-at.
+
+Decoders MUST reject any integer-keyed payload that carries none of the
+required keys 7 (cap_id), 9 (cnf), 13 (jti) BEFORE field-by-field
+decoding, with a distinct error. There is deliberately no translation
+path: v0.0.1 tokens were five-minute ephemeral credentials, so every
+one of them is long expired and rejection loses nothing. Reference
+implementation: ErrLegacyTokenLayout + detectLegacyLayout in
+pkg/signet/token.go; pinned golden vectors for both layouts live in
+pkg/signet/token_compat_test.go and must never be regenerated.
 Capability Computation (Updated for 128-bit)
 python
 def compute_cap_id(cap_tokens):

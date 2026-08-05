@@ -133,7 +133,14 @@ func (t *Token) Marshal() ([]byte, error) {
 }
 
 // Unmarshal deserializes a token from CBOR bytes.
+//
+// Payloads in the retired v0.0.1 integer-key layout are rejected with
+// ErrLegacyTokenLayout before any struct decoding — see detectLegacyLayout.
 func Unmarshal(data []byte) (*Token, error) {
+	if err := detectLegacyLayout(data); err != nil {
+		return nil, err
+	}
+
 	var token Token
 	if err := cbor.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("unmarshal token: %w", err)
@@ -144,6 +151,43 @@ func Unmarshal(data []byte) (*Token, error) {
 	}
 
 	return &token, nil
+}
+
+// ErrLegacyTokenLayout indicates a CBOR payload in the retired v0.0.1
+// integer-key layout (1 issuer, 2 confirmation, 3 expiry, 4 nonce,
+// 5 ephemeral key, 6 not-before). The current layout (the normative table in
+// docs/design/001-signet-tokens.md) reassigned keys 2–6, so decoding such a
+// payload as a current token would reinterpret confirmation bytes as an
+// audience, an expiry as a subject identifier, and a not-before as an
+// issued-at. There is no translation path: v0.0.1 tokens were five-minute
+// ephemeral credentials, so every one of them is long expired and rejection
+// loses nothing.
+var ErrLegacyTokenLayout = errors.New(
+	"token payload uses the retired v0.0.1 integer-key layout (or is not a signet token): re-issue the token with a current signer")
+
+// detectLegacyLayout rejects payloads that cannot be a current-format token
+// BEFORE the struct decode, so the failure mode for historical v0.0.1
+// payloads is a deliberate, stable error rather than an incidental
+// type-mismatch that could drift with CBOR library defaults.
+//
+// Discriminator: every current token is required (and validated) to carry
+// cap_id (7), cnf (9), and jti (13). The v0.0.1 layout used only keys 1–6.
+// A map carrying none of the three required keys is therefore either a
+// v0.0.1 payload or not a signet token at all; both must be rejected, and
+// neither may ever reach the field-by-field decode.
+func detectLegacyLayout(data []byte) error {
+	var raw map[int64]cbor.RawMessage
+	if err := cbor.Unmarshal(data, &raw); err != nil {
+		// Not an integer-keyed map at all. Let the struct decode produce
+		// its ordinary error for whatever this is.
+		return nil //nolint:nilerr // deliberate: defer error reporting to the struct decode
+	}
+	for _, requiredKey := range []int64{7, 9, 13} {
+		if _, ok := raw[requiredKey]; ok {
+			return nil
+		}
+	}
+	return ErrLegacyTokenLayout
 }
 
 // validate ensures the token adheres to minimum spec requirements.
