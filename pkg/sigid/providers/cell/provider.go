@@ -61,9 +61,12 @@ func (p *CellProvider) ExtractContextFromCBOR(tokenCBOR []byte) (*sigid.Context,
 		return nil, fmt.Errorf("extract context: token CBOR is empty")
 	}
 
-	// Unmarshal token to map to access all sigid fields
+	// Unmarshal token to map to access all sigid fields. Token wire bytes go
+	// through signet's strict decode mode so this path — documented below as
+	// the primary production entry point — cannot accept a duplicate-key
+	// payload that signet.Unmarshal would reject.
 	var tokenMap map[int]interface{}
-	if err := cbor.Unmarshal(tokenCBOR, &tokenMap); err != nil {
+	if err := signet.TokenDecMode().Unmarshal(tokenCBOR, &tokenMap); err != nil {
 		return nil, fmt.Errorf("unmarshal token: %w", err)
 	}
 

@@ -133,6 +133,14 @@ func (t *Token) Marshal() ([]byte, error) {
 	return encMode.Marshal(t)
 }
 
+// TokenDecMode returns the strict CBOR decode mode for token payloads.
+// Any package decoding token wire bytes MUST use it rather than the library
+// default: with the default, duplicate map keys are silently accepted and a
+// generic map decode keeps the LAST occurrence while a struct decode keeps
+// the FIRST, so two decoders of the same bytes can disagree about what the
+// token says. One mode is what makes that disagreement unrepresentable.
+func TokenDecMode() cbor.DecMode { return tokenDecMode }
+
 // tokenDecMode is the single decode mode for token payloads. Duplicate map
 // keys are rejected outright: with the library default they are accepted, and
 // the generic map decode keeps the LAST occurrence while the struct decode
@@ -201,9 +209,24 @@ func detectLegacyLayout(data []byte) error {
 	// unconditional.
 	var raw map[any]cbor.RawMessage
 	if err := tokenDecMode.Unmarshal(data, &raw); err != nil {
-		// Not a map at all (array, string, malformed). Let the struct decode
-		// produce its ordinary error for whatever this is.
-		return nil //nolint:nilerr // deliberate: defer error reporting to the struct decode
+		// Probe failure is only a safe pass-through for payloads that are not
+		// maps. A map whose key decodes to an unhashable Go value (CBOR array,
+		// map, or negative bignum key) also fails here, and passing THOSE
+		// through would reopen the bypass this boundary exists to close. Decide
+		// map-ness from the CBOR head byte (major type 5) rather than from
+		// probe success, so the fallthrough is restricted to genuine non-maps.
+		if isCBORMap(data) {
+			// A duplicate key is malformedness, not a layout violation; report
+			// it as itself rather than blaming the v0.0.1 layout.
+			var dupErr *cbor.DupMapKeyError
+			if errors.As(err, &dupErr) {
+				return fmt.Errorf("unmarshal token: %w", err)
+			}
+			// Any other probe failure on a map means a key that cannot be an
+			// integer key — the schema is integer-keyed exclusively.
+			return ErrLegacyTokenLayout
+		}
+		return nil //nolint:nilerr // deliberate: non-map payloads get the struct decode's ordinary error
 	}
 
 	required := map[int64]struct{}{7: {}, 9: {}, 13: {}}
@@ -224,6 +247,13 @@ func detectLegacyLayout(data []byte) error {
 		return ErrLegacyTokenLayout
 	}
 	return nil
+}
+
+// isCBORMap reports whether data begins with a CBOR map head (major type 5),
+// which is decidable from the first byte alone and does not depend on whether
+// the keys inside are representable as Go map keys.
+func isCBORMap(data []byte) bool {
+	return len(data) > 0 && data[0]&0xE0 == 0xA0
 }
 
 // cborMapKeyAsInt normalizes a decoded CBOR map key to int64. The decoder

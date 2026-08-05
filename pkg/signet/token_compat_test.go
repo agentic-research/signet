@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -141,6 +142,9 @@ func TestLegacyLayoutEvasionAttempts(t *testing.T) {
 		}
 	}
 
+	// The decoder's full key domain, minus the encodings Go cannot express as
+	// map keys — those are hand-assembled in the tests below. Exhaustive over
+	// an enumerable domain beats sampling it.
 	cases := []struct {
 		name      string
 		poisonKey any
@@ -149,6 +153,9 @@ func TestLegacyLayoutEvasionAttempts(t *testing.T) {
 		{"negative int key", int64(-1)},
 		{"bool key", true},
 		{"float key", 1.5},
+		{"nil key", nil},
+		{"simple value key", cbor.SimpleValue(200)},
+		{"time key", time.Unix(1710000000, 0)},
 	}
 
 	for _, tc := range cases {
@@ -179,6 +186,30 @@ func TestByteStringMapKeyNeverYieldsToken(t *testing.T) {
 		t.Fatalf("payload with byte-string key decoded into a token: %+v", tok)
 	}
 	t.Logf("rejected with: %v", err)
+}
+
+// Key encodings whose decoded Go value is UNHASHABLE (CBOR array, map, and
+// negative bignum) make the probe decode itself fail. An earlier revision
+// passed those through to the struct decode on the assumption that a probe
+// failure meant "not a map" — reopening the very bypass the boundary closes.
+// Map-ness is now decided from the CBOR head byte, so these reject.
+func TestUnhashableKeyEncodingsRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		keyHex string // CBOR encoding of the key, value 0x00 appended
+	}{
+		{"array key", "80"},
+		{"map key", "a0"},
+		{"negative bignum key", "c349010000000000000000"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			widened := "a7" + goldenLegacyV001Hex[2:] + tc.keyHex + "00"
+			if _, err := Unmarshal(mustHex(t, widened)); !errors.Is(err, ErrLegacyTokenLayout) {
+				t.Fatalf("legacy payload + %s must hit the layout boundary, got: %v", tc.name, err)
+			}
+		})
+	}
 }
 
 // Duplicate map keys must be rejected, not tie-broken. With the library
