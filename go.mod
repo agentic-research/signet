@@ -1,9 +1,9 @@
 module github.com/agentic-research/signet
 
-go 1.25.1
+go 1.25.5
 
 require (
-	github.com/agentic-research/go-cms v0.0.4
+	github.com/agentic-research/go-cms v0.0.5
 	github.com/agentic-research/go-platform-signers v0.0.2
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cloudflare/circl v1.6.3

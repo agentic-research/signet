@@ -1,7 +1,7 @@
 al.essio.dev/pkg/shellescape v1.5.1 h1:86HrALUujYS/h+GtqoB26SBEdkWfmMI6FubjXlsXyho=
 al.essio.dev/pkg/shellescape v1.5.1/go.mod h1:6sIqp7X2P6mThCQ7twERpZTuigpr6KbZWtls1U8I890=
-github.com/agentic-research/go-cms v0.0.4 h1:oipTNhJRpljFSHrjWRJvLfvCbGXlz00VFz82awpHHgQ=
-github.com/agentic-research/go-cms v0.0.4/go.mod h1:O3rSRudiRPW7ww4is59nDTfpYM5EPpMcNNmo4BeZa6E=
+github.com/agentic-research/go-cms v0.0.5 h1:akS5NW0RHhn5T1Oken2mwXZU/QiJS0r/AbUoAhjd2ck=
+github.com/agentic-research/go-cms v0.0.5/go.mod h1:3GM1KU9wu7tpugfxJVIUjKvNTQUIccjXfSgkmHKbrdU=
 github.com/agentic-research/go-platform-signers v0.0.2 h1:tuOmHJPbaczUEyYArng9/YG2C3SmqlACdjhWPB+QQWY=
 github.com/agentic-research/go-platform-signers v0.0.2/go.mod h1:6HKp1KzKnJSsR20sTdBwSs4tK4vAK2u0zLARpdbShpQ=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
