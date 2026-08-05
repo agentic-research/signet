@@ -203,8 +203,12 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 > This section is **not** "Level 5". Conformance levels are cumulative
 > claims about a *system*; content origin is a property of an individual
-> piece of *content*, and it is meaningful at any level from L2 upward. It
-> is numbered §2.5 because it lives among the level definitions it
+> piece of *content*, and it is meaningful from L2 upward. The floor is L2
+> rather than L1 because an origin record that is not signed is not
+> evidence: at L1 the same party that chose what to consume also writes
+> the record of what it consumed, and can revise it afterwards. Origin
+> needs L2's tamper-evidence to mean anything to a third party. §2.5 is
+> numbered where it is because it lives among the level definitions it
 > bridges, not because it ranks after them.
 
 L3 proves the boundary held. L4 demands that inputs be attested. Between
@@ -471,9 +475,26 @@ dispatch consumed. Rules that make it a record rather than a decoration:
 - **No actor entries.** The dispatch's own identity, its orchestrator, and
   any authenticated submitter belong in `runDetails.orchestrator.identity`
   and the bridge cert — never here. See §2.5's category line.
-- **On observable channels**, transmit `originsHash` (a digest over the
-  canonical encoding) rather than the array, and disclose the array under
-  scope.
+- **Carrier rule.** On a broadcast carrier, replace `contentOrigins` with
+  `originsHash` — a digest over the canonical encoding of the set that
+  `contentOrigins` *would* have held. The two keys are mutually exclusive;
+  an attestation carrying both is malformed, because it publishes on a
+  broadcast carrier the very set the digest exists to withhold. See §2.5
+  Privacy for which carriers are which.
+
+The same predicate on a broadcast carrier therefore reads:
+
+```json
+{
+  "runDetails": {
+    "originsHash": "sha256:<digest of the canonical origin-set encoding>"
+  }
+}
+```
+
+A verifier holding only this can check that a disclosed set matches the
+commitment, but cannot enumerate the set — which is the point. Obtaining
+the set is a separate, scoped request (§2.5 Privacy).
 
 ### 3.3 Signing
 
