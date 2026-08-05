@@ -133,17 +133,32 @@ func (t *Token) Marshal() ([]byte, error) {
 	return encMode.Marshal(t)
 }
 
+// tokenDecMode is the single decode mode for token payloads. Duplicate map
+// keys are rejected outright: with the library default they are accepted, and
+// the generic map decode keeps the LAST occurrence while the struct decode
+// keeps the FIRST — so `{9: <valid cnf>, 9: <attacker cnf>}` would let the
+// layout probe inspect one value while the token binds another. One strict
+// mode for both decodes removes that desync by construction.
+var tokenDecMode = func() cbor.DecMode {
+	mode, err := cbor.DecOptions{DupMapKey: cbor.DupMapKeyEnforcedAPF}.DecMode()
+	if err != nil {
+		panic("signet: build token CBOR decode mode: " + err.Error())
+	}
+	return mode
+}()
+
 // Unmarshal deserializes a token from CBOR bytes.
 //
 // Payloads in the retired v0.0.1 integer-key layout are rejected with
 // ErrLegacyTokenLayout before any struct decoding — see detectLegacyLayout.
+// Duplicate map keys are rejected by tokenDecMode.
 func Unmarshal(data []byte) (*Token, error) {
 	if err := detectLegacyLayout(data); err != nil {
 		return nil, err
 	}
 
 	var token Token
-	if err := cbor.Unmarshal(data, &token); err != nil {
+	if err := tokenDecMode.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("unmarshal token: %w", err)
 	}
 
@@ -185,7 +200,7 @@ func detectLegacyLayout(data []byte) error {
 	// key SHAPE separately from the key VALUES is what makes the boundary
 	// unconditional.
 	var raw map[any]cbor.RawMessage
-	if err := cbor.Unmarshal(data, &raw); err != nil {
+	if err := tokenDecMode.Unmarshal(data, &raw); err != nil {
 		// Not a map at all (array, string, malformed). Let the struct decode
 		// produce its ordinary error for whatever this is.
 		return nil //nolint:nilerr // deliberate: defer error reporting to the struct decode

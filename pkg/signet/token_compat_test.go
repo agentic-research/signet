@@ -181,6 +181,24 @@ func TestByteStringMapKeyNeverYieldsToken(t *testing.T) {
 	t.Logf("rejected with: %v", err)
 }
 
+// Duplicate map keys must be rejected, not tie-broken. With the library
+// default the generic map decode keeps the LAST occurrence and the struct
+// decode keeps the FIRST, so a duplicated key could let the layout probe
+// inspect one value while the token binds another.
+func TestDuplicateMapKeysRejected(t *testing.T) {
+	// Golden current payload (8 pairs, a8) widened to 9 (a9) with key 1
+	// repeated carrying a different issuer.
+	widened := "a9" + goldenCurrentHex[2:] + "0163646966" // + {1: "dif"}
+	tok, err := Unmarshal(mustHex(t, widened))
+	if err == nil {
+		t.Fatalf("duplicate map key must be rejected, got token: %+v", tok)
+	}
+	if errors.Is(err, ErrLegacyTokenLayout) {
+		t.Fatalf("duplicate key must fail as a decode error, not be misclassified as legacy layout: %v", err)
+	}
+	t.Logf("rejected with: %v", err)
+}
+
 // A key beyond int64 range cannot name a token field; treat it as a
 // non-integer key rather than wrapping it into a valid-looking one.
 func TestOutOfRangeIntegerKeyRejected(t *testing.T) {
