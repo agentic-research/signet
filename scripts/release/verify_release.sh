@@ -23,28 +23,58 @@
 #      the live anchor (CA rotation — see note below).
 #   4. Authenticity: cosign verify-blob each artifact against its
 #      .sigstore.json bundle with a trusted root built from the independent
-#      anchor, pinning the certificate identity regexp and asserting the
-#      Fulcio OIDC issuer extension is absent. Mirrors
-#      cmd/sigstore-kms-signet/sign_artifact.go cosignVerifyBlobArgs.
+#      anchor, asserting the Fulcio OIDC issuer extension is absent. Based
+#      on cmd/sigstore-kms-signet/sign_artifact.go cosignVerifyBlobArgs,
+#      with ONE deliberate relaxation: the signing side pins the exact
+#      enrolled identity (--certificate-identity); a later verifier does
+#      not know it, so this script defaults to an anchored regexp and
+#      accepts --identity for an exact pin once the SAN shape is known.
 #   5. Report the signing identity per artifact and PASS/FAIL.
 #
-# CA rotation: artifacts chain to the CA that was live when they were signed.
-# If the authority has rotated since the release, live-anchor verification
-# fails; re-run with --ca-bundle pointing at the archived trust anchor for
-# that release window, obtained out of band.
+# Limitations (deliberate, documented):
+#   - The "independent" anchor is fetched over bare HTTPS with no pinning
+#     or transparency check. It defeats tampering with the CA copy bundled
+#     beside the artifacts; it does NOT defend against compromise of the
+#     authority itself or of DNS/TLS on the fetch. For that threat model,
+#     supply --ca-bundle from an out-of-band anchor.
+#   - CA rotation: artifacts chain to the CA that was live when they were
+#     signed. If the authority rotated since the release, live-anchor
+#     verification fails; re-run with --ca-bundle pointing at the archived
+#     anchor for that release window.
 
 set -euo pipefail
 
 REPO="agentic-research/signet"
 AUTHORITY_URL="https://auth.notme.bot"
-IDENTITY_REGEXP="agentic-research/signet"
+# Anchored: the repo path must appear as a path segment of the SAN URI, not
+# as a substring of some other identity. Tighten further with --identity
+# (exact match) once the enrolled SAN shape is known from a real release.
+IDENTITY_REGEXP="(^|[/:])agentic-research/signet([/:@.]|$)"
+IDENTITY_EXACT=""
 CA_BUNDLE=""
 KEEP=0
 TAG="${1:-}"
 
-usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() {
+  cat <<'USAGE'
+verify_release.sh — clean-machine verification of a published signet release
+
+Usage:
+  verify_release.sh <tag> [--repo OWNER/NAME] [--authority-url URL]
+                    [--identity RE-EXACT | --identity-regexp RE]
+                    [--ca-bundle FILE] [--keep]
+
+<tag> must look like a release tag (v<digit>...), e.g. v0.3.0 or v0.3.0-rc.1.
+See the header of this script for what is checked and known limitations.
+USAGE
+}
 
 if [[ -z "$TAG" || "$TAG" == "-h" || "$TAG" == "--help" ]]; then
+  usage
+  exit 2
+fi
+if [[ ! "$TAG" =~ ^v[0-9] ]]; then
+  echo "FAIL: tag '$TAG' does not look like a release tag (expected v<digit>...)" >&2
   usage
   exit 2
 fi
@@ -54,6 +84,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
     --authority-url) AUTHORITY_URL="$2"; shift 2 ;;
+    --identity) IDENTITY_EXACT="$2"; shift 2 ;;
     --identity-regexp) IDENTITY_REGEXP="$2"; shift 2 ;;
     --ca-bundle) CA_BUNDLE="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
@@ -97,9 +128,24 @@ sha256_check checksums-sha256.txt
 # carry a signature bundle (release.yml signs exactly this set).
 artifacts=()
 while read -r _hash name; do
+  [[ -z "${name:-}" ]] && continue
   artifacts+=("${name#\*}")
 done < checksums-sha256.txt
 artifacts+=("checksums-sha256.txt")
+
+# Guard against a truncated or reformatted checksums file silently shrinking
+# the verification set: release.yml's build matrix produces three platform
+# binaries, so anything below 3+checksums means the release is malformed.
+if [[ ${#artifacts[@]} -lt 4 ]]; then
+  echo "FAIL: checksums-sha256.txt names only $((${#artifacts[@]} - 1)) artifacts; release.yml publishes 3 platform binaries — malformed or truncated release" >&2
+  exit 1
+fi
+for a in "${artifacts[@]}"; do
+  if [[ "$a" != signet-* && "$a" != "checksums-sha256.txt" ]]; then
+    echo "FAIL: unexpected artifact name in checksums-sha256.txt: $a" >&2
+    exit 1
+  fi
+done
 
 echo "==> [3/4] establishing independent trust anchor"
 anchor="$workdir/authority-ca.pem"
@@ -135,9 +181,13 @@ for a in "${artifacts[@]}"; do
     missing+=("$bundle")
     continue
   fi
+  identity_args=(--certificate-identity-regexp "$IDENTITY_REGEXP")
+  if [[ -n "$IDENTITY_EXACT" ]]; then
+    identity_args=(--certificate-identity "$IDENTITY_EXACT")
+  fi
   if cosign verify-blob \
     --trusted-root "$trusted_root" \
-    --certificate-identity-regexp "$IDENTITY_REGEXP" \
+    "${identity_args[@]}" \
     --certificate-oidc-issuer-regexp '^$' \
     --insecure-ignore-sct \
     --bundle "$bundle" \

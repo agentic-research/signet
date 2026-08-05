@@ -24,9 +24,15 @@ assets = [
 
 # v0.2.1 predates the release-signing workflow. The next release is the first
 # production exercise of GitHub OIDC enrollment and bundle publication.
+#
+# Presence gate only: vigil checks asset names on the latest release, not
+# signature validity. `task verify-release TAG=<tag>` is the verification
+# gate (docs/release/goal-zero-promotion.md). Resolution comments on the
+# production-promotion bead so the release train sees it.
 [[watches]]
 name = "signet: next release is signed"
-bead_ids = []
+bead_ids = ["signet-de0589"]
+on_resolve = "comment"
 
 [watches.repo]
 remote = "agentic-research/signet"
