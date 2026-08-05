@@ -20,12 +20,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// defaultExchangeAudience matches the authority's enforced OIDC audience
+// (GHA_CERT_AUDIENCE in the notme Worker) and the sigstore-kms-signet
+// plugin's defaultOIDCAudience. The audience is NOT the authority URL: a
+// token minted for the wrong audience is rejected at exchange time.
+const defaultExchangeAudience = "notme.bot"
+
 var (
 	exchangeAuthorityURL string
 	exchangeToken        string
 	exchangeOutput       string
 	exchangeAuto         bool
 	exchangeKeyOutput    string
+	exchangeAudience     string
 )
 
 var exchangeGitHubTokenCmd = &cobra.Command{
@@ -61,6 +68,7 @@ func init() {
 	f.StringVar(&exchangeOutput, "output", "", "Output path for bridge certificate PEM (required)")
 	f.BoolVar(&exchangeAuto, "auto", false, "Auto-detect GitHub Actions OIDC environment")
 	f.StringVar(&exchangeKeyOutput, "key-output", "", "Output path for ephemeral private key (default: <output-dir>/ephemeral-key.pem)")
+	f.StringVar(&exchangeAudience, "audience", defaultExchangeAudience, "GitHub Actions OIDC audience accepted by the authority")
 
 	_ = exchangeGitHubTokenCmd.MarkFlagRequired("authority-url")
 	_ = exchangeGitHubTokenCmd.MarkFlagRequired("output")
@@ -173,16 +181,12 @@ func resolveOIDCToken() (string, error) {
 		return "", fmt.Errorf("--auto requires GitHub Actions environment (ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN must be set)")
 	}
 
-	// Append audience parameter using proper URL parsing
-	parsedURL, err := url.Parse(reqURL)
+	tokenURL, err := oidcTokenRequestURL(reqURL, exchangeAudience)
 	if err != nil {
-		return "", fmt.Errorf("invalid OIDC request URL: %w", err)
+		return "", err
 	}
-	q := parsedURL.Query()
-	q.Set("audience", exchangeAuthorityURL)
-	parsedURL.RawQuery = q.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, tokenURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to build OIDC request: %w", err)
 	}
@@ -209,6 +213,22 @@ func resolveOIDCToken() (string, error) {
 		return "", fmt.Errorf("empty OIDC token in response")
 	}
 	return result.Value, nil
+}
+
+// oidcTokenRequestURL appends the audience parameter to the GitHub Actions
+// OIDC token request URL using proper URL parsing.
+func oidcTokenRequestURL(reqURL, audience string) (string, error) {
+	if audience == "" {
+		return "", fmt.Errorf("OIDC audience must not be empty")
+	}
+	parsedURL, err := url.Parse(reqURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid OIDC request URL: %w", err)
+	}
+	q := parsedURL.Query()
+	q.Set("audience", audience)
+	parsedURL.RawQuery = q.Encode()
+	return parsedURL.String(), nil
 }
 
 // extractCertPEM extracts a PEM certificate from the authority response body.
