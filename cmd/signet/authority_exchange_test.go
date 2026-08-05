@@ -5,14 +5,15 @@ import (
 	"testing"
 )
 
-// The authority (notme Worker) enforces GHA_CERT_AUDIENCE = "notme.bot".
-// Historically this command requested tokens with audience set to the
-// authority URL, which the authority rejects (signet-e6e2d1). These tests pin
-// the corrected behavior: default audience is notme.bot, overridable, never
-// empty, and never the authority URL implicitly.
+// The enforced OIDC audience is deployment-specific (signet-e6e2d1): the
+// in-repo Go authority verifies audience == its own URL — the convention
+// oidc-signing.yml exercises on every main push — while the notme Worker
+// enforces "notme.bot". These tests pin the resolution rule: the audience
+// defaults to the authority URL, --audience overrides it, and it can never
+// be empty.
 
-func TestOIDCTokenRequestURL_DefaultAudience(t *testing.T) {
-	got, err := oidcTokenRequestURL("https://token.actions.example/req?api-version=2", defaultExchangeAudience)
+func TestOIDCTokenRequestURL_PreservesQueryAndSetsAudience(t *testing.T) {
+	got, err := oidcTokenRequestURL("https://token.actions.example/req?api-version=2", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -20,8 +21,8 @@ func TestOIDCTokenRequestURL_DefaultAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("result does not parse: %v", err)
 	}
-	if aud := parsed.Query().Get("audience"); aud != "notme.bot" {
-		t.Fatalf("audience = %q, want %q", aud, "notme.bot")
+	if aud := parsed.Query().Get("audience"); aud != "http://localhost:8080" {
+		t.Fatalf("audience = %q, want the authority URL", aud)
 	}
 	if v := parsed.Query().Get("api-version"); v != "2" {
 		t.Fatalf("existing query parameter lost: api-version = %q", v)
@@ -46,17 +47,28 @@ func TestOIDCTokenRequestURL_EmptyAudienceRejected(t *testing.T) {
 }
 
 func TestOIDCTokenRequestURL_InvalidURLRejected(t *testing.T) {
-	if _, err := oidcTokenRequestURL("://not-a-url", defaultExchangeAudience); err == nil {
+	if _, err := oidcTokenRequestURL("://not-a-url", "http://localhost:8080"); err == nil {
 		t.Fatal("invalid request URL must be rejected")
 	}
 }
 
-func TestExchangeAudienceFlagDefault(t *testing.T) {
+// The flag default is empty, which resolveOIDCToken resolves to the
+// authority URL — preserving the in-repo Go authority convention that
+// oidc-signing.yml depends on. A non-empty default (e.g. notme.bot) would
+// break every self-hosted authority whose verifier pins its own URL.
+func TestExchangeAudienceFlagDefaultsToAuthorityURL(t *testing.T) {
 	flag := exchangeGitHubTokenCmd.Flags().Lookup("audience")
 	if flag == nil {
 		t.Fatal("exchange-github-token must expose an --audience flag")
 	}
-	if flag.DefValue != "notme.bot" {
-		t.Fatalf("--audience default = %q, want %q (the authority's enforced audience)", flag.DefValue, "notme.bot")
+	if flag.DefValue != "" {
+		t.Fatalf("--audience default = %q, want empty (resolved to the authority URL at request time)", flag.DefValue)
+	}
+
+	if got := resolveExchangeAudience("", "http://localhost:8080"); got != "http://localhost:8080" {
+		t.Fatalf("resolveExchangeAudience(\"\", authority) = %q, want the authority URL", got)
+	}
+	if got := resolveExchangeAudience("notme.bot", "https://auth.notme.bot"); got != "notme.bot" {
+		t.Fatalf("resolveExchangeAudience(override, authority) = %q, want the override", got)
 	}
 }

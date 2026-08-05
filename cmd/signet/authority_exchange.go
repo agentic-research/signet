@@ -20,12 +20,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// defaultExchangeAudience matches the authority's enforced OIDC audience
-// (GHA_CERT_AUDIENCE in the notme Worker) and the sigstore-kms-signet
-// plugin's defaultOIDCAudience. The audience is NOT the authority URL: a
-// token minted for the wrong audience is rejected at exchange time.
-const defaultExchangeAudience = "notme.bot"
-
 var (
 	exchangeAuthorityURL string
 	exchangeToken        string
@@ -68,7 +62,13 @@ func init() {
 	f.StringVar(&exchangeOutput, "output", "", "Output path for bridge certificate PEM (required)")
 	f.BoolVar(&exchangeAuto, "auto", false, "Auto-detect GitHub Actions OIDC environment")
 	f.StringVar(&exchangeKeyOutput, "key-output", "", "Output path for ephemeral private key (default: <output-dir>/ephemeral-key.pem)")
-	f.StringVar(&exchangeAudience, "audience", defaultExchangeAudience, "GitHub Actions OIDC audience accepted by the authority")
+	// The enforced audience is deployment-specific: the in-repo Go authority
+	// verifies audience == its own URL (the default here, and what
+	// oidc-signing.yml exercises), while the notme Worker enforces
+	// "notme.bot" (its GHA_CERT_AUDIENCE default, matching
+	// sigstore-kms-signet's defaultOIDCAudience). Callers targeting
+	// auth.notme.bot must pass --audience notme.bot.
+	f.StringVar(&exchangeAudience, "audience", "", "GitHub Actions OIDC audience accepted by the authority (default: the authority URL; use notme.bot for auth.notme.bot)")
 
 	_ = exchangeGitHubTokenCmd.MarkFlagRequired("authority-url")
 	_ = exchangeGitHubTokenCmd.MarkFlagRequired("output")
@@ -181,7 +181,7 @@ func resolveOIDCToken() (string, error) {
 		return "", fmt.Errorf("--auto requires GitHub Actions environment (ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN must be set)")
 	}
 
-	tokenURL, err := oidcTokenRequestURL(reqURL, exchangeAudience)
+	tokenURL, err := oidcTokenRequestURL(reqURL, resolveExchangeAudience(exchangeAudience, exchangeAuthorityURL))
 	if err != nil {
 		return "", err
 	}
@@ -213,6 +213,18 @@ func resolveOIDCToken() (string, error) {
 		return "", fmt.Errorf("empty OIDC token in response")
 	}
 	return result.Value, nil
+}
+
+// resolveExchangeAudience picks the OIDC audience for the token request.
+// The enforced value is deployment-specific: the in-repo Go authority
+// verifies audience == its own URL, so that is the default; deployments
+// with a fixed audience (the notme Worker enforces "notme.bot") set the
+// --audience flag explicitly.
+func resolveExchangeAudience(flagValue, authorityURL string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	return authorityURL
 }
 
 // oidcTokenRequestURL appends the audience parameter to the GitHub Actions
