@@ -53,6 +53,15 @@ cosign verify-blob \
   artifact
 ```
 
+> **`--no-default-ctfe` / `--insecure-ignore-sct` are temporary** (SCT site 3
+> of 5, bead `signet-c0d32e`). They are correct *today* because the authority
+> does not submit bridge certificates to a CT log — without them verification
+> would fail outright. When notme's Static CT log runs, both are replaced by
+> `--ctfe` in one change spanning `cmd/sigstore-kms-signet/sign_artifact.go`,
+> its tests, `scripts/release/verify_release.sh`, and this file. Copying this
+> invocation into a new verifier after that point silently disables CT
+> checking there.
+
 Notme bridge certificates are not Fulcio CT certificates, so SCT verification
 is skipped explicitly. The artifact signature, exact identity, authority CA,
 and Rekor inclusion proof are still verified.
