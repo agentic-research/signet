@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
@@ -132,10 +133,40 @@ func (t *Token) Marshal() ([]byte, error) {
 	return encMode.Marshal(t)
 }
 
+// TokenDecMode returns the strict CBOR decode mode for token payloads.
+// Any package decoding token wire bytes MUST use it rather than the library
+// default: with the default, duplicate map keys are silently accepted and a
+// generic map decode keeps the LAST occurrence while a struct decode keeps
+// the FIRST, so two decoders of the same bytes can disagree about what the
+// token says. One mode is what makes that disagreement unrepresentable.
+func TokenDecMode() cbor.DecMode { return tokenDecMode }
+
+// tokenDecMode is the single decode mode for token payloads. Duplicate map
+// keys are rejected outright: with the library default they are accepted, and
+// the generic map decode keeps the LAST occurrence while the struct decode
+// keeps the FIRST — so `{9: <valid cnf>, 9: <attacker cnf>}` would let the
+// layout probe inspect one value while the token binds another. One strict
+// mode for both decodes removes that desync by construction.
+var tokenDecMode = func() cbor.DecMode {
+	mode, err := cbor.DecOptions{DupMapKey: cbor.DupMapKeyEnforcedAPF}.DecMode()
+	if err != nil {
+		panic("signet: build token CBOR decode mode: " + err.Error())
+	}
+	return mode
+}()
+
 // Unmarshal deserializes a token from CBOR bytes.
+//
+// Payloads in the retired v0.0.1 integer-key layout are rejected with
+// ErrLegacyTokenLayout before any struct decoding — see detectLegacyLayout.
+// Duplicate map keys are rejected by tokenDecMode.
 func Unmarshal(data []byte) (*Token, error) {
+	if err := detectLegacyLayout(data); err != nil {
+		return nil, err
+	}
+
 	var token Token
-	if err := cbor.Unmarshal(data, &token); err != nil {
+	if err := tokenDecMode.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("unmarshal token: %w", err)
 	}
 
@@ -144,6 +175,103 @@ func Unmarshal(data []byte) (*Token, error) {
 	}
 
 	return &token, nil
+}
+
+// ErrLegacyTokenLayout indicates a CBOR payload in the retired v0.0.1
+// integer-key layout (1 issuer, 2 confirmation, 3 expiry, 4 nonce,
+// 5 ephemeral key, 6 not-before). The current layout (the normative table in
+// docs/design/001-signet-tokens.md) reassigned keys 2–6, so decoding such a
+// payload as a current token would reinterpret confirmation bytes as an
+// audience, an expiry as a subject identifier, and a not-before as an
+// issued-at. There is no translation path: v0.0.1 tokens were five-minute
+// ephemeral credentials, so every one of them is long expired and rejection
+// loses nothing.
+var ErrLegacyTokenLayout = errors.New(
+	"token payload uses the retired v0.0.1 integer-key layout (or is not a signet token): re-issue the token with a current signer")
+
+// detectLegacyLayout rejects payloads that cannot be a current-format token
+// BEFORE the struct decode, so the failure mode for historical v0.0.1
+// payloads is a deliberate, stable error rather than an incidental
+// type-mismatch that could drift with CBOR library defaults.
+//
+// Discriminator: every current token is required (and validated) to carry
+// cap_id (7), cnf (9), and jti (13). The v0.0.1 layout used only keys 1–6.
+// A map carrying none of the three required keys is therefore either a
+// v0.0.1 payload or not a signet token at all; both must be rejected, and
+// neither may ever reach the field-by-field decode.
+func detectLegacyLayout(data []byte) error {
+	// Probe with an ANY-keyed map, not map[int64]: a map[int64] probe fails
+	// outright on a payload carrying a single non-integer key, which would
+	// let an attacker bypass this boundary entirely by appending one
+	// (`{...legacy fields..., "x": 0}`) and fall back to whatever incidental
+	// type mismatch the struct decode happens to produce. Probing for the
+	// key SHAPE separately from the key VALUES is what makes the boundary
+	// unconditional.
+	var raw map[any]cbor.RawMessage
+	if err := tokenDecMode.Unmarshal(data, &raw); err != nil {
+		// Probe failure is only a safe pass-through for payloads that are not
+		// maps. A map whose key decodes to an unhashable Go value (CBOR array,
+		// map, or negative bignum key) also fails here, and passing THOSE
+		// through would reopen the bypass this boundary exists to close. Decide
+		// map-ness from the CBOR head byte (major type 5) rather than from
+		// probe success, so the fallthrough is restricted to genuine non-maps.
+		if isCBORMap(data) {
+			// A duplicate key is malformedness, not a layout violation; report
+			// it as itself rather than blaming the v0.0.1 layout.
+			var dupErr *cbor.DupMapKeyError
+			if errors.As(err, &dupErr) {
+				return fmt.Errorf("unmarshal token: %w", err)
+			}
+			// Any other probe failure on a map means a key that cannot be an
+			// integer key — the schema is integer-keyed exclusively.
+			return ErrLegacyTokenLayout
+		}
+		return nil //nolint:nilerr // deliberate: non-map payloads get the struct decode's ordinary error
+	}
+
+	required := map[int64]struct{}{7: {}, 9: {}, 13: {}}
+	hasRequired := false
+	for key := range raw {
+		// The token schema is integer-keyed exclusively. Any other key type
+		// means the payload is not a current-format token, whatever else it
+		// may be — reject rather than let it reach field decoding.
+		k, ok := cborMapKeyAsInt(key)
+		if !ok {
+			return ErrLegacyTokenLayout
+		}
+		if _, isRequired := required[k]; isRequired {
+			hasRequired = true
+		}
+	}
+	if !hasRequired {
+		return ErrLegacyTokenLayout
+	}
+	return nil
+}
+
+// isCBORMap reports whether data begins with a CBOR map head (major type 5),
+// which is decidable from the first byte alone and does not depend on whether
+// the keys inside are representable as Go map keys.
+func isCBORMap(data []byte) bool {
+	return len(data) > 0 && data[0]&0xE0 == 0xA0
+}
+
+// cborMapKeyAsInt normalizes a decoded CBOR map key to int64. The decoder
+// yields uint64 for non-negative keys and int64 for negative ones; a key
+// beyond int64 range cannot name a token field and is reported as not an
+// integer key.
+func cborMapKeyAsInt(key any) (int64, bool) {
+	switch k := key.(type) {
+	case uint64:
+		if k > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(k), true
+	case int64:
+		return k, true
+	default:
+		return 0, false
+	}
 }
 
 // validate ensures the token adheres to minimum spec requirements.

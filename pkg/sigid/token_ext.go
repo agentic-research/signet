@@ -39,9 +39,11 @@ func TokenWithChain(token *signet.Token, chain []policy.SignetAuthCell) ([]byte,
 		return nil, fmt.Errorf("marshal token: %w", err)
 	}
 
-	// Unmarshal into a map so we can add field 20
+	// Unmarshal into a map so we can add field 20. Token wire bytes are
+	// decoded under signet's strict mode, never the library default, so this
+	// decoder cannot disagree with signet.Unmarshal about duplicate keys.
 	var tokenMap map[int]interface{}
-	if err := cbor.Unmarshal(tokenCBOR, &tokenMap); err != nil {
+	if err := signet.TokenDecMode().Unmarshal(tokenCBOR, &tokenMap); err != nil {
 		return nil, fmt.Errorf("unmarshal token to map: %w", err)
 	}
 
@@ -76,9 +78,10 @@ func ChainFromToken(tokenCBOR []byte) ([]policy.SignetAuthCell, error) {
 		return nil, fmt.Errorf("token CBOR is empty")
 	}
 
-	// Unmarshal into a map to access field 20
+	// Unmarshal into a map to access field 20, under signet's strict token
+	// decode mode (see TokenDecMode: one mode for all token wire bytes).
 	var tokenMap map[int]interface{}
-	if err := cbor.Unmarshal(tokenCBOR, &tokenMap); err != nil {
+	if err := signet.TokenDecMode().Unmarshal(tokenCBOR, &tokenMap); err != nil {
 		return nil, fmt.Errorf("unmarshal token to map: %w", err)
 	}
 
