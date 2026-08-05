@@ -85,9 +85,14 @@ v0.0.1 payload decoded field-by-field against the current schema would
 silently reinterpret confirmation bytes as an audience, an expiry as a
 subject PPID, and a not-before as an issued-at.
 
-Decoders MUST reject any integer-keyed payload that carries none of the
-required keys 7 (cap_id), 9 (cnf), 13 (jti) BEFORE field-by-field
-decoding, with a distinct error. There is deliberately no translation
+Decoders MUST, BEFORE field-by-field decoding and with a distinct error,
+reject any map payload that (a) carries a key of any type other than
+integer — the schema is integer-keyed exclusively — or (b) carries none
+of the required keys 7 (cap_id), 9 (cnf), 13 (jti). Rule (a) is
+load-bearing, not cosmetic: a decoder that probes only for integer keys
+can be bypassed by appending one non-integer key to an otherwise legacy
+payload, which then falls through to whatever incidental type mismatch
+the field decode happens to produce. There is deliberately no translation
 path: v0.0.1 tokens were five-minute ephemeral credentials, so every
 one of them is long expired and rejection loses nothing. Reference
 implementation: ErrLegacyTokenLayout + detectLegacyLayout in

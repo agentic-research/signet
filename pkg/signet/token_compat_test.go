@@ -5,8 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"math"
 	"strings"
 	"testing"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 // Golden wire vectors for the v0.0.1 → current layout boundary (signet-62f8e0).
@@ -113,6 +116,111 @@ func TestCurrentShapeMissingAllRequiredKeysRejected(t *testing.T) {
 	_, err := Unmarshal(mustHex(t, fragment))
 	if !errors.Is(err, ErrLegacyTokenLayout) {
 		t.Fatalf("payload without any required key must hit the layout boundary, got: %v", err)
+	}
+}
+
+// Evasion attempts against the boundary. Each builds a payload whose legacy
+// fields would reach field-by-field decoding if the detector could be
+// bypassed by key SHAPE rather than key VALUES. An earlier revision probed
+// with map[int64]cbor.RawMessage, which failed outright on any non-integer
+// key and let all of these through to whatever incidental type mismatch the
+// struct decode happened to produce.
+func TestLegacyLayoutEvasionAttempts(t *testing.T) {
+	enc, err := cbor.CanonicalEncOptions().EncMode()
+	if err != nil {
+		t.Fatalf("enc mode: %v", err)
+	}
+	legacyFields := func() map[any]any {
+		return map[any]any{
+			int64(1): "signet-issuer-v001",
+			int64(2): bytes.Repeat([]byte{0xC0}, 32),
+			int64(3): int64(1710000300),
+			int64(4): bytes.Repeat([]byte{0xA0}, 16),
+			int64(5): bytes.Repeat([]byte{0xE0}, 32),
+			int64(6): int64(1710000000),
+		}
+	}
+
+	cases := []struct {
+		name      string
+		poisonKey any
+	}{
+		{"text key", "x"},
+		{"negative int key", int64(-1)},
+		{"bool key", true},
+		{"float key", 1.5},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := legacyFields()
+			payload[tc.poisonKey] = 0
+			raw, err := enc.Marshal(payload)
+			if err != nil {
+				t.Skipf("encoder rejects this key shape (%v): not a reachable payload", err)
+			}
+			if _, err := Unmarshal(raw); !errors.Is(err, ErrLegacyTokenLayout) {
+				t.Fatalf("legacy payload + %s must hit the layout boundary, got: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// A byte-string map key has no Go map-key representation, so this payload is
+// hand-assembled rather than built from a Go map: the golden legacy map (a6,
+// six pairs) widened to seven (a7) with a bstr key appended. Whatever the
+// decoder maps that key to, it is not an integer key, so the boundary must
+// reject — pinned here so a decoder-behavior change cannot silently open a
+// path to field decoding.
+func TestByteStringMapKeyNeverYieldsToken(t *testing.T) {
+	widened := "a7" + goldenLegacyV001Hex[2:] + "410100" // + {h'01': 0}
+	tok, err := Unmarshal(mustHex(t, widened))
+	if err == nil {
+		t.Fatalf("payload with byte-string key decoded into a token: %+v", tok)
+	}
+	t.Logf("rejected with: %v", err)
+}
+
+// A key beyond int64 range cannot name a token field; treat it as a
+// non-integer key rather than wrapping it into a valid-looking one.
+func TestOutOfRangeIntegerKeyRejected(t *testing.T) {
+	enc, err := cbor.CanonicalEncOptions().EncMode()
+	if err != nil {
+		t.Fatalf("enc mode: %v", err)
+	}
+	raw, err := enc.Marshal(map[any]any{uint64(math.MaxUint64): 0, int64(1): "iss"})
+	if err != nil {
+		t.Skipf("encoder rejects out-of-range key: %v", err)
+	}
+	if _, err := Unmarshal(raw); !errors.Is(err, ErrLegacyTokenLayout) {
+		t.Fatalf("out-of-range integer key must hit the layout boundary, got: %v", err)
+	}
+}
+
+// A current-format token carrying an extra non-integer key is also rejected:
+// the schema is integer-keyed exclusively, so this is malformed regardless of
+// whether the required keys are present.
+func TestCurrentPayloadWithNonIntegerKeyRejected(t *testing.T) {
+	enc, err := cbor.CanonicalEncOptions().EncMode()
+	if err != nil {
+		t.Fatalf("enc mode: %v", err)
+	}
+	raw, err := enc.Marshal(map[any]any{
+		int64(1):  "signet-issuer-current",
+		int64(3):  bytes.Repeat([]byte{0x5B}, 32),
+		int64(4):  int64(1710000300),
+		int64(5):  int64(1710000000),
+		int64(6):  int64(1710000000),
+		int64(7):  bytes.Repeat([]byte{0xCA}, 16),
+		int64(9):  bytes.Repeat([]byte{0xCF}, 32),
+		int64(13): bytes.Repeat([]byte{0x71}, 16),
+		"extra":   1,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := Unmarshal(raw); !errors.Is(err, ErrLegacyTokenLayout) {
+		t.Fatalf("non-integer key must be rejected even alongside required keys, got: %v", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
@@ -176,18 +177,56 @@ var ErrLegacyTokenLayout = errors.New(
 // v0.0.1 payload or not a signet token at all; both must be rejected, and
 // neither may ever reach the field-by-field decode.
 func detectLegacyLayout(data []byte) error {
-	var raw map[int64]cbor.RawMessage
+	// Probe with an ANY-keyed map, not map[int64]: a map[int64] probe fails
+	// outright on a payload carrying a single non-integer key, which would
+	// let an attacker bypass this boundary entirely by appending one
+	// (`{...legacy fields..., "x": 0}`) and fall back to whatever incidental
+	// type mismatch the struct decode happens to produce. Probing for the
+	// key SHAPE separately from the key VALUES is what makes the boundary
+	// unconditional.
+	var raw map[any]cbor.RawMessage
 	if err := cbor.Unmarshal(data, &raw); err != nil {
-		// Not an integer-keyed map at all. Let the struct decode produce
-		// its ordinary error for whatever this is.
+		// Not a map at all (array, string, malformed). Let the struct decode
+		// produce its ordinary error for whatever this is.
 		return nil //nolint:nilerr // deliberate: defer error reporting to the struct decode
 	}
-	for _, requiredKey := range []int64{7, 9, 13} {
-		if _, ok := raw[requiredKey]; ok {
-			return nil
+
+	required := map[int64]struct{}{7: {}, 9: {}, 13: {}}
+	hasRequired := false
+	for key := range raw {
+		// The token schema is integer-keyed exclusively. Any other key type
+		// means the payload is not a current-format token, whatever else it
+		// may be — reject rather than let it reach field decoding.
+		k, ok := cborMapKeyAsInt(key)
+		if !ok {
+			return ErrLegacyTokenLayout
+		}
+		if _, isRequired := required[k]; isRequired {
+			hasRequired = true
 		}
 	}
-	return ErrLegacyTokenLayout
+	if !hasRequired {
+		return ErrLegacyTokenLayout
+	}
+	return nil
+}
+
+// cborMapKeyAsInt normalizes a decoded CBOR map key to int64. The decoder
+// yields uint64 for non-negative keys and int64 for negative ones; a key
+// beyond int64 range cannot name a token field and is reported as not an
+// integer key.
+func cborMapKeyAsInt(key any) (int64, bool) {
+	switch k := key.(type) {
+	case uint64:
+		if k > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(k), true
+	case int64:
+		return k, true
+	default:
+		return 0, false
+	}
 }
 
 // validate ensures the token adheres to minimum spec requirements.
