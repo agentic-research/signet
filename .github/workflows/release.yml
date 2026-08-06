@@ -49,12 +49,21 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install Task
+        uses: arduino/setup-task@24c5e13bce349197642746563945fcdf9355e8f4 # v2.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Invokes the Taskfile target, never an inline go build — so this exact
+      # build is reproducible with `task release:build` locally, and a CI
+      # outage does not make the release path undebuggable (taskfile-ci-parity).
       - name: Build signet binary
-        env:
-          CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: go build -o signet-${{ matrix.platform }} ./cmd/signet/
+        run: |
+          task release:build \
+            PLATFORM=${{ matrix.platform }} \
+            GOOS=${{ matrix.goos }} \
+            GOARCH=${{ matrix.goarch }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -83,9 +92,15 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Install Task
+        uses: arduino/setup-task@24c5e13bce349197642746563945fcdf9355e8f4 # v2.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same target as `task release:checksums DIR=release-assets` locally.
       - name: Generate checksums
-        working-directory: release-assets
-        run: sha256sum signet-* > checksums-sha256.txt
+        run: task release:checksums DIR=release-assets
 
       # Sign every published artifact through the standard signet:// KMS URI,
       # then VERIFY WHAT WE JUST SIGNED before creating the release.
