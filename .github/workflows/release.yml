@@ -129,6 +129,32 @@ jobs:
           # bead signet-cf2adc; contradiction fix: signet-ee1f3b.)
           prerelease: true
           make_latest: "false"
+          # DRAFT, then publish as a separate step below.
+          #
+          # This repository has immutable releases. A published release cannot
+          # accept new assets — GitHub rejects the upload with "Cannot upload
+          # asset ... to an immutable release". Because this action publishes
+          # BEFORE uploading, a non-draft release here produces a published,
+          # permanently EMPTY release that can never be fixed: PATCH returns
+          # "state cannot be changed when release is immutable". That is
+          # exactly how v0.3.0-rc.3 was lost.
+          #
+          # Creating a draft lets every asset attach first; publishing then
+          # seals the complete set in one irreversible step. It also matches
+          # the promotion model, where publication is a deliberate act rather
+          # than a side effect of uploading.
+          draft: true
           # Includes each .sigstore.json bundle, leaf cert, CA bundle, and
           # ephemeral public key beside the signed artifact.
           files: release-assets/*
+
+      # Seals the release with all assets attached. Immutability begins here,
+      # so anything not uploaded above is not in this release, permanently.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "published $TAG with assets:"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name'
