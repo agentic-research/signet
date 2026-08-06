@@ -1,11 +1,20 @@
 # Agent Provenance Attestation Standard (APAS)
 
-**Version**: 0.3.0-draft
+**Version**: APAS 0.3.0-draft
 **Status**: Draft
 **Authors**: Agentic Research
 **Date**: 2026-08-05
 
-> **0.3.0 changes**: Adds §2.5, **content origin** — the missing rung between
+> **APAS versions independently of any implementation, including signet.**
+> Always write it as "APAS 0.3.0", never a bare "0.3.0". This document
+> happens to live in the signet repository, which is separately at
+> `v0.3.0-rc.3` at the time of writing — a bare version number in this repo
+> is therefore ambiguous between the standard and the CLI, and the two move
+> on different clocks: APAS changes when the specification changes, signet
+> when the software ships. Any future tag for this document uses an
+> `apas/vX.Y.Z` prefix so it cannot collide with a signet release tag.
+
+> **APAS 0.3.0 changes**: Adds §2.5, **content origin** — the missing rung between
 > L3 and L4. L3 proves the execution boundary held; L4 demands attested
 > inputs; nothing said what it means for a piece of content to have a *known
 > origin*, which is the property that lets a deployment widen what an agent
@@ -21,7 +30,7 @@
 > §7.5/§7.6 are corrected so the isolation substrate is credited with the
 > boundary it actually enforces.
 
-> **0.2.1 changes**: Reconciled implementation-status language with the code as
+> **APAS 0.2.1 changes**: Reconciled implementation-status language with the code as
 > shipped. The orchestrator emits signed DSSE handoff envelopes only when an
 > attestation key is configured; without a key it emits no artifact by default,
 > and an explicit forensic opt-in writes a raw in-toto Statement rather than an
