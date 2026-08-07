@@ -2,10 +2,37 @@
 
 Replace bearer tokens with cryptographic proof-of-possession. Signet provides tools for signing commits, files, and HTTP requests using ephemeral certificates with algorithm agility (Ed25519 + ML-DSA-44 post-quantum).
 
-## ⚠️ Status: v0.2.0 Experimental (Alpha)
+## ⚠️ Status: v0.3.0 Beta (prerelease) — Experimental
+
+`v0.3.0` is published as a **GitHub prerelease** and is soaking. Every Signet
+release publishes that way and never self-promotes to "latest": production
+status is an explicit human step taken only after the verification gate passes
+from a clean machine. A release still badged "Pre-release" has not completed
+promotion. See [the promotion plan](docs/release/goal-zero-promotion.md).
+
+`v0.3.0` is the first release whose artifacts are **signed by Signet itself**.
+Verify any download without trusting this page — the trust anchor is fetched
+from the authority, not from the release:
+
+```bash
+task verify-release TAG=v0.3.0
+```
+
+**Known limitations in v0.3.0:** `signet authority exchange-github-token` and
+`signet auth register` are non-functional against the default authority (both
+endpoints return 404). CI/CD signing — the path this project's own releases
+are signed through — is unaffected. See the
+[release notes](docs/release/notes/v0.3.0.md).
 
 **Security Note:**
 - **Not audited** - use for development only
+- **No certificate transparency.** Artifact signatures are logged to public
+  Rekor, but certificate *issuance* is not: the authority does not issue
+  RFC 6962 SCTs, so signing runs with `--insecure-ignore-sct`. You can prove a
+  signature was logged; you cannot audit what certificates the authority
+  issued, and a certificate minted but never used to sign appears nowhere.
+  Closing this needs the authority to run a transparency log *and* signet to
+  require an SCT — a log nobody enforces is a sample, not a record.
 - Core cryptography is unit-tested (13k+ LOC) and partially fuzzed (3 fuzz functions covering critical parsing paths)
 - Native Go implementation via [`go-cms`](https://github.com/agentic-research/go-cms) (no external review, passes OpenSSL interop tests)
 - **Platform:** Built for macOS, should work on Linux (minimal testing)
@@ -21,7 +48,7 @@ Replace GPG with modern Ed25519 signatures:
 
 ```bash
 # Build and install
-make install
+task install
 
 # Initialize
 signet-git init
@@ -313,7 +340,7 @@ checksums tell you a download is intact, not who produced it.
 ```bash
 git clone https://github.com/agentic-research/signet.git
 cd signet
-make build
+task build
 ```
 
 Produces `./signet` and `./signet-git` binaries.
@@ -370,13 +397,14 @@ All tools share the same master key, certificate authority, and keystore.
 
 ```bash
 # Run tests
-make test
+task test
 
 # Run integration tests
-make integration-test
+task integration-test
 
 # Format and lint
-make fmt lint
+task fmt
+task lint
 ```
 
 ## Documentation
