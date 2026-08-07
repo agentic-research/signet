@@ -1,19 +1,36 @@
 # Agent Provenance Attestation Standard (APAS)
 
-**Version**: APAS 0.3.0-draft
+**Version**: APAS 0.3.1-draft
 **Status**: Draft
 **Authors**: Agentic Research
-**Date**: 2026-08-05
+**Date**: 2026-08-07
 
 > **APAS versions independently of any implementation, including signet.**
-> Always write it as "APAS 0.3.0", never a bare "0.3.0". This document
-> happens to live in the signet repository, which is separately at
-> `v0.3.0-rc.3` at the time of writing — a bare version number in this repo
-> is therefore ambiguous between the standard and the CLI, and the two move
-> on different clocks: APAS changes when the specification changes, signet
-> when the software ships. Any future tag for this document uses an
-> `apas/vX.Y.Z` prefix so it cannot collide with a signet release tag.
+> Always write the version with its prefix — "APAS 0.3.1" — never a bare
+> "0.3.1". This document happens to live in the signet repository, which
+> published `v0.3.0` on 2026-08-07, so a bare version number here is ambiguous
+> between the standard and the CLI. The two move on different clocks: APAS
+> changes when the specification changes, signet when the software ships. They
+> have already diverged — this revision is APAS 0.3.1 while signet remains at
+> v0.3.0 — which is the normal case, not a mistake to reconcile. Any future
+> tag for this document uses an `apas/vX.Y.Z` prefix so it cannot collide with
+> a signet release tag.
 
+> **APAS 0.3.1 changes**: Separates each level's **Requirement** from the
+> bullets beneath it. The bullets described one ecosystem's implementation —
+> `previous_chain_hash`, dispatch manifests, bridge certificates, a shared
+> CMS/Ed25519 primitive, ACP `request_permission` — while sitting in the
+> position readers take as conformance criteria. An implementer could not tell
+> which lines they had to satisfy and which merely narrated how we did it.
+> Each level now states **core properties** in mechanism-neutral terms, with
+> the original bullets retained as a named **reference profile**. §2.0 gives
+> the reading rule. Prompted by measuring a second, independent implementation
+> against L2–L4 (§7.7): it satisfies every requirement while failing most
+> bullets, and by the property that matters — an externally certified signing
+> identity rather than a self-held key — it is *stronger* than the profile
+> that defined the level. A conformance scheme that scores that as
+> non-conformant is measuring the wrong thing.
+>
 > **APAS 0.3.0 changes**: Adds §2.5, **content origin** — the missing rung between
 > L3 and L4. L3 proves the execution boundary held; L4 demands attested
 > inputs; nothing said what it means for a piece of content to have a *known
@@ -142,6 +159,38 @@ SBOMs (CycloneDX, SPDX) answer "what components are in this software?" Agent pro
 
 Inspired by SLSA, APAS defines four conformance levels. Each builds on the previous.
 
+### 2.0 How to read a level: requirement, core properties, profile
+
+Each level below has three parts, and only two of them are normative.
+
+| Part | Normative? | What it is |
+|---|---|---|
+| **Requirement** | **Yes** | One sentence. The claim the level makes. |
+| **Core properties** | **Yes** | The requirement decomposed into testable properties. States *what* must hold, never *how*. An implementation conforms by satisfying these. |
+| **Reference profile** | **No** | How one named stack satisfies them. Illustrative. Naming a different mechanism is not non-conformance. |
+
+A core property MUST NOT name a signing algorithm, envelope format, wire
+protocol, namespace, `predicateType`, product, or file path. If it cannot be
+stated without one, it belongs in a profile.
+
+Each core property MUST be falsifiable: the level states what evidence would
+show an attestation *fails* it. A property no attestation could fail is
+decoration.
+
+> **Why this section exists.** Earlier drafts put implementation bullets
+> directly beneath each Requirement, where readers reasonably took them as the
+> criteria. That made APAS unimplementable by anyone who had not built the
+> reference stack — not because the properties were parochial, but because
+> the prose was. Profiles are how a standard stays honest about its own
+> origins without imposing them.
+
+Two profiles are referenced throughout. The **orchestrator profile** is the
+dispatch-oriented reference implementation (see Roles). The **reconciler
+profile** is an independent implementation whose unit of work is a key
+reconciled to convergence rather than a dispatch (§7.7). Where they diverge,
+the divergence is evidence about the *standard*, not about either
+implementation.
+
 ### Level 1: Audit Trail (L1) **[CURRENT — partial]**
 
 **Requirement**: Every dispatch action is recorded with structured metadata.
@@ -165,6 +214,21 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 **Requirement**: Every attestation is cryptographically signed by the entity that produced it.
 
+**Core properties** (normative):
+
+- **L2.1** — Every attestation carries a signature over its own content, produced by the entity that generated it.
+- **L2.2** — A third party can verify that signature **without trusting the producer at the moment of the check**. Trust is anchored out of band; TLS to the issuing host is not an anchor.
+- **L2.3** — The signing identity is *named* in a form a verifier can pin, so "signed" is inseparable from "signed by whom".
+- **L2.4** — Absence of a usable signing key MUST NOT downgrade to unsigned output. Emit nothing, or emit an artifact that is *not* shaped like a signed one.
+- **L2.5** — Related attestations that claim an ordering carry that ordering in *content*, not in filenames, timestamps, or storage layout.
+
+> *Falsification*: L2.2 fails if verification requires fetching the trust root
+> from the same host that issued the signature. L2.4 fails if any code path
+> emits a well-formed envelope with an empty or absent signature. L2.5 fails
+> if reordering two records on disk changes what the chain attests.
+
+**Reference profile — orchestrator** (non-normative; one way to satisfy the above):
+
 - Hash chain links content hashes, not file paths — **shipped** in the reference orchestrator (`Handoff::previous_chain_hash`)
 - Handoff documents wrapped in a DSSE envelope around in-toto Statement v1 — **shipped**, but only when the orchestrator holds an Ed25519 attestation key. Without a key it MUST emit no artifact by default; an explicit forensic opt-in MAY write a raw `.intoto.json` Statement as L1 evidence, never an unsigned DSSE envelope. A configured but unreadable key MUST NOT downgrade to unsigned output.
 - Dispatch manifests signed by orchestrator key — **not yet implemented**
@@ -184,7 +248,42 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 ### Level 3: Isolated Execution (L3) **[TARGET — foundation in ACP]**
 
-**Requirement**: Dispatch execution is isolated from the attestation authority.
+**Requirement**: Execution is isolated from the attestation authority.
+
+**Core properties** (normative):
+
+- **L3.1** — The entity that writes attestations cannot modify the executing workspace. Separation may be by process, container, VM, host, or privilege — the property is that the writer lacks the capability, not that a particular technology is used.
+- **L3.2** — Each unit of work whose provenance is attested is separable from every other. Two concurrent units MUST NOT be able to observe or alter each other's state.
+- **L3.3** — **The capability set available to a run is bounded, declared, and default-deny.** Everything the run may reach — tools, filesystem paths, network endpoints — is enumerable *before* the run starts, and anything not enumerated is unreachable.
+- **L3.4** — The declared capability set is part of the attested record, so a verifier can see what the run *could* have done, not only what it did.
+
+> **On L3.3.** Two encodings of this property are known, and both conform.
+>
+> A **runtime permission boundary** interposes on each call and asks an
+> authority to allow or deny it (ACP's `request_permission` is one such
+> mechanism). A **declarative capability set** binds the permitted operations
+> up front, so an operation outside the set has no call to intercept — in the
+> reconciler profile a tool literally does not exist in the model's tool list
+> unless the host wired a callback for it.
+>
+> The declarative form is the stronger default and SHOULD be preferred. It is
+> default-deny by construction rather than by policy: there is no request to
+> approve, so there is no prompt to fatigue a human into accepting and no
+> approval path to social-engineer. A runtime boundary that defaults to
+> *allow* on timeout, error, or missing policy does not satisfy L3.3 — the
+> property is default-deny, not "a decision happens".
+>
+> Note that advisory metadata is not a boundary. Annotating a tool as
+> destructive or read-only informs a client's display; unless something
+> *refuses* on that basis, the capability set is unchanged and L3.3 is
+> unaffected.
+
+> *Falsification*: L3.1 fails if the attestation writer and the agent share a
+> process with write access to the same workspace. L3.3 fails if any operation
+> succeeds that was not enumerable before the run began, or if the deny path
+> is reachable only when a policy lookup succeeds.
+
+**Reference profile — orchestrator** (non-normative):
 
 - Dispatches execute in sandboxed environments (container, VM, or OS sandbox); each running execution is one dispatch
 - The orchestrator that writes attestations cannot modify the dispatch's workspace
@@ -198,7 +297,34 @@ Inspired by SLSA, APAS defines four conformance levels. Each builds on the previ
 
 ### Level 4: Verified Inputs (L4) **[TARGET — future]**
 
-**Requirement**: Dispatch inputs are themselves attested and verified.
+**Requirement**: Inputs to the run are themselves attested and verified.
+
+**Core properties** (normative):
+
+- **L4.1** — Every input that can change the run's behaviour is bound to the attestation by content, not by reference. Instructions, tool definitions, and sampling configuration are inputs.
+- **L4.2** — The runtime that executed the run is identified precisely enough to distinguish two builds of it.
+- **L4.3** — Model outputs are retained sufficiently for forensic reconstruction. This is an evidence property, not a real-time verification one.
+- **L4.4** — Work-item content is immutable after the run starts, or its mutation is detectable by the verifier.
+- **L4.5** — **Outcome is distinguishable from completion.** An attestation MUST NOT allow "the agent produced a result" to be read as "the work succeeded".
+
+> **On L4.5.** This property was learned from an implementation, not designed.
+> The reconciler profile marks the call that committed a run's final result
+> and documents, at the type, that it *"is not an outcome flag … committing a
+> result is no evidence that any work succeeded, because the executors steer a
+> stuck model to submit a degraded result."*
+>
+> That failure mode is general: an orchestrator that nudges a stuck agent
+> toward *any* terminal answer produces runs that are structurally complete
+> and substantively empty. An attestation recording only completion is
+> correctly signed and materially misleading — the worst combination, because
+> it survives verification. Levels below L4 may record outcome; at L4 the
+> distinction is required.
+
+> *Falsification*: L4.1 fails if changing a system prompt yields a
+> byte-identical attestation. L4.5 fails if a verifier cannot separate a run
+> that solved the task from one steered into submitting a degraded result.
+
+**Reference profile — orchestrator** (non-normative):
 
 - CLAUDE.md / system prompts are content-hashed and included in attestation
 - MCP server responses are logged and hashed
@@ -779,6 +905,56 @@ runtime-SBOM requirement is only approximated by image pinning.
 > attestation; cloister owns the boundary the attestation claims held. The
 > split is exactly §1.1's third lesson, so the row now names both rather
 > than letting a reader of either document guess wrong about the other.
+
+### 7.7 An Independent Implementation (Reconciler Profile)
+
+Everything in §7.1–§7.6 is one ecosystem. This section records a **second,
+independently built** implementation, because a standard with one implementer
+is a design document with a standard's title.
+
+The system is an agentic reconciler framework: its unit of work is a **key
+reconciled to convergence**, not a dispatch. There is no dispatching agent to
+name as a distinct entity, and no phase handoff between distinct agents. It
+was not built with APAS in mind and does not reference it.
+
+Measured against the levels:
+
+| | Property | Status in the reconciler profile |
+|---|---|---|
+| L2.1 | signed by producer | ✅ attestations signed via a keyless workload identity |
+| L2.2 | third-party verifiable, no trust in producer at check time | ✅ verified against a trusted root, with a transparency log |
+| L2.3 | signing identity pinnable | ✅ verification pins an expected identity |
+| L2.5 | ordering carried in content | ❌ no chain |
+| L3.1 | attester cannot modify workspace | ❌ attester and agent share a process |
+| L3.3 | bounded, declared, default-deny capabilities | ✅ **by omission** — a tool absent from the host's callback set does not exist in the model's tool list |
+| L3.4 | capability set attested | ❌ declared but not attested |
+| L4.1 | behaviour-changing inputs bound by content | ⚠️ instructions, tool definitions, and sampling are digested together — but into a resume-control record, not an attestation |
+| L4.2 | runtime identified | ⚠️ provider SDK version recorded; no SBOM |
+| L4.3 | model outputs retained | ✅ full turn, reasoning, and tool-call records |
+| L4.5 | outcome ≠ completion | ✅ **the source of this property** (see L4.5) |
+
+Three findings follow, and each is about APAS rather than about that system.
+
+**1. It satisfies L2 while failing most of L2's original bullets.** Its
+signing identity is externally certified, whereas the orchestrator profile's
+L2 key is held by the same component that writes the attestations — the
+"fox guarding the henhouse" L2's own note flags. On the property that
+matters it is *stronger*, while matching almost none of the prose. That is
+what motivated §2.0.
+
+**2. It has the evidence and lacks the attestation — at every level.** It
+signs reconciliation status rather than agent provenance; its run traces go
+to telemetry unsigned; its input digest lives in a checkpoint record. The
+integration gap is not cryptographic. Nearly everything L4 asks for is
+already captured; none of it is attested.
+
+**3. A run is not one execution.** Runs suspend and resume across process
+boundaries, identified by a run ID rather than by a process, with a
+fail-closed check that the configuration has not drifted under the pause. Any
+APAS model assuming a run is one continuous execution cannot describe this —
+and the drift check is *already* the L4.1 claim, expressed for a different
+purpose. Where the phase boundary belongs when a run legitimately stops and
+restarts is an open question for a future revision.
 
 ## 8. The 5 Whys
 
