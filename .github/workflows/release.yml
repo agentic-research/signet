@@ -126,10 +126,38 @@ jobs:
           # make the issuing CA the cluster-local notme-identity authority.
           authority-url: ${{ vars.SIGNET_AUTHORITY_URL || 'https://auth.notme.bot' }}
 
+      # A release may need to say something the commit log cannot: which
+      # documented commands are known-broken against the default authority,
+      # what a verifier must NOT infer from the signatures. The promotion plan
+      # requires that honesty for v0.3.0 (both `signet authority
+      # exchange-github-token` and `signet auth register` are 404 in
+      # production), and "silence is not an option for an identity project's
+      # release notes".
+      #
+      # Per-tag rather than a constant in this workflow, deliberately: a
+      # hardcoded caveat outlives the defect it describes and silently becomes
+      # a lie. A file named for the tag is reviewed in the PR that cuts it and
+      # cannot leak into the next release. No file simply means the generated
+      # notes stand alone.
+      - name: Assemble release-notes preamble
+        run: |
+          src="docs/release/notes/${TAG}.md"
+          if [ -f "$src" ]; then
+            cp "$src" release-notes.md
+            echo "preamble: $src ($(wc -l < release-notes.md) lines)"
+          else
+            : > release-notes.md
+            echo "preamble: none at $src — generated notes only"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           tag_name: ${{ env.TAG }}
+          # GitHub appends the generated notes AFTER this body, so the caveats
+          # land above the changelog rather than below it where they would be
+          # missed.
+          body_path: release-notes.md
           generate_release_notes: true
           # EVERY release publishes as a GitHub prerelease, and no release
           # ever self-promotes to "latest". This is deliberate and permanent,
