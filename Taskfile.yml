@@ -86,6 +86,79 @@ tasks:
   # --------------------------------------------------------------------------
   # Release
   # --------------------------------------------------------------------------
+  release:build:
+    desc: Build one release binary (PLATFORM=linux-amd64 GOOS=linux GOARCH=amd64 [DIR=.])
+    # release.yml's build matrix invokes THIS — it does not re-implement the
+    # go build line. That is what makes a release build reproducible locally:
+    #   task release:build PLATFORM=linux-amd64 GOOS=linux GOARCH=amd64
+    preconditions:
+      - sh: test -n "{{.PLATFORM}}" && test -n "{{.GOOS}}" && test -n "{{.GOARCH}}"
+        msg: "PLATFORM, GOOS and GOARCH are required (e.g. PLATFORM=linux-amd64 GOOS=linux GOARCH=amd64)"
+    env:
+      CGO_ENABLED: "0"
+      GOOS: '{{.GOOS}}'
+      GOARCH: '{{.GOARCH}}'
+    cmds:
+      - go build -trimpath -o {{.DIR | default "."}}/signet-{{.PLATFORM}} ./cmd/signet/
+
+  release:build-all:
+    desc: Build every release platform locally (DIR=dist by default)
+    # The whole matrix on one machine. CI cannot run this — it fans out across
+    # runners — but it is how you reproduce a release build without CI at all.
+    vars:
+      DIR: '{{.DIR | default "dist"}}'
+    cmds:
+      - mkdir -p {{.DIR}}
+      - task: release:build
+        vars: {PLATFORM: darwin-arm64, GOOS: darwin, GOARCH: arm64, DIR: '{{.DIR}}'}
+      - task: release:build
+        vars: {PLATFORM: linux-amd64, GOOS: linux, GOARCH: amd64, DIR: '{{.DIR}}'}
+      - task: release:build
+        vars: {PLATFORM: linux-arm64, GOOS: linux, GOARCH: arm64, DIR: '{{.DIR}}'}
+
+  release:checksums:
+    desc: Generate checksums-sha256.txt over the built binaries (DIR=release-assets)
+    # release.yml invokes THIS rather than inlining sha256sum, so the checksum
+    # file a verifier checks is produced by the same code path locally and in
+    # CI. Uses shasum when sha256sum is absent (macOS) — the CI-only inline
+    # version silently did not.
+    vars:
+      DIR: '{{.DIR | default "release-assets"}}'
+    dir: '{{.DIR}}'
+    cmds:
+      - |
+        if command -v sha256sum >/dev/null; then
+          sha256sum signet-* > checksums-sha256.txt
+        else
+          shasum -a 256 signet-* > checksums-sha256.txt
+        fi
+      - cat checksums-sha256.txt
+
+  release:dry-run:
+    desc: Reproduce a release build locally through the signing boundary (no authority)
+    # Everything a release does EXCEPT the parts that need a GitHub Actions
+    # OIDC token: build all platforms, checksum them, and build the KMS plugin
+    # that would do the signing. Exercises every step signet owns, so a CI
+    # outage or an authority outage does not block debugging the release path.
+    vars:
+      DIR: '{{.DIR | default "dist"}}'
+    cmds:
+      - task: release:build-all
+        vars: {DIR: '{{.DIR}}'}
+      - task: release:checksums
+        vars: {DIR: '{{.DIR}}'}
+      - go build -trimpath -o {{.DIR}}/sigstore-kms-signet ./cmd/sigstore-kms-signet
+      - |
+        echo
+        echo "Local dry-run complete in {{.DIR}}/"
+        echo "  Built:     $(ls {{.DIR}}/signet-* | tr '\n' ' ')"
+        echo "  Checksums: {{.DIR}}/checksums-sha256.txt"
+        echo "  Signer:    {{.DIR}}/sigstore-kms-signet"
+        echo
+        echo "NOT exercised locally: enrollment + signing. Those need a GitHub"
+        echo "Actions OIDC token, which only exists inside a workflow run."
+        echo "Verify a PUBLISHED release instead with: task verify-release TAG=<tag>"
+
   verify-release:
     desc: Verify a published release's checksums + signature bundles (TAG=vX.Y.Z)
     # Single source for the release promotion gate (signet-cf2adc). Promotion
