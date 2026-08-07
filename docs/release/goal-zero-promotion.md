@@ -133,10 +133,33 @@ channel mechanics (`signet-ee1f3b` evidence).
   Rollback = leave rc as prerelease, fix forward, tag rc.N+1. Never
   delete a published tag; never re-tag.
 
+**Outcome (2026-08-07): passed on rc.4.** The rehearsal took four tags
+and found four distinct defects, **none in signet's own code** — which
+is the entire point of spending disposable tags before the real one.
+
+| Tag | Failure | Owner |
+|---|---|---|
+| rc.1 | notme production 8 days stale; `importPublicKey` read a P-256 SPKI as Ed25519 | notme |
+| rc.2 | WebCrypto double-hash: `subtle.verify` hashes its data argument, Go's `ecdsa.Sign` does not (`notme-a011d2`) | notme |
+| rc.3 | GitHub Actions incident — tag push did not trigger the workflow | GitHub |
+| rc.3 | publish-before-upload against immutable releases: sealed empty, unrecoverable (fixed in #170) | signet workflow |
+| rc.4 | — `task verify-release` PASS, 4/4 artifacts | — |
+
+The rc.3 loss has a cause worth recording, because nothing in the repo
+API reveals it: **enabling a tag-protection ruleset also makes releases
+on those tags immutable.** `gh api repos/O/R --jq .immutable_releases`
+returns `null` either way; only `gh release view <tag> --json
+isImmutable` shows it. `v0.2.1` (pre-ruleset) reports `false`; rc.3,
+the first release cut after the ruleset, reports `true`. An immutable
+release cannot accept assets and cannot be un-published, and the
+protected tag cannot be recut — so a workflow that publishes before
+uploading destroys the release permanently. `v0.3.0-rc.3` remains
+published and empty; it is left that way deliberately as evidence.
+
 ### Phase 2 — Beta/canary: soak the production candidate
 
-Once an rc rehearses the pipeline cleanly, tag `v0.3.0` (same commit as
-the passing rc) — published as **prerelease** like every tag; the
+Once an rc rehearses the pipeline cleanly, tag `v0.3.0` — published as
+**prerelease** like every tag; the
 "Pre-release" badge is the beta-channel marker. The soak is public
 (anyone browsing releases sees a clearly-badged beta; that is intended,
 not a leak). Verify it identically (`task verify-release TAG=v0.3.0`).
@@ -158,6 +181,32 @@ Then soak:
 
 The promoted artifact is **byte-identical** to the soaked artifact:
 Phases 2→3 never rebuild — promotion only flips release metadata.
+
+**Phases 1→2 do rebuild, and the hashes will NOT match.** This plan
+originally required `v0.3.0` be cut on the same commit as the passing
+rc, on the assumption that identical source implies identical binaries.
+It does not: Go stamps `vcs.revision`, `vcs.time`, and `vcs.modified`
+into every binary via `debug.BuildInfo`, and `-trimpath` does not
+suppress them. Any commit that moves the tag — even a docs-only one —
+changes every artifact's SHA-256.
+
+Measured on this release: `v0.3.0` (`e64ad9e`) sits one commit after
+rc.4 (`234efc3`), a diff touching only `docs/` and
+`.github/workflows/release.yml`. All three binaries hash differently.
+Rebuilt at both commits with `-buildvcs=false` they are **identical**
+(`8628f362…` for linux/amd64), proving the delta is the VCS stamp
+alone.
+
+So "same commit as the rc" is neither necessary nor sufficient, and a
+hash comparison against the rc is not the right check. The right check
+is the one Phase 1 and Phase 2 already run independently —
+`task verify-release` on each tag. To additionally prove no code moved
+between an rc and its release:
+
+```
+git diff --name-only <rc-tag> <tag> | grep -Ev '^(docs/|\.github/)'   # expect empty
+go build -trimpath -buildvcs=false -o /tmp/a ./cmd/signet   # at each commit, then cmp
+```
 
 ### Phase 3 — Production promotion
 
@@ -309,26 +358,43 @@ branch):
 
 ## 7. GO / NO-GO recommendation
 
-**GO — Phase 1 (staging rehearsal, v0.3.0-rc.1), immediately.**
-Observed evidence: CI green on `main` (2026-08-05); the enrollment path
-the release signing depends on is live and healthy (`/cert/gha` 401-gate
-and ca-bundle 200 probed today; oidc-signing.yml green on every main
-push); the signing code merged and verified-by-construction in the
-workflow (sign then verify before publish); the verification gate
-(`task verify-release`) implemented and failure-mode tested; vigil
-armed. The rehearsal is disposable by design — the residual risk of a
-first-run signing failure is exactly what Phase 1 exists to absorb.
+**~~GO — Phase 1 (staging rehearsal)~~ — DONE 2026-08-07, passed on
+rc.4.** `task verify-release TAG=v0.3.0-rc.4` PASS: 4 artifacts,
+checksums and bundles verified against a trust anchor fetched
+independently from the authority. See the Phase 1 outcome table above
+for the four defects the rehearsal caught.
 
-**NO-GO — Phase 3 (production), today.** One remaining blocker after
-the 2026-08-05 fix merge (`c9618b8`):
+**GO — Phase 2 (beta soak) — STARTED 2026-08-07.** `v0.3.0` is
+published at commit `e64ad9e`: 20 assets, `prerelease: true`, not
+latest, `task verify-release TAG=v0.3.0` PASS. The soak clock runs from
+this date; ≥5 working days.
+
+Its release notes state, rather than leave to inference, that
+`signet authority exchange-github-token` and `signet auth register` are
+non-functional against the default authority — **both endpoints now
+return 404** (this plan's §4 recorded 500/CF-1101; re-probed on
+2026-08-07 they are removed, not failing, and discovery advertises only
+`github_actions_oidc`+`dpop`). The notes also state what the signatures
+do *not* prove, given `notme-191328` (rate limiters declared but
+unbound) and `notme-2c4209` (CA registration effectively open). That
+discharges §4's release-notes obligation for the artifact train.
+
+**NO-GO — Phase 3 (production), today.** One remaining blocker:
 
 1. ~~`signet-62f8e0` (P0)~~ — **closed**: the wire-layout boundary
    landed, so the flag day is handled.
 2. ~~`signet-e6a047`~~ — **closed**: go-cms v0.0.5 pinned, with
    Docker-free round-trip coverage (`signet-279902`).
-3. **No beta soak has occurred** (Phase 2 exit unmet by definition).
-   This one cannot be closed by writing code — it is time under real
-   use, and it starts when the rc rehearsal passes.
+3. ~~No rc rehearsal~~ — **closed**: rc.4 passed 2026-08-07.
+4. **The beta soak is running, not complete** (Phase 2 exit unmet until
+   ≥5 working days elapse with zero release-attributable P0/P1 and
+   oidc-signing green throughout). This one cannot be closed by writing
+   code — it is time under real use. Earliest Phase 3 date on a
+   5-working-day soak from 2026-08-07: **2026-08-14**.
+
+Promotion remains an explicit human step
+(`gh release edit v0.3.0 --prerelease=false --latest`), never
+automated and never taken as a side effect of the soak elapsing.
 
 Additionally, GA framing must account for `/exchange-token` and
 `/api/cert/register` being down in production: either the rig/notme fix
