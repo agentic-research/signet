@@ -1204,7 +1204,7 @@ func (s *OIDCServer) handleExchangeToken(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Mint bridge certificate
-	cert, certDER, err := s.authority.ca.IssueBridgeCertificate(ephemeralKey, grantedCaps, validity)
+	cert, certDER, err := s.authority.ca.IssueBridgeCertificate(ephemeralKey, claims.Subject, grantedCaps, validity)
 	if err != nil {
 		s.logger.Error("Failed to mint bridge certificate", "error", err)
 		http.Error(w, "Failed to issue certificate", http.StatusInternalServerError)
