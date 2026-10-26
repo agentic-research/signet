@@ -66,6 +66,7 @@ zeroKey(ephemeralKey)
 ## Security Notes
 
 ⚠️ **Not for Production PKI:**
+
 - Self-signed certificates only
 - No certificate revocation support
 - No OCSP or CRL

@@ -44,12 +44,13 @@ task docker-shell           # Interactive shell for debugging
 
 ### Test Coverage Matrix
 
-| Test File | Purpose | Validates | Runs In | Status |
-|-----------|---------|-----------|---------|--------|
-| `test_integration.sh` | Full Git signing workflow | Git commit signing, signature attachment, **stdout purity** | Docker (Dockerfile.test) | ✅ ACTIVE |
-| `test_sig1_http_integration.sh` | HTTP authentication demo | SIG1 wire format, COSE, middleware | Manual only | 🔮 FUTURE |
+| Test File                       | Purpose                   | Validates                                                   | Runs In                  | Status    |
+| ------------------------------- | ------------------------- | ----------------------------------------------------------- | ------------------------ | --------- |
+| `test_integration.sh`           | Full Git signing workflow | Git commit signing, signature attachment, **stdout purity** | Docker (Dockerfile.test) | ✅ ACTIVE |
+| `test_sig1_http_integration.sh` | HTTP authentication demo  | SIG1 wire format, COSE, middleware                          | Manual only              | 🔮 FUTURE |
 
 **Test Scope by Feature**:
+
 - ✅ **Git commit signing** (`signet-git`) - test_integration.sh
 - ✅ **Stdout purity** (Git SHA corruption prevention) - test_integration.sh
 - ✅ **OIDC token exchange** (`signet authority`) - authority_oidc_test.go + oidc-signing.yml (GHA e2e)
@@ -60,10 +61,11 @@ task docker-shell           # Interactive shell for debugging
 - ✅ **Cert verification** (`signet verify`) - verify_test.go (4 tests: valid, expired, wrong CA, missing)
 - ✅ **Trust policy bundles** (`pkg/policy/`) - bundle_test.go + checker_test.go + compiler_test.go + golden_path_test.go (37 tests)
 - ✅ **Identity extraction** (sigid) - providers/cert, providers/basic, providers/cell (25+ tests)
-- ✅ **Policy gate** - authority_oidc_test.go TestPolicyGate_* + TestExchangeToken_PolicyCheckerDeniesDeactivated
+- ✅ **Policy gate** - authority_oidc_test.go TestPolicyGate\_\* + TestExchangeToken_PolicyCheckerDeniesDeactivated
 - 🔮 **Sigstore integration** (for signature verification) - FUTURE (see TODO.md)
 
 **Test Separation**:
+
 - **CMS/PKCS#7 testing** → Lives in [go-cms](https://github.com/agentic-research/go-cms) repo
 - **Git integration testing** → Lives here in signet repo
 - **Docker-First Strategy**: All CI tests run in Docker for environment parity
@@ -78,50 +80,50 @@ task security                 # Security scan (requires gosec)
 
 ## Binaries
 
-| Binary | Location | Purpose |
-|--------|----------|---------|
-| `signet` | `cmd/signet/` | Unified CLI (sign, authority subcommands) |
-| `signet-git` | `cmd/signet-git/` | Git gpg.x509.program integration |
-| `signet-proxy` | `cmd/signet-proxy/` | Reverse proxy with Signet auth |
-| `signet-agent` | `cmd/signet-agent/` | gRPC agent for key operations |
+| Binary                | Location                   | Purpose                                     |
+| --------------------- | -------------------------- | ------------------------------------------- |
+| `signet`              | `cmd/signet/`              | Unified CLI (sign, authority subcommands)   |
+| `signet-git`          | `cmd/signet-git/`          | Git gpg.x509.program integration            |
+| `signet-proxy`        | `cmd/signet-proxy/`        | Reverse proxy with Signet auth              |
+| `signet-agent`        | `cmd/signet-agent/`        | gRPC agent for key operations               |
 | `sigstore-kms-signet` | `cmd/sigstore-kms-signet/` | Sigstore KMS plugin (cosign/gitsign bridge) |
 
 ## CLI Commands
 
-| Command | Purpose |
-|---------|---------|
-| `signet sign` | Sign files with ephemeral certificates |
-| `signet authority` | Run OIDC certificate authority server |
-| `signet authority exchange-github-token` | Exchange GHA OIDC token for bridge cert (CI/CD) |
-| `signet authority setup-resign` | Configure GHA post-merge re-signing (sets secrets + variables via `gh`) |
-| `signet auth login` | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow) |
-| `signet auth register` | Register agent with GitHub token (headless, no browser) |
-| `signet auth status` | Show MCP certificate status and expiry |
-| `signet auth daemon` | Auto-renew certificates before expiry (background process) |
-| `signet verify` | Verify a bridge certificate against the signet CA |
+| Command                                  | Purpose                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `signet sign`                            | Sign files with ephemeral certificates                                         |
+| `signet authority`                       | Run OIDC certificate authority server                                          |
+| `signet authority exchange-github-token` | Exchange GHA OIDC token for bridge cert (CI/CD)                                |
+| `signet authority setup-resign`          | Configure GHA post-merge re-signing (sets secrets + variables via `gh`)        |
+| `signet auth login`                      | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow) |
+| `signet auth register`                   | Register agent with GitHub token (headless, no browser)                        |
+| `signet auth status`                     | Show MCP certificate status and expiry                                         |
+| `signet auth daemon`                     | Auto-renew certificates before expiry (background process)                     |
+| `signet verify`                          | Verify a bridge certificate against the signet CA                              |
 
 ## Key Packages
 
-| Package | Purpose |
-|---------|---------|
-| `pkg/crypto/algorithm/` | Algorithm registry (Ed25519, ML-DSA-44) with pluggable `AlgorithmOps` interface |
-| `pkg/crypto/epr/` | Ephemeral Proof Routines — two-step verification (master → ephemeral → request) |
-| `pkg/crypto/keys/` | Algorithm-agile key management, signing interfaces, secure zeroization |
-| `pkg/crypto/cose/` | COSE Sign1 message creation/verification, SIG1 wire format |
-| `pkg/http/middleware/` | HTTP authentication middleware with replay prevention, pluggable stores (memory, Redis) |
-| `pkg/revocation/` | SPIRE-model token revocation via CA bundle rotation |
-| `pkg/attest/x509/` | Local CA for short-lived certificates (5-minute default) |
-| `pkg/signet/` | CBOR token structures, SIG1 wire format (`SIG1.<CBOR>.<COSE_Sign1>`) |
-| `pkg/git/` | Git commit signing/verification via CMS/PKCS#7 |
-| `pkg/agent/` | gRPC agent server/client for key operations |
-| `pkg/lifecycle/` | Loan-pattern memory zeroization (`SecureValue[T]`) |
-| `pkg/errors/` | Structured error codes (`CodedError[T]`) |
-| `pkg/collections/` | Thread-safe generic collections (`ConcurrentMap[K, V]`, `LRUCache` with atomic `GetOrPut`) |
-| `pkg/oidc/` | Pluggable OIDC provider abstraction (GitHub Actions, Cloudflare Access) |
-| `pkg/policy/` | Trust policy bundles (ADR-011): PolicyChecker, Compiler, signed CBOR bundles with rollback protection |
-| `pkg/sigid/` | Identity context extraction: CertProvider (X.509), basic/cell/cert providers, 4-entity model (Owner/Machine/Actor/Identity) |
-| `pkg/authflow/` | Pluggable auth flow registry (venturi pattern): Flow interface, Deps, Registry + FlowFactory |
-| `pkg/cli/` | Shared CLI utilities (keystore, config, Lipgloss styling) |
+| Package                 | Purpose                                                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `pkg/crypto/algorithm/` | Algorithm registry (Ed25519, ML-DSA-44) with pluggable `AlgorithmOps` interface                                             |
+| `pkg/crypto/epr/`       | Ephemeral Proof Routines — two-step verification (master → ephemeral → request)                                             |
+| `pkg/crypto/keys/`      | Algorithm-agile key management, signing interfaces, secure zeroization                                                      |
+| `pkg/crypto/cose/`      | COSE Sign1 message creation/verification, SIG1 wire format                                                                  |
+| `pkg/http/middleware/`  | HTTP authentication middleware with replay prevention, pluggable stores (memory, Redis)                                     |
+| `pkg/revocation/`       | SPIRE-model token revocation via CA bundle rotation                                                                         |
+| `pkg/attest/x509/`      | Local CA for short-lived certificates (5-minute default)                                                                    |
+| `pkg/signet/`           | CBOR token structures, SIG1 wire format (`SIG1.<CBOR>.<COSE_Sign1>`)                                                        |
+| `pkg/git/`              | Git commit signing/verification via CMS/PKCS#7                                                                              |
+| `pkg/agent/`            | gRPC agent server/client for key operations                                                                                 |
+| `pkg/lifecycle/`        | Loan-pattern memory zeroization (`SecureValue[T]`)                                                                          |
+| `pkg/errors/`           | Structured error codes (`CodedError[T]`)                                                                                    |
+| `pkg/collections/`      | Thread-safe generic collections (`ConcurrentMap[K, V]`, `LRUCache` with atomic `GetOrPut`)                                  |
+| `pkg/oidc/`             | Pluggable OIDC provider abstraction (GitHub Actions, Cloudflare Access)                                                     |
+| `pkg/policy/`           | Trust policy bundles (ADR-011): PolicyChecker, Compiler, signed CBOR bundles with rollback protection                       |
+| `pkg/sigid/`            | Identity context extraction: CertProvider (X.509), basic/cell/cert providers, 4-entity model (Owner/Machine/Actor/Identity) |
+| `pkg/authflow/`         | Pluggable auth flow registry (venturi pattern): Flow interface, Deps, Registry + FlowFactory                                |
+| `pkg/cli/`              | Shared CLI utilities (keystore, config, Lipgloss styling)                                                                   |
 
 ### Rust CMS signing (external)
 
@@ -186,6 +188,7 @@ Properties: panic-safe, concurrency-safe (RWMutex), pointer API prevents acciden
 Adding a new algorithm: implement `AlgorithmOps` interface, call `Register()` in `init()`.
 
 Key dispatch rules:
+
 - `Verify()`, `MarshalPublicKey()`, `ZeroizePrivateKey()` dispatch via `MatchesPublicKey`/`MatchesPrivateKey` (deterministic, exactly one match)
 - `UnmarshalPublicKey()` requires explicit algorithm name (raw bytes are ambiguous)
 - `Register()` validates key-type uniqueness at init time (panics on overlap)

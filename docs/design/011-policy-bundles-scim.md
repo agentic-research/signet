@@ -4,13 +4,14 @@
 **Date**: 2026-03-10
 **Authors**: James Gardner / @jamestexas
 
----
+______________________________________________________________________
 
 ## 1. Abstract
 
 This document proposes a **Trust Policy Bundle** — a signed, versioned, edge-distributed artifact that encodes organizational identity lifecycle decisions (who exists, what they can do, when they're revoked). Rather than building a traditional SCIM service provider with a mutable user directory, SCIM events are treated as **inputs to a policy compiler** that produces signed bundles distributed through the same infrastructure as CA bundles.
 
 This ADR also establishes naming for the emerging Signet ecosystem:
+
 - **signet** — authorization process (proof-of-possession, capability tokens)
 - **sigid** — identity lifecycle (who exists, identity binding, provisioning)
 - **sigpol** — policy distribution (trust policy bundles, the subject of this ADR)
@@ -18,13 +19,14 @@ This ADR also establishes naming for the emerging Signet ecosystem:
 ## 2. Context: The Problem Statement
 
 Signet today can answer two questions:
+
 1. "Does this request prove possession of a private key?" (EPR, COSE, middleware)
-2. "Has this key been revoked?" (CA bundle rotation, epoch-based revocation)
+1. "Has this key been revoked?" (CA bundle rotation, epoch-based revocation)
 
 It cannot answer:
-3. "Is this OIDC subject allowed to get a certificate in the first place?"
-4. "What capabilities should this subject receive?"
-5. "Has this person been deprovisioned by their organization?"
+3\. "Is this OIDC subject allowed to get a certificate in the first place?"
+4\. "What capabilities should this subject receive?"
+5\. "Has this person been deprovisioned by their organization?"
 
 The authority (`cmd/signet/authority.go`) currently issues certificates to **anyone with a valid OIDC token**. There is no organizational policy layer — no way for an enterprise IdP to say "this employee was terminated, stop issuing them certs."
 
@@ -32,13 +34,13 @@ The authority (`cmd/signet/authority.go`) currently issues certificates to **any
 
 The obvious solution is a user table. But this contradicts signet's core properties:
 
-| Property | Signet Today | With User Database |
-|----------|-------------|-------------------|
-| Offline verification | Yes | No (must query DB) |
-| Source of truth | Signed artifacts | Mutable rows |
-| Distribution | Edge-cached bundles | Central queries |
-| Revocation | Epoch bump (instant) | DELETE + propagation delay |
-| Rollback protection | Monotonic seqno | Database backups undo revocations |
+| Property             | Signet Today         | With User Database                |
+| -------------------- | -------------------- | --------------------------------- |
+| Offline verification | Yes                  | No (must query DB)                |
+| Source of truth      | Signed artifacts     | Mutable rows                      |
+| Distribution         | Edge-cached bundles  | Central queries                   |
+| Revocation           | Epoch bump (instant) | DELETE + propagation delay        |
+| Rollback protection  | Monotonic seqno      | Database backups undo revocations |
 
 A user database would make signet's authorization path look like every other system it's trying to replace.
 
@@ -70,7 +72,7 @@ TUF is a framework for **secure software update distribution**, adopted by Sigst
 - **Artifact**: Signed JSON metadata with role-based key hierarchy (root, targets, snapshot, timestamp)
 - **Distribution**: Pull-based. Clients fetch metadata from a repository, verify signature chains.
 - **Versioning**: Explicit version numbers on every metadata file. Snapshot metadata provides a consistent view of all targets.
-- **Rollback protection**: Yes — built-in. Clients track version numbers and reject metadata with version <= last seen. This is TUF's defining contribution.
+- **Rollback protection**: Yes — built-in. Clients track version numbers and reject metadata with version \<= last seen. This is TUF's defining contribution.
 - **Offline**: Partially. Requires initial trust establishment online, then can operate on cached metadata within its expiry window.
 - **Revocation**: Key rotation via root metadata. Delegated targets can be revoked by removing delegation.
 
@@ -211,11 +213,13 @@ PoP verification           Identity binding         Capability compilation
 ```
 
 Where things live today:
+
 - `signet` = `pkg/crypto/`, `pkg/http/middleware/`, `pkg/signet/` — exists
 - `sigid` = `pkg/oidc/`, `pkg/attest/x509/`, `cmd/signet/authority.go` (identity minting) — exists but unnamed
 - `sigpol` = does not exist
 
 The key relationships:
+
 ```
                   ┌─────────┐
                   │  IdP    │  (Okta, Entra ID, Google)
@@ -287,6 +291,7 @@ subject = {
 **Multi-IdP subject keys**: OIDC `sub` claims are only unique within an issuer. For v1 (single-authority, single-IdP), raw `sub` values are acceptable as map keys. In a multi-IdP deployment, subject keys MUST use a composite `{issuer}/{sub}` format to prevent identity collision.
 
 **Properties inherited from CA bundles** (no new patterns):
+
 - Signed by authority key (same trust anchor)
 - Monotonic seqno (same rollback protection)
 - Epoch-based revocation (DELETE user → bump epoch)
@@ -316,6 +321,7 @@ SCIM PATCH /Groups     →  staging.updateGroupCaps(name, capTokens)
 ```
 
 The staging state is the *only mutable store*, and it's local to the authority. It can be:
+
 - In-memory (reconstructible from IdP via SCIM full sync)
 - A local JSON file (simple, inspectable)
 - A SQLite database (if scale demands it)
@@ -375,31 +381,33 @@ func (c *PolicyChecker) CheckPolicy(ctx context.Context, token *signet.Token) (*
 
 We implement a **minimal SCIM subset** — only what enterprise IdPs actually need:
 
-| Endpoint | Operations | Required for IdP Integration |
-|----------|-----------|-----|
-| `GET /scim/v2/ServiceProviderConfig` | Read | Yes — IdP probes this first |
-| `GET /scim/v2/Schemas` | Read | Yes — IdP validates schema support |
-| `GET /scim/v2/ResourceTypes` | Read | Yes — IdP discovers resource types |
-| `POST /scim/v2/Users` | Create | Yes — provisioning |
-| `GET /scim/v2/Users/{id}` | Read | Yes — IdP verifies sync state |
-| `PATCH /scim/v2/Users/{id}` | Update | Yes — deactivation, group changes |
-| `DELETE /scim/v2/Users/{id}` | Delete | Yes — deprovisioning |
-| `GET /scim/v2/Users` | List + Filter | Yes — `filter=userName eq "..."` only |
-| `POST /scim/v2/Groups` | Create | Optional — group management |
-| `PATCH /scim/v2/Groups/{id}` | Update | Optional — membership changes |
-| `DELETE /scim/v2/Groups/{id}` | Delete | Optional |
+| Endpoint                             | Operations    | Required for IdP Integration          |
+| ------------------------------------ | ------------- | ------------------------------------- |
+| `GET /scim/v2/ServiceProviderConfig` | Read          | Yes — IdP probes this first           |
+| `GET /scim/v2/Schemas`               | Read          | Yes — IdP validates schema support    |
+| `GET /scim/v2/ResourceTypes`         | Read          | Yes — IdP discovers resource types    |
+| `POST /scim/v2/Users`                | Create        | Yes — provisioning                    |
+| `GET /scim/v2/Users/{id}`            | Read          | Yes — IdP verifies sync state         |
+| `PATCH /scim/v2/Users/{id}`          | Update        | Yes — deactivation, group changes     |
+| `DELETE /scim/v2/Users/{id}`         | Delete        | Yes — deprovisioning                  |
+| `GET /scim/v2/Users`                 | List + Filter | Yes — `filter=userName eq "..."` only |
+| `POST /scim/v2/Groups`               | Create        | Optional — group management           |
+| `PATCH /scim/v2/Groups/{id}`         | Update        | Optional — membership changes         |
+| `DELETE /scim/v2/Groups/{id}`        | Delete        | Optional                              |
 
 **Not implemented**: Bulk operations, PATCH path syntax beyond `replace`, `sortBy`/`sortOrder` on list, `PUT` (full replace).
 
 **SCIM filter support**: `eq` on `userName`, `externalId`, `emails.value`, `active`. This covers what Okta, Entra ID, and Google Workspace actually send.
 
 **SCIM endpoint authentication**: Per RFC 7644, SCIM endpoints MUST require authentication. The authority validates the IdP caller via one of:
+
 - **OAuth 2.0 Bearer Token** (default) — pre-shared token configured in the authority, rotated out-of-band. Simplest for v1.
 - **mTLS client certificate** — consistent with signet's mTLS posture; the IdP presents a pre-provisioned client cert. Preferred for production.
 
 The authentication mechanism is configured in the authority config alongside the SCIM endpoint. Unauthenticated SCIM requests MUST be rejected with 401.
 
 **Bootstrap / fail-open**: If Phase 1 ships the authority policy check before any policy bundle exists (no SCIM ingestion yet), all cert requests would fail with `SubjectNotProvisioned`. To handle this:
+
 - Phase 1 operates in **bootstrap mode**: if no policy bundle has ever been fetched, the authority falls back to the pre-policy behavior (issue certs to any valid OIDC subject).
 - Once the first policy bundle is observed, bootstrap mode is permanently disabled (fail-closed from that point forward).
 - A startup log message and health check field indicate whether the authority is in bootstrap mode.
@@ -409,13 +417,14 @@ The authentication mechanism is configured in the authority config alongside the
 
 The new component is **sigpol** — policy compilation and distribution.
 
-| Component | Concern | Artifact | Distribution |
-|-----------|---------|----------|-------------|
-| signet | Authorization | Capability tokens, COSE signatures | Carried per-request |
-| sigid | Identity | X.509 certificates, OIDC bindings | Issued by authority |
-| sigpol | Policy | Trust Policy Bundles | Edge-cached, same as CA bundles |
+| Component | Concern       | Artifact                           | Distribution                    |
+| --------- | ------------- | ---------------------------------- | ------------------------------- |
+| signet    | Authorization | Capability tokens, COSE signatures | Carried per-request             |
+| sigid     | Identity      | X.509 certificates, OIDC bindings  | Issued by authority             |
+| sigpol    | Policy        | Trust Policy Bundles               | Edge-cached, same as CA bundles |
 
 Package layout:
+
 ```
 pkg/policy/              — Trust Policy Bundle types + verification
 pkg/policy/bundle.go     — TrustPolicyBundle CBOR type
@@ -430,19 +439,19 @@ pkg/scim/types.go       — SCIM User/Group JSON types
 
 ## 7. Comparison Matrix
 
-| System | Artifact Type | Signed? | Versioned? | Rollback Protection? | Edge/Offline? | Revocation |
-|--------|------|---------|-----------|-------|------|------|
-| **sigpol (proposed)** | CBOR bundle | Yes (Ed25519/ML-DSA) | seqno + epoch | Yes (monotonic) | Yes (cached) | Epoch bump |
-| OPA Bundles | .tar.gz + Rego | Yes (JWS) | Revision string | No | Yes (cached) | Replace bundle |
-| TUF | JSON metadata | Yes (role hierarchy) | Version numbers | **Yes (defining feature)** | Partial | Key rotation |
-| SPIRE Trust Bundles | X.509 cert sets | Implicit (CA-signed) | No formal version | No | Yes (cached) | Short-lived SVIDs |
-| SELinux | Binary .pp modules | No | Module version | No | Fully offline | Replace module |
-| NixOS | Content-addressed closure | Yes (store hash) | Generations | **Yes (generational)** | Yes (local store) | New generation |
-| eBPF / Cilium | Compiled bytecode | No | App-level | No | Fully offline | Detach program |
-| AWS Cedar | Policy documents | N/A (hosted) | Store version | N/A | **No** | Modify policy |
-| Zanzibar/SpiceDB | Relationship tuples | N/A (hosted) | Zookies | N/A | **No** | Delete tuple |
-| K8s RBAC | API resources | N/A (etcd-backed) | Resource version | N/A | Informer cache | Delete binding |
-| SCIM 2.0 | REST CRUD | No | ETags | No | **No** | DELETE/PATCH |
+| System                | Artifact Type             | Signed?              | Versioned?        | Rollback Protection?       | Edge/Offline?     | Revocation        |
+| --------------------- | ------------------------- | -------------------- | ----------------- | -------------------------- | ----------------- | ----------------- |
+| **sigpol (proposed)** | CBOR bundle               | Yes (Ed25519/ML-DSA) | seqno + epoch     | Yes (monotonic)            | Yes (cached)      | Epoch bump        |
+| OPA Bundles           | .tar.gz + Rego            | Yes (JWS)            | Revision string   | No                         | Yes (cached)      | Replace bundle    |
+| TUF                   | JSON metadata             | Yes (role hierarchy) | Version numbers   | **Yes (defining feature)** | Partial           | Key rotation      |
+| SPIRE Trust Bundles   | X.509 cert sets           | Implicit (CA-signed) | No formal version | No                         | Yes (cached)      | Short-lived SVIDs |
+| SELinux               | Binary .pp modules        | No                   | Module version    | No                         | Fully offline     | Replace module    |
+| NixOS                 | Content-addressed closure | Yes (store hash)     | Generations       | **Yes (generational)**     | Yes (local store) | New generation    |
+| eBPF / Cilium         | Compiled bytecode         | No                   | App-level         | No                         | Fully offline     | Detach program    |
+| AWS Cedar             | Policy documents          | N/A (hosted)         | Store version     | N/A                        | **No**            | Modify policy     |
+| Zanzibar/SpiceDB      | Relationship tuples       | N/A (hosted)         | Zookies           | N/A                        | **No**            | Delete tuple      |
+| K8s RBAC              | API resources             | N/A (etcd-backed)    | Resource version  | N/A                        | Informer cache    | Delete binding    |
+| SCIM 2.0              | REST CRUD                 | No                   | ETags             | No                         | **No**            | DELETE/PATCH      |
 
 **Key observation**: Only TUF and NixOS have formal rollback protection. Signet's CA bundles (and now policy bundles) join that small group.
 
@@ -452,13 +461,13 @@ OPA is the closest existing system. Here's why we don't just embed OPA:
 
 1. **OPA distributes policy *logic*** (Rego programs). We distribute policy *data* (who exists, what capabilities). The distinction matters — our verifier doesn't need a Rego interpreter, just CBOR deserialization and map lookups.
 
-2. **OPA bundles lack rollback protection**. A compromised bundle server can serve old bundles and "un-revoke" users. Signet's monotonic seqno prevents this.
+1. **OPA bundles lack rollback protection**. A compromised bundle server can serve old bundles and "un-revoke" users. Signet's monotonic seqno prevents this.
 
-3. **OPA bundles aren't designed for identity lifecycle**. There's no concept of "this user was SCIM-deprovisioned." You'd have to encode this in Rego data and hope the bundle update propagates.
+1. **OPA bundles aren't designed for identity lifecycle**. There's no concept of "this user was SCIM-deprovisioned." You'd have to encode this in Rego data and hope the bundle update propagates.
 
-4. **Dependency weight**. OPA adds a Rego evaluator to every verifier. Signet policy bundles add a CBOR decoder (already present) and a map lookup.
+1. **Dependency weight**. OPA adds a Rego evaluator to every verifier. Signet policy bundles add a CBOR decoder (already present) and a map lookup.
 
-5. **Capability alignment**. Signet's capability system (ADR-010, four-pillar lattice) is already the authorization model. OPA would be a second, redundant policy engine.
+1. **Capability alignment**. Signet's capability system (ADR-010, four-pillar lattice) is already the authorization model. OPA would be a second, redundant policy engine.
 
 A future bridge could **compile OPA/Rego policies into signet capability tokens**, similar to how Cedar policies could be compiled. But the runtime bundle format should be signet-native.
 
@@ -467,11 +476,13 @@ A future bridge could **compile OPA/Rego policies into signet capability tokens*
 Targeted research into the "live update" areas identified gaps and confirms the novelty of this approach.
 
 ### OPA + TUF Integration
+
 As of early 2026, **OPA has not integrated TUF for bundle verification**. OPA's bundle signing remains its own JWT-based mechanism (`opa build --signing-key`). There is no monotonic version enforcement or rollback protection — a compromised bundle server can serve older revisions. The OPA community has not published proposals to adopt TUF-style metadata. This gap remains open and validates our seqno-based rollback protection as differentiated.
 
 Sources: [OPA Bundle Documentation](https://www.openpolicyagent.org/docs/management-bundles), [OPA Releases](https://github.com/open-policy-agent/opa/releases)
 
 ### CNCF TAG-Security Policy Distribution
+
 There is **no dedicated "policy distribution" working group** in CNCF TAG-Security. The closest work is a February 2024 blog post on "Policy-as-Code in the software supply chain" which discusses policy authoring, distributing, and evaluating — but as a conceptual framework, not a protocol or implementation. The TAG-Security working groups focus on Supply Chain Security and Compliance. The original `cncf/tag-security` repository was archived in December 2025.
 
 The CNCF's 2025 Supply Chain Security Best Practices Guide (SSCBPv2) focuses on SLSA, in-toto, and Sigstore — none of which address identity policy distribution as signed bundles.
@@ -479,6 +490,7 @@ The CNCF's 2025 Supply Chain Security Best Practices Guide (SSCBPv2) focuses on 
 Sources: [CNCF TAG-Security](https://tag-security.cncf.io/), [Policy-as-Code Blog](https://www.cncf.io/blog/2024/02/14/policy-as-code-in-the-software-supply-chain/), [SSCBPv2](https://tag-security.cncf.io/community/working-groups/supply-chain-security/supply-chain-security-paper-v2/sscbpv2/)
 
 ### OpenPubkey
+
 OpenPubkey transforms OIDC ID Tokens into certificates binding identity to public keys ("PK Tokens") — upgrading OIDC from bearer to proof-of-possession. OPKSSH was open-sourced in March 2025 (gifted by Cloudflare). OpenPubkey's `auth_id` files (which map OIDC identities to Linux users) are the closest thing to "identity policy as a file," but they are **not signed, not versioned, and not distributed** — they're local config files.
 
 OpenPubkey is philosophically aligned with signet (PoP over bearer, no new trusted parties) but is focused on the identity binding problem (sigid territory), not policy distribution (sigpol territory). A future bridge could use OpenPubkey PK Tokens as identity attestations within signet's trust model.
@@ -486,30 +498,34 @@ OpenPubkey is philosophically aligned with signet (PoP over bearer, no new trust
 Sources: [OpenPubkey GitHub](https://github.com/openpubkey/openpubkey), [OpenPubkey Paper](https://eprint.iacr.org/2023/296), [OPKSSH Blog](https://blog.cloudflare.com/open-sourcing-openpubkey-ssh-opkssh-integrating-single-sign-on-with-ssh/)
 
 ### IETF Drafts
+
 No IETF draft addresses "signed identity policy distribution" directly. The closest work is:
+
 - **SCITT (Supply Chain Integrity, Transparency, Trust)** — `draft-ietf-scitt-architecture-22` (expires April 2026). Defines architecture for signed statement transparency via verifiable data structures. SCITT is about supply chain attestations, not identity policy, but the "signed statements registered with transparency services" pattern is adjacent. A sigpol bundle could be registered as a SCITT signed statement for auditability.
 - **JWS Signed Voucher Artifacts** — `draft-ietf-anima-jws-voucher-16` for bootstrapping protocols. Relevant pattern: signed artifacts for trust establishment, but focused on device bootstrapping.
 
 Sources: [SCITT Architecture](https://datatracker.ietf.org/doc/html/draft-ietf-scitt-architecture-22), [IETF Active Drafts](https://datatracker.ietf.org/doc/active/)
 
 ### Summary
+
 The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. No standard, draft, or open-source project addresses this as of March 2026. The closest existing systems (OPA bundles, SPIRE trust bundles, OpenPubkey auth_id) each solve a piece but none combine signed distribution + rollback protection + identity lifecycle + offline capability.
 
 ## 10. Open Questions
 
 1. **Should sigpol be a separate binary?** Options: (a) new routes on `signet authority`, (b) `signet policy` subcommand, (c) separate `sigpol` binary. Recommend (a) for v1 — the authority already serves OIDC and HTTP; adding `/scim/v2/*` routes is natural.
 
-2. **Bundle size at scale**. OIDC `sub` claims are 28-36 bytes; with 3-5 group memberships at ~20 bytes each plus CBOR overhead, each subject is roughly 200-400 bytes. At 10k users: 2-4MB. At 100k users: 20-40MB. Delta bundles may need to move from Phase 3 to Phase 2 if large deployments are targeted early.
+1. **Bundle size at scale**. OIDC `sub` claims are 28-36 bytes; with 3-5 group memberships at ~20 bytes each plus CBOR overhead, each subject is roughly 200-400 bytes. At 10k users: 2-4MB. At 100k users: 20-40MB. Delta bundles may need to move from Phase 3 to Phase 2 if large deployments are targeted early.
 
-3. **Multi-tenant / multi-authority**. Should one policy bundle serve multiple authorities (tenants), or one bundle per authority? Recommend one per authority for simplicity and security isolation.
+1. **Multi-tenant / multi-authority**. Should one policy bundle serve multiple authorities (tenants), or one bundle per authority? Recommend one per authority for simplicity and security isolation.
 
-4. **sigid as a standalone thing**. Should `sigid` be factored out of `signet` as its own binary/repo, or remain a conceptual boundary within `signet`? This is a naming and packaging decision, not an architectural one.
+1. **sigid as a standalone thing**. Should `sigid` be factored out of `signet` as its own binary/repo, or remain a conceptual boundary within `signet`? This is a naming and packaging decision, not an architectural one.
 
-5. **Formal Cedar/OPA bridge**. Should we define a compilation target from Cedar/Rego to signet capabilities? This could make sigpol a "universal policy runtime" — but it's scope creep for v1.
+1. **Formal Cedar/OPA bridge**. Should we define a compilation target from Cedar/Rego to signet capabilities? This could make sigpol a "universal policy runtime" — but it's scope creep for v1.
 
 ## 11. Implementation Plan
 
 ### Phase 1: Trust Policy Bundle (no SCIM yet)
+
 - `pkg/policy/bundle.go` — CBOR types + serialization
 - `pkg/policy/checker.go` — PolicyChecker (copy CA bundle checker pattern)
 - `pkg/policy/cache.go` — Caching (copy CA bundle cache pattern)
@@ -518,11 +534,13 @@ The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. N
 - CLI: `signet policy add-subject`, `signet policy compile`, `signet policy serve`
 
 ### Phase 2: SCIM Ingestion
+
 - `pkg/scim/` — REST handlers, filter parser, SCIM types
 - Wire up SCIM endpoints to the staging compiler
 - Test with Okta/Entra SCIM test harnesses
 
 ### Phase 3: Distribution Parity with CA Bundles
+
 - Same HTTPS+pinning distribution (ADR-006)
 - Same mTLS-DNS option
 - Same bridge certificate authentication for fetchers
@@ -531,20 +549,23 @@ The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. N
 ## 12. Consequences
 
 ### Positive
+
 1. **No new architectural patterns** — reuses CA bundle distribution, verification, caching
-2. **Offline-first preserved** — verifiers cache policy bundles, no central queries
-3. **Enterprise IdP integration** — Okta/Entra push SCIM, signet compiles and distributes
-4. **Rollback protection** — monotonic seqno on policy bundles (most systems lack this)
-5. **Clean separation of concerns** — signet/sigid/sigpol taxonomy clarifies the ecosystem
-6. **Formal revocation** — SCIM DELETE → epoch bump → mass revocation once new bundle is observed (bounded by cache TTL + distribution staleness, same as CA bundles per ADR-006)
+1. **Offline-first preserved** — verifiers cache policy bundles, no central queries
+1. **Enterprise IdP integration** — Okta/Entra push SCIM, signet compiles and distributes
+1. **Rollback protection** — monotonic seqno on policy bundles (most systems lack this)
+1. **Clean separation of concerns** — signet/sigid/sigpol taxonomy clarifies the ecosystem
+1. **Formal revocation** — SCIM DELETE → epoch bump → mass revocation once new bundle is observed (bounded by cache TTL + distribution staleness, same as CA bundles per ADR-006)
 
 ### Negative
+
 1. **Eventual consistency** — policy changes propagate on bundle cache TTL (30s default), not instantly
-2. **Full-bundle distribution** — every update distributes the entire policy, not a delta
-3. **SCIM subset** — not full SCIM 2.0 compliance; may frustrate IdP integrations that expect full spec
-4. **Naming proliferation** — three names (signet/sigid/sigpol) vs. one monolith. Adds conceptual surface area.
+1. **Full-bundle distribution** — every update distributes the entire policy, not a delta
+1. **SCIM subset** — not full SCIM 2.0 compliance; may frustrate IdP integrations that expect full spec
+1. **Naming proliferation** — three names (signet/sigid/sigpol) vs. one monolith. Adds conceptual surface area.
 
 ### Mitigations
+
 - **Eventual consistency**: Acceptable — CA bundles have the same property (ADR-006 bounded staleness: max 8 minutes)
 - **Full-bundle**: Delta bundles can be added in Phase 3 if bundle size becomes an issue
 - **SCIM subset**: Implement the 80% that IdPs actually use. Expand based on real integration failures.
@@ -562,6 +583,6 @@ The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. N
 - [ADR-006: Revocation Strategy](./006-revocation.md)
 - [ADR-010: Capability Protocol](./010-semantic-capability-protocol.md)
 
----
+______________________________________________________________________
 
 **Decision**: Adopt Trust Policy Bundles as the SCIM integration model. SCIM events compile into signed, versioned, edge-distributed bundles — no user directory. Phase 1 delivers the bundle format and authority integration. Phase 2 adds the SCIM REST surface.

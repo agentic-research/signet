@@ -71,12 +71,12 @@ jobs:
 
 Each input path `artifact` receives four adjacent public files:
 
-| File | Purpose |
-|------|---------|
-| `artifact.sigstore.json` | Sigstore bundle used by `cosign verify-blob` |
-| `artifact.signet.crt.pem` | Five-minute Notme certificate for the ephemeral Ed25519 key |
-| `artifact.signet.ca.pem` | Issuing authority's public CA bundle; publish for inspection, but pin trust separately |
-| `artifact.signet.pub` | Ephemeral public key for inspection and certificate/key cross-checks |
+| File                      | Purpose                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| `artifact.sigstore.json`  | Sigstore bundle used by `cosign verify-blob`                                           |
+| `artifact.signet.crt.pem` | Five-minute Notme certificate for the ephemeral Ed25519 key                            |
+| `artifact.signet.ca.pem`  | Issuing authority's public CA bundle; publish for inspection, but pin trust separately |
+| `artifact.signet.pub`     | Ephemeral public key for inspection and certificate/key cross-checks                   |
 
 The Action does not consume `SIGNET_MASTER_KEY` or any stored GitHub secret.
 It requests a GitHub OIDC token, generates P-256 and Ed25519 keys, and performs
@@ -171,14 +171,14 @@ signing operations. A private key held directly by the plugin would therefore
 change between calls. The runner-local session is the stable seam:
 
 1. The parent generates and certifies one ephemeral Ed25519 key.
-2. It starts a user-private Unix socket and exports only the socket path and a
+1. It starts a user-private Unix socket and exports only the socket path and a
    random session capability to its child cosign process.
-3. Each KMS plugin invocation obtains the same public key or requests a
+1. Each KMS plugin invocation obtains the same public key or requests a
    signature over that socket.
-4. The parent validates the Notme leaf against the returned CA bundle before
+1. The parent validates the Notme leaf against the returned CA bundle before
    allowing cosign to sign.
-5. Cosign creates a standard bundle and immediately verifies it.
-6. The parent closes the socket and zeroizes the private key.
+1. Cosign creates a standard bundle and immediately verifies it.
+1. The parent closes the socket and zeroizes the private key.
 
 Rekor upload and bundle verification remain cosign responsibilities. Signet
 supplies the signer and validates the Notme/Cloister certificate relationship;

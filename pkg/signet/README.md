@@ -49,27 +49,27 @@ graph LR
 
 ## Token Fields
 
-| Key | Field | Type | Purpose |
-|-----|-------|------|---------|
-| 1 | IssuerID | string | Identity of token issuer |
-| 2 | AudienceID | string | Optional audience identifier |
-| 3 | SubjectPPID | []byte | Pairwise subject identifier |
-| 4 | ExpiresAt | int64 | Unix timestamp expiry |
-| 5 | NotBefore | int64 | Unix timestamp for activation |
-| 6 | IssuedAt | int64 | Unix timestamp of issuance |
-| 7 | CapabilityID | []byte | 128-bit capability identifier |
-| 8 | CapabilityVer | uint32 | Optional capability version |
-| 9 | ConfirmationID | []byte | SHA-256 of master public key |
-| 10 | KeyID | []byte | Optional signing key identifier |
-| 11 | CapTokens | []uint64 | Optional capability token IDs |
-| 12 | CapCustom | map | Optional custom capability claims |
-| 13 | JTI | []byte | Token identifier |
-| 14 | Actor | map | Optional actor claims |
-| 15 | Delegator | map | Optional delegator claims |
-| 16 | AudienceStr | string | Optional human-readable audience |
-| 17 | Nonce | []byte | Optional replay-prevention nonce |
-| 18 | EphemeralKeyID | []byte | Optional ephemeral key identifier |
-| 19 | Epoch | uint64 | Optional revocation epoch |
+| Key | Field          | Type     | Purpose                           |
+| --- | -------------- | -------- | --------------------------------- |
+| 1   | IssuerID       | string   | Identity of token issuer          |
+| 2   | AudienceID     | string   | Optional audience identifier      |
+| 3   | SubjectPPID    | []byte   | Pairwise subject identifier       |
+| 4   | ExpiresAt      | int64    | Unix timestamp expiry             |
+| 5   | NotBefore      | int64    | Unix timestamp for activation     |
+| 6   | IssuedAt       | int64    | Unix timestamp of issuance        |
+| 7   | CapabilityID   | []byte   | 128-bit capability identifier     |
+| 8   | CapabilityVer  | uint32   | Optional capability version       |
+| 9   | ConfirmationID | []byte   | SHA-256 of master public key      |
+| 10  | KeyID          | []byte   | Optional signing key identifier   |
+| 11  | CapTokens      | []uint64 | Optional capability token IDs     |
+| 12  | CapCustom      | map      | Optional custom capability claims |
+| 13  | JTI            | []byte   | Token identifier                  |
+| 14  | Actor          | map      | Optional actor claims             |
+| 15  | Delegator      | map      | Optional delegator claims         |
+| 16  | AudienceStr    | string   | Optional human-readable audience  |
+| 17  | Nonce          | []byte   | Optional replay-prevention nonce  |
+| 18  | EphemeralKeyID | []byte   | Optional ephemeral key identifier |
+| 19  | Epoch          | uint64   | Optional revocation epoch         |
 
 ## Why Integer Keys?
 

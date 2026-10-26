@@ -181,13 +181,13 @@ Verifiers MUST have epoch snapshot where:
 
 ### 6.1 Standard Ranges
 
-|Range        |Purpose    |Example                  |
-|-------------|-----------|-------------------------|
-|0x0001-0x00FF|Actions    |`read=0x01`, `write=0x02`|
-|0x0100-0x01FF|Resources  |`env:prod=0x0100`        |
-|0x0200-0x02FF|Constraints|`limit:100=0x0200`       |
-|0x0300-0x03FF|Special    |`impersonate=0x0300`     |
-|0x0400-0xFFFF|Reserved   |Future use               |
+| Range         | Purpose     | Example                   |
+| ------------- | ----------- | ------------------------- |
+| 0x0001-0x00FF | Actions     | `read=0x01`, `write=0x02` |
+| 0x0100-0x01FF | Resources   | `env:prod=0x0100`         |
+| 0x0200-0x02FF | Constraints | `limit:100=0x0200`        |
+| 0x0300-0x03FF | Special     | `impersonate=0x0300`      |
+| 0x0400-0xFFFF | Reserved    | Future use                |
 
 ### 6.2 Custom Capabilities
 
@@ -245,13 +245,13 @@ COSE framework allows algorithm migration:
 
 ## 9. Performance Targets
 
-|Operation         |Target |Maximum|
-|------------------|-------|-------|
-|Token verification|< 1ms  |5ms    |
-|PoP generation    |< 2ms  |10ms   |
-|PoP verification  |< 1ms  |5ms    |
-|Capability lookup |< 0.1ms|1ms    |
-|Token size        |< 250B |300B   |
+| Operation          | Target  | Maximum |
+| ------------------ | ------- | ------- |
+| Token verification | < 1ms   | 5ms     |
+| PoP generation     | < 2ms   | 10ms    |
+| PoP verification   | < 1ms   | 5ms     |
+| Capability lookup  | < 0.1ms | 1ms     |
+| Token size         | < 250B  | 300B    |
 
 ## 10. Extensibility
 
@@ -349,15 +349,15 @@ cap_custom:
 
 ## Appendix B: Migration from JWT
 
-|JWT Claim|Signet Field   |Notes                    |
-|---------|---------------|-------------------------|
-|iss      |iss_id (1)     |String identifier        |
-|aud      |aud_id (2)     |String + optional aud_str (16)|
-|sub      |sub_ppid (3)   |Per-token for privacy    |
-|exp      |exp (4)        |Same semantics           |
-|scope    |cap_tokens (11)|Semantic capabilities    |
-|kid      |kid (10)       |Byte string key ID       |
+| JWT Claim | Signet Field    | Notes                          |
+| --------- | --------------- | ------------------------------ |
+| iss       | iss_id (1)      | String identifier              |
+| aud       | aud_id (2)      | String + optional aud_str (16) |
+| sub       | sub_ppid (3)    | Per-token for privacy          |
+| exp       | exp (4)         | Same semantics                 |
+| scope     | cap_tokens (11) | Semantic capabilities          |
+| kid       | kid (10)        | Byte string key ID             |
 
------
+______________________________________________________________________
 
 *Protocol version 1.0 - Cryptographically enforced proof-of-possession for the modern web*

@@ -11,17 +11,19 @@ Master Key → [signs] → Ephemeral Key Binding → [signs] → Request
 ```
 
 This ensures:
+
 1. **Proof of Master Key Possession**: The server proves it owns the master key
-2. **Ephemeral Key Authorization**: Each ephemeral key is explicitly authorized by the master
-3. **Purpose Binding**: Ephemeral keys are bound to specific purposes
-4. **Time Limitation**: All keys have explicit expiry times
-5. **Replay Protection**: Each request has unique timestamps preventing replay
+1. **Ephemeral Key Authorization**: Each ephemeral key is explicitly authorized by the master
+1. **Purpose Binding**: Ephemeral keys are bound to specific purposes
+1. **Time Limitation**: All keys have explicit expiry times
+1. **Replay Protection**: Each request has unique timestamps preventing replay
 
 ## Architecture
 
 ### Server (`server/main.go`)
 
 The server implements:
+
 - **Token Issuance**: Generates CBOR tokens with ephemeral key bindings
 - **Two-Step Verification**: Uses `epr.Verifier` to verify both binding and request signatures
 - **Token Registry**: Stores issued tokens with their cryptographic context
@@ -30,6 +32,7 @@ The server implements:
 ### Client (`client/main.go`)
 
 The client demonstrates:
+
 - **Token Request**: Obtains tokens with ephemeral key bindings
 - **Proof Generation**: Signs requests with ephemeral private keys
 - **Local Verification**: Can verify binding signatures client-side
@@ -38,6 +41,7 @@ The client demonstrates:
 ### Production Middleware Demo (`server-with-middleware/main.go`)
 
 **Recommended for production use.** Demonstrates the `pkg/http/middleware` package:
+
 - Production-ready verification pipeline
 - Pluggable token/nonce stores (memory, Redis)
 - Configurable clock skew tolerance
@@ -56,11 +60,13 @@ The original simplified demo shows basic replay protection without full cryptogr
 ### Production Middleware Demo (Best for integration examples)
 
 1. Start the middleware server:
+
 ```bash
 go run demo/http-auth/server-with-middleware/main.go
 ```
 
 2. Test with curl:
+
 ```bash
 # Get a token
 TOKEN_RESPONSE=$(curl -s -X POST http://localhost:8081/issue-token \
@@ -76,6 +82,7 @@ echo $TOKEN_RESPONSE | jq .
 ```
 
 3. Test authentication (requires client support for signing):
+
 ```bash
 # Health check (no auth required)
 curl http://localhost:8081/health
@@ -88,11 +95,13 @@ curl http://localhost:8081/protected \
 ### Full Two-Step Verification (Educational)
 
 1. Start the server:
+
 ```bash
 go run demo/http-auth/server/main.go
 ```
 
 2. In another terminal, run the client:
+
 ```bash
 go run demo/http-auth/client/main.go
 ```
@@ -143,6 +152,7 @@ sequenceDiagram
 ## Key Implementation Details
 
 ### Token Structure (CBOR with integer keys)
+
 ```go
 type Token struct {
     IssuerID       string // 1: Issuer identifier
@@ -155,6 +165,7 @@ type Token struct {
 ```
 
 ### Two-Step Verification
+
 ```go
 // Full verification in one call
 err := verifier.VerifyProof(
@@ -171,6 +182,7 @@ err := verifier.VerifyProof(
 ## Security Properties
 
 ### ✅ What This Implementation Provides
+
 - **Cryptographic chain of trust** - Two-step verification proves authorization
 - **Purpose-bound ephemeral keys** - Keys limited to specific uses
 - **Time-bound tokens** - Automatic expiry after 5 minutes
@@ -179,6 +191,7 @@ err := verifier.VerifyProof(
 - **Offline verification** - No network calls needed
 
 ### ❌ Common Implementation Mistakes to Avoid
+
 - **Storing naked ephemeral keys** - Breaks the chain of trust
 - **Skipping binding verification** - No proof of master key authorization
 - **Manual key registration** - Bypasses the protocol entirely
@@ -207,19 +220,20 @@ This creates a non-repudiable chain proving the master key authorized the specif
 
 ## Demo Comparison
 
-| Feature | `server/` (Educational) | `server-with-middleware/` (Production) |
-|---------|------------------------|----------------------------------------|
-| **Port** | :8080 | :8081 |
-| **Token Storage** | Custom `sync.Map` | `middleware.MemoryTokenStore` |
-| **Verification** | Manual `epr.Verifier` calls | `middleware.SignetHandler` |
-| **Error Handling** | Basic HTTP errors | JSON error responses |
-| **Clock Skew** | None | Configurable (30s default) |
-| **Path Bypass** | None | Skip auth on `/health`, `/issue-token` |
-| **Logging** | Custom | Pluggable interface |
-| **Production Ready** | ❌ Demo only | ✅ Yes |
-| **Use Case** | Learning protocol internals | Integration examples |
+| Feature              | `server/` (Educational)     | `server-with-middleware/` (Production) |
+| -------------------- | --------------------------- | -------------------------------------- |
+| **Port**             | :8080                       | :8081                                  |
+| **Token Storage**    | Custom `sync.Map`           | `middleware.MemoryTokenStore`          |
+| **Verification**     | Manual `epr.Verifier` calls | `middleware.SignetHandler`             |
+| **Error Handling**   | Basic HTTP errors           | JSON error responses                   |
+| **Clock Skew**       | None                        | Configurable (30s default)             |
+| **Path Bypass**      | None                        | Skip auth on `/health`, `/issue-token` |
+| **Logging**          | Custom                      | Pluggable interface                    |
+| **Production Ready** | ❌ Demo only                | ✅ Yes                                 |
+| **Use Case**         | Learning protocol internals | Integration examples                   |
 
 **When to use which:**
+
 - **`server/`**: Understanding how two-step verification works internally
 - **`server-with-middleware/`**: Integrating Signet into your service
 - **`main.go`**: Quick replay protection demo (legacy)
@@ -229,11 +243,11 @@ This creates a non-repudiable chain proving the master key authorized the specif
 This demo simplifies certain aspects for clarity:
 
 1. **Token Distribution**: In production, tokens would be distributed through a separate secure channel
-2. **Key Storage**: Master keys should be in HSM or secure key management systems
-3. **Token Storage**: Use distributed cache (Redis) or database instead of in-memory map
-4. **Canonicalization**: Implement full HTTP request canonicalization including headers and body
-5. **Ephemeral Private Keys**: Should be securely destroyed after use
-6. **Audit Logging**: Log all verification attempts and failures
+1. **Key Storage**: Master keys should be in HSM or secure key management systems
+1. **Token Storage**: Use distributed cache (Redis) or database instead of in-memory map
+1. **Canonicalization**: Implement full HTTP request canonicalization including headers and body
+1. **Ephemeral Private Keys**: Should be securely destroyed after use
+1. **Audit Logging**: Log all verification attempts and failures
 
 ## Demo Output Example
 

@@ -21,6 +21,7 @@ Keep this key secure — it signs all bridge certificates.
 ### 2. Create OIDC provider config
 
 `oidc-providers.yaml`:
+
 ```yaml
 providers:
   - type: github-actions
@@ -50,6 +51,7 @@ providers:
 ### 3. Create authority config
 
 `config.json`:
+
 ```json
 {
   "oidc_provider_url": "https://accounts.google.com",
@@ -161,13 +163,16 @@ git commit -S -m "verified commit"
 ## Troubleshooting
 
 **"Invalid token" (HTTP 400)**
+
 - Check `audience` in oidc-providers.yaml matches `--authority-url`
 - Ensure `id-token: write` permission is set in the workflow
 
 **"Denied by policy" (HTTP 403)**
+
 - Check `allowed_repositories` / `allowed_workflows` in provider config
 - Check `require_ref_protection` isn't blocking your branch
 
 **Authority won't start**
+
 - `SIGNET_SESSION_SECRET` must be set (min 32 chars)
 - Master key must be Ed25519 in PEM format (PKCS8 or raw seed)

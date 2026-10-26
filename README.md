@@ -25,6 +25,7 @@ are signed through — is unaffected. See the
 [release notes](docs/release/notes/v0.3.0.md).
 
 **Security Note:**
+
 - **Not audited** - use for development only
 - **No certificate transparency.** Artifact signatures are logged to public
   Rekor, but certificate *issuance* is not: the authority does not issue
@@ -63,6 +64,7 @@ git commit -S -m "Signed with Signet"
 ```
 
 **Features:**
+
 - 5-minute ephemeral certificates from local CA
 - OpenSSL-compatible CMS/PKCS#7 signatures
 - Sub-millisecond performance (~0.12ms)
@@ -105,6 +107,7 @@ handler := auth(yourHandler)
 ```
 
 **Features:**
+
 - Ephemeral proof verification (master→ephemeral→request)
 - Replay attack prevention
 - Pluggable token/nonce stores (memory, Redis with `redis` build tag)
@@ -141,6 +144,7 @@ signet auth status
 ```
 
 **Features:**
+
 - **Zero Configuration**: Prompts for setup if defaults are not defined.
 - OAuth2 + PKCE browser flow with localhost callback (`signet auth login`)
 - GitHub token one-shot registration for headless/CI agents (`signet auth register`)
@@ -182,6 +186,7 @@ holds the matching Ed25519 key only in memory, signs through the standard
 cluster-local Notme CA.
 
 **Features:**
+
 - Zero secrets stored in repo (uses GHA ambient OIDC identity)
 - Language-neutral artifact paths
 - Standard cosign bundles and immediate verification
@@ -221,6 +226,7 @@ See [`cmd/signet-proxy/README.md`](./cmd/signet-proxy/README.md) for details.
 SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
 
 **Features:**
+
 - **Instant revocation** of compromised keys via CA rotation
 - **Rollback protection** with monotonic sequence numbers
 - **Fail-closed design** - infrastructure failures deny access
@@ -228,6 +234,7 @@ SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
 - **Offline-first** - no CRL/OCSP dependency
 
 **How it works:**
+
 ```go
 // Configure revocation checker
 fetcher := cabundle.NewHTTPSFetcher(bundleServerURL, nil)
@@ -246,6 +253,7 @@ handler := auth(yourHandler)
 ```
 
 Tokens are automatically checked against the CA bundle for:
+
 - Epoch validity (instant revocation of old epochs)
 - Key ID matching (CA rotation detection)
 - Sequence number monotonicity (rollback attack prevention)
@@ -256,18 +264,18 @@ See [`docs/design/006-revocation.md`](./docs/design/006-revocation.md) for archi
 
 Signet's primitives are designed to be used independently:
 
-| Package | Purpose | Status |
-|---------|---------|--------|
-| [`github.com/agentic-research/go-cms`](https://github.com/agentic-research/go-cms) | Ed25519 CMS/PKCS#7 (standalone library) | ⚠️ Unaudited |
-| [`pkg/crypto/algorithm`](./pkg/crypto/algorithm) | Algorithm registry (Ed25519, ML-DSA-44) with pluggable ops | Internal† |
-| [`pkg/crypto/epr`](./pkg/crypto/epr) | Ephemeral proof generation/verification | Internal† |
-| [`pkg/crypto/cose`](./pkg/crypto/cose) | COSE Sign1 for compact wire format | Internal† |
-| [`pkg/crypto/keys`](./pkg/crypto/keys) | Algorithm-agile signer with zeroization + pluggable backends (PKCS#11, TouchID) | Internal† |
-| [`pkg/attest/x509`](./pkg/attest/x509) | Local CA for short-lived certificates | Internal† |
-| [`pkg/signet`](./pkg/signet) | CBOR token structure + SIG1 wire format | Internal† |
-| [`pkg/http/middleware`](./pkg/http/middleware) | HTTP authentication middleware (server + client) | Internal† |
-| [`pkg/revocation`](./pkg/revocation) | SPIRE-model token revocation system | Internal† |
-| [`pkg/lifecycle`](./pkg/lifecycle) | Loan-pattern memory zeroization for sensitive data | Internal† |
+| Package                                                                            | Purpose                                                                         | Status       |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------ |
+| [`github.com/agentic-research/go-cms`](https://github.com/agentic-research/go-cms) | Ed25519 CMS/PKCS#7 (standalone library)                                         | ⚠️ Unaudited |
+| [`pkg/crypto/algorithm`](./pkg/crypto/algorithm)                                   | Algorithm registry (Ed25519, ML-DSA-44) with pluggable ops                      | Internal†    |
+| [`pkg/crypto/epr`](./pkg/crypto/epr)                                               | Ephemeral proof generation/verification                                         | Internal†    |
+| [`pkg/crypto/cose`](./pkg/crypto/cose)                                             | COSE Sign1 for compact wire format                                              | Internal†    |
+| [`pkg/crypto/keys`](./pkg/crypto/keys)                                             | Algorithm-agile signer with zeroization + pluggable backends (PKCS#11, TouchID) | Internal†    |
+| [`pkg/attest/x509`](./pkg/attest/x509)                                             | Local CA for short-lived certificates                                           | Internal†    |
+| [`pkg/signet`](./pkg/signet)                                                       | CBOR token structure + SIG1 wire format                                         | Internal†    |
+| [`pkg/http/middleware`](./pkg/http/middleware)                                     | HTTP authentication middleware (server + client)                                | Internal†    |
+| [`pkg/revocation`](./pkg/revocation)                                               | SPIRE-model token revocation system                                             | Internal†    |
+| [`pkg/lifecycle`](./pkg/lifecycle)                                                 | Loan-pattern memory zeroization for sensitive data                              | Internal†    |
 
 † *Internal* = Developed in-house, no independent security audit yet
 
@@ -422,6 +430,7 @@ task lint
 Signet is in **alpha** (v0.2.0).
 
 **Recent (v0.2.0):**
+
 - ✅ GHA OIDC end-to-end signing flow (ambient identity, bridge certs, policy)
 - ✅ Cloudflare Access OIDC provider
 - ✅ MCP client authentication (`signet auth login/register`)
@@ -433,6 +442,7 @@ Signet is in **alpha** (v0.2.0).
 **Current focus:** Go workspace refactor, OAuth port to edge.
 
 **Gaps before v1.0:**
+
 - Security audit (required before production use)
 - Go workspace structure (`go.work` with `authority/` as importable module)
 - Port remaining OAuth flows to CF Worker (eliminate Fly dependency)
@@ -443,6 +453,7 @@ Signet is in **alpha** (v0.2.0).
 We welcome contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for development setup and guidelines.
 
 **High-impact areas:**
+
 - Core protocol completion (CBOR, COSE, wire format)
 - Language SDKs (Python, JavaScript, Rust)
 - Security review and testing
@@ -502,6 +513,7 @@ graph TD
 **Solution:** Cryptographic proof-of-possession. Every request proves knowledge of a private key without revealing it. Tokens can't be stolen and replayed.
 
 **Unique features:**
+
 - One of the first Go libraries with Ed25519 CMS/PKCS#7 support (via [go-cms](https://github.com/agentic-research/go-cms), not yet security reviewed)
 - **Post-quantum ready** via ML-DSA-44 (FIPS 204) using [cloudflare/circl](https://github.com/cloudflare/circl)
 - Offline-first design (no network dependencies)
@@ -524,7 +536,7 @@ Apache 2.0 - See [LICENSE](LICENSE)
 
 Inspired by [Sigstore](https://sigstore.dev) for supply chain security. Signet extends the concept to general-purpose authentication with offline-first design.
 
----
+______________________________________________________________________
 
 **Questions?** Open an [issue](https://github.com/agentic-research/signet/issues)
 **Ready to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md)
