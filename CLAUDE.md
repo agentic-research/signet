@@ -54,7 +54,6 @@ task docker-shell           # Interactive shell for debugging
 - ✅ **Git commit signing** (`signet-git`) - test_integration.sh
 - ✅ **Stdout purity** (Git SHA corruption prevention) - test_integration.sh
 - ✅ **OIDC token exchange** (`signet authority`) - authority_oidc_test.go + oidc-signing.yml (GHA e2e)
-- ✅ **Setup-resign command** - authority_setup_resign_test.go
 - ✅ **LRU cache** (incl. GetOrPut atomicity) - lru_test.go
 - ⚠️ **File signing** (`signet sign`) - PARTIAL (sign_test.go regression tests, no integration)
 - ✅ **Auth login** (`signet auth login`) - DOGFOODED (real cert minted 2026-03-24)
@@ -95,7 +94,6 @@ task security                 # Security scan (requires gosec)
 | `signet sign`                            | Sign files with ephemeral certificates                                         |
 | `signet authority`                       | Run OIDC certificate authority server                                          |
 | `signet authority exchange-github-token` | Exchange GHA OIDC token for bridge cert (CI/CD)                                |
-| `signet authority setup-resign`          | Configure GHA post-merge re-signing (sets secrets + variables via `gh`)        |
 | `signet auth login`                      | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow) |
 | `signet auth register`                   | Register agent with GitHub token (headless, no browser)                        |
 | `signet auth status`                     | Show MCP certificate status and expiry                                         |
