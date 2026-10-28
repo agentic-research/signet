@@ -139,19 +139,61 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 		KeyType:   keyTypeName(cert),
 	}
 
-	// Extract signet identity extensions from cert
+	// Extract signet identity extensions from cert.
+	//
+	// THE ARC IS SHARED AND .1.5/.1.6 DISAGREE (signet-790ca1). signet, notme
+	// and ley-line-open all allocate under 1.3.6.1.4.1.99999 with no registry
+	// between them. Where signet reads an agent name and a scope, notme writes
+	// an authMethod ("gha-oidc", "passkey", ...) and a 32-byte peer binding.
+	// Measured before this guard existed: a notme certificate verified here
+	// reported Agent = "gha-oidc" and a Scope of 32 bytes of SHA-256. Both
+	// facts were invented, which is worse than reporting nothing -- an operator
+	// reading this output, or a caller branching on result.Agent, is told a
+	// workload identity is a named agent.
+	//
+	// So the profile is decided from the cert's own SIGNED extensions, the
+	// shape ley-line-open adopted for the same collision (its PR #489): a
+	// certificate carrying notme's .1.8 principal-kind marker is a notme
+	// certificate, and its .1.5/.1.6 are NEVER reported as agent and scope.
+	// .1.1 is the one slot all three allocations agree on, so the subject is
+	// still read.
+	//
+	// Why .1.8 and not .1.1/.1.2 -- which is how LLO discriminates: signet's
+	// own authority writes .1.1 AND .1.2 too (cmd/signet/authority_identity.go),
+	// so those cannot tell the two apart here. notme emits .1.8 on every mint
+	// path and nothing else under this arc claims it.
+	//
+	// This is a READ-SIDE fix and deliberately not a renumbering. notme cannot
+	// vacate .1.6: cloister's WASM verifier already parses notme certificates
+	// at this arc and reads the peer binding from it, so moving the number
+	// would break a shipped consumer to tidy an allocation. Changing what this
+	// verifier concludes costs no certificate bytes anywhere.
 	oidSubject := asn1.ObjectIdentifier(sigid.OIDSubject)
 	oidAgent := asn1.ObjectIdentifier(sigid.OIDAgentName)
 	oidScope := asn1.ObjectIdentifier(sigid.OIDScope)
+	oidPrincipalKind := asn1.ObjectIdentifier(sigid.OIDPrincipalKind)
+
+	notmeProfile := false
+	for _, ext := range cert.Extensions {
+		if ext.Id.Equal(oidPrincipalKind) {
+			notmeProfile = true
+			break
+		}
+	}
+
 	for _, ext := range cert.Extensions {
 		val := extractExtValue(ext.Value)
 		switch {
 		case ext.Id.Equal(oidSubject):
 			result.Owner = val
 		case ext.Id.Equal(oidAgent):
-			result.Agent = val
+			if !notmeProfile {
+				result.Agent = val
+			}
 		case ext.Id.Equal(oidScope):
-			result.Scope = val
+			if !notmeProfile {
+				result.Scope = val
+			}
 		}
 	}
 
