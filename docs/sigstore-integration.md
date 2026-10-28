@@ -102,8 +102,10 @@ Notme's `/cert/gha`. For genuinely cluster-rooted trust, the cluster's `NOTME`
 binding must resolve to its cluster-local `notme-identity` authority rather
 than the global `auth.notme.bot` deployment.
 
-The reusable `.github/workflows/gha-identity.yml` also accepts an
-`authority_url` input for non-artifact consumers.
+For non-artifact consumers, notme's reusable workflow
+(`agentic-research/notme/.github/workflows/gha-identity.yml`, pinned by
+commit SHA) also accepts an `authority_url` input. Signet no longer keeps its
+own copy (signet-b6559e).
 
 ## Verify a CI-signed artifact
 
