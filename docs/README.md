@@ -5,9 +5,11 @@ This directory contains technical documentation for the Signet project.
 ## Organization
 
 ### [`design/`](./design/)
+
 Stable design documents explaining technical choices and architecture.
 
 **Numbered ADRs** (chronological design decisions):
+
 - `001-signet-tokens.md` - Token format and structure
 - `002-protocol-spec.md` - Wire format and protocol
 - `003-sdk.md` - SDK architecture
@@ -22,6 +24,7 @@ Stable design documents explaining technical choices and architecture.
 - `011-policy-bundles-scim.md` - Trust policy bundles + SCIM
 
 **Cross-cutting reference docs** (not chronological):
+
 - `code-overlap-audit.md` - Audit of overlap between sigid / sigpol / capabilities
 - `cross-language-schema.md` - Where cross-language types live (notme/schema canonical, the type/wire-format split)
 - `edge-signing-contract.md` - Edge-signer contract
@@ -30,18 +33,23 @@ Stable design documents explaining technical choices and architecture.
 - `sigpol-requirements.md` - sigpol module requirements (forward-looking)
 
 ### [`implementation/`](./implementation/)
+
 Historical and work-in-progress feature implementation guides (may be partially outdated):
+
 - `revocation-sequence.md` - Step-by-step revocation implementation
 - `revocation-interface.md` - Revocation API design
 
 These documents are living artifacts used during development and may become less relevant after feature completion.
 
 ### [`apas/`](./apas/)
+
 Agent Provenance Standard (APAS) research and specifications:
+
 - `agent-provenance-standard.md` - Core APAS specification
 - `research.md` - Research notes and background
 
 ### Root Documentation
+
 - `problem-statement.md` - Why Signet exists, the problem it solves
 - `PERFORMANCE.md` - Benchmarks and performance analysis
 

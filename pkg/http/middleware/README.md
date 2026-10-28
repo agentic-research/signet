@@ -56,6 +56,7 @@ func yourHandler(w http.ResponseWriter, r *http.Request) {
 ### Storage Backends
 
 #### In-Memory (Default)
+
 ```go
 // Suitable for single-instance deployments
 auth := middleware.SignetMiddleware(
@@ -65,6 +66,7 @@ auth := middleware.SignetMiddleware(
 ```
 
 #### Redis (Distributed)
+
 ```go
 // For distributed deployments
 tokenStore := middleware.NewRedisTokenStore(redisClient, "signet:tokens:")
@@ -79,12 +81,14 @@ auth := middleware.SignetMiddleware(
 ### Key Management
 
 #### Static Key
+
 ```go
 // Simple deployments with a single master key
 middleware.WithMasterKey(masterPublicKey)
 ```
 
 #### Multi-Issuer
+
 ```go
 // Support multiple token issuers
 provider := middleware.NewMultiKeyProvider()
@@ -95,6 +99,7 @@ middleware.WithKeyProvider(provider)
 ```
 
 #### Dynamic Key Provider
+
 ```go
 // Implement KeyProvider for dynamic key management
 type MyKeyProvider struct {
@@ -183,27 +188,32 @@ middleware.WithRequestBuilder(&CustomBuilder{})
 The middleware is built around clean interfaces for maximum flexibility:
 
 ### TokenStore
+
 Manages token storage and retrieval. Implement for custom backends.
 
 ### NonceStore
+
 Handles replay prevention. Must provide atomic check-and-store operations.
 
 ### KeyProvider
+
 Retrieves master public keys. Enables dynamic key management and rotation.
 
 ### RequestBuilder
+
 Constructs canonical request representation for signature verification.
 
 ### Logger & Metrics
+
 Standard interfaces for observability integration.
 
 ## Security Considerations
 
 1. **Token Storage**: In distributed systems, use shared storage (Redis, database) for token consistency
-2. **Nonce Tracking**: Essential for replay prevention - ensure atomic operations
-3. **Clock Skew**: Balance between security and usability (30-60 seconds recommended)
-4. **Key Rotation**: Use KeyProvider interface for dynamic key management
-5. **TLS Required**: Always use HTTPS in production to prevent token interception
+1. **Nonce Tracking**: Essential for replay prevention - ensure atomic operations
+1. **Clock Skew**: Balance between security and usability (30-60 seconds recommended)
+1. **Key Rotation**: Use KeyProvider interface for dynamic key management
+1. **TLS Required**: Always use HTTPS in production to prevent token interception
 
 ## Performance
 

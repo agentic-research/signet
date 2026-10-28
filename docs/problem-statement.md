@@ -5,6 +5,7 @@
 **Bearer tokens are inherently insecure.** If someone steals your JWT, OAuth token, or API key, they can use it immediately from anywhere. This is authentication's original sin - possession equals identity.
 
 Current "solutions" don't solve the problem:
+
 - **MFA** only protects initial login, not token usage after theft
 - **Token rotation** shortens the theft window but doesn't eliminate it
 - **Zero Trust** just verifies stolen tokens more frequently
@@ -19,8 +20,8 @@ Every major breach involves stolen tokens. SolarWinds, Okta, Microsoft - attacke
 ### How It Works
 
 1. **Token includes key binding**: The Signet token contains a hash of the public key (`cnf_key_hash`)
-2. **Every request carries proof**: Client signs each request with the private key
-3. **Server verifies possession**: Signature proves the caller has the private key
+1. **Every request carries proof**: Client signs each request with the private key
+1. **Server verifies possession**: Signature proves the caller has the private key
 
 ```
 Traditional Bearer:
@@ -41,6 +42,7 @@ Signet-Proof: v=1; sig=<signature only key holder can create>
 ## Implementation Simplicity
 
 **For Developers:**
+
 ```bash
 # One-time setup
 $ signet login
@@ -50,6 +52,7 @@ $ signet api get /users  # SDK handles signing (Go SDK available; Python/JS in d
 ```
 
 **For Services:**
+
 ```python
 # Add one check
 if not verify_pop(request.headers["Signet-Proof"], token):
@@ -59,8 +62,8 @@ if not verify_pop(request.headers["Signet-Proof"], token):
 ## Migration Path
 
 1. **Phase 1**: OAuth/JWT wrapper generates Signet tokens - no client changes
-2. **Phase 2**: Clients adopt SDK - services accept both tokens
-3. **Phase 3**: Services require PoP - full security benefits
+1. **Phase 2**: Clients adopt SDK - services accept both tokens
+1. **Phase 3**: Services require PoP - full security benefits
 
 ## Why This Matters
 
@@ -77,6 +80,6 @@ This isn't a marginal improvement. It's fixing the fundamental vulnerability tha
 
 No blockchain. No complex infrastructure. Just cryptographic proof on every request.
 
----
+______________________________________________________________________
 
 **Bottom line**: Bearer tokens are broken. Signet fixes them with proof-of-possession while keeping the developer experience simple.

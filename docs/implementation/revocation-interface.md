@@ -4,7 +4,7 @@
 
 **Design Principle**: Simple interface that supports SPIRE model (v1.0), snapshot-based revocation (future), and custom implementations.
 
----
+______________________________________________________________________
 
 ## Core Interface
 
@@ -33,7 +33,7 @@ type Checker interface {
 }
 ```
 
----
+______________________________________________________________________
 
 ## V1.0 Implementation: CA Bundle Checker
 
@@ -89,7 +89,7 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 }
 ```
 
----
+______________________________________________________________________
 
 ## Future Implementation: Snapshot Checker
 
@@ -141,7 +141,7 @@ func (c *SnapshotChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 }
 ```
 
----
+______________________________________________________________________
 
 ## Usage in Middleware
 
@@ -176,7 +176,7 @@ func NewSignetMiddleware(checker revocation.Checker, verifier *signet.Verifier) 
 }
 ```
 
----
+______________________________________________________________________
 
 ## Configuration
 
@@ -202,28 +202,32 @@ func NewChecker(cfg CheckerConfig) (Checker, error) {
 }
 ```
 
----
+______________________________________________________________________
 
 ## Design Rationale
 
 ### Why This Interface?
 
 1. **Single Method**: `IsRevoked(ctx, token) (bool, error)`
+
    - Simple to implement
    - Clear semantics (bool = revoked, error = infrastructure failure)
    - Composable (can chain multiple checkers)
 
-2. **Strategy Pattern**: Multiple implementations behind one interface
+1. **Strategy Pattern**: Multiple implementations behind one interface
+
    - V1.0 ships with `CABundleChecker`
    - Future adds `SnapshotChecker` without breaking API
    - Users can provide custom implementations
 
-3. **Context-Aware**: Accepts `context.Context`
+1. **Context-Aware**: Accepts `context.Context`
+
    - Supports timeouts and cancellation
    - Enables distributed tracing
    - Required for async fetching
 
-4. **Fail-Closed**: Infrastructure errors return `error`, not `(false, nil)`
+1. **Fail-Closed**: Infrastructure errors return `error`, not `(false, nil)`
+
    - Forces caller to handle failures explicitly
    - Prevents accidental fail-open scenarios
 
@@ -234,7 +238,7 @@ func NewChecker(cfg CheckerConfig) (Checker, error) {
 - **Caching decisions**: Each implementation manages its own cache
 - **Configuration**: Uses dependency injection, not global config
 
----
+______________________________________________________________________
 
 ## File Structure
 
@@ -254,11 +258,12 @@ pkg/revocation/
     └── mock.go          # Mock checker for tests
 ```
 
----
+______________________________________________________________________
 
 ## Migration Path
 
 **V1.0 (Week 1)**:
+
 ```go
 checker := revocation.NewCABundleChecker(
 	fetcher:  revocation.NewHTTPSFetcher("https://127.0.0.1:8443/ca-bundle", bridgeCert),
@@ -268,6 +273,7 @@ checker := revocation.NewCABundleChecker(
 ```
 
 **Future (when snapshot-based needed)**:
+
 ```go
 checker := revocation.NewSnapshotChecker(
 	fetcher:  revocation.NewSnapshotFetcher("https://cdn.example.com/snapshots"),
@@ -278,7 +284,7 @@ checker := revocation.NewSnapshotChecker(
 
 **Middleware code**: No changes required! Same interface.
 
----
+______________________________________________________________________
 
 ## Testing
 
@@ -305,7 +311,7 @@ func TestMiddleware(t *testing.T) {
 }
 ```
 
----
+______________________________________________________________________
 
 ## Summary
 

@@ -17,16 +17,19 @@
 Signet currently conflates two distinct identity concepts under a single master key:
 
 1. **Machine Authentication**: Proving a request comes from an authorized service/workstation
+
    - Used for: HTTP auth, service-to-service communication, API requests
    - Needs: Proof of possession, replay protection, revocation
    - Should NOT leak: User personally identifiable information (PII)
 
-2. **User Attribution**: Proving WHO authored specific work
+1. **User Attribution**: Proving WHO authored specific work
+
    - Used for: Git commits, signed documents, audit trails
    - Needs: Human-readable identity (email), public verification, accountability
    - Requirements: GitHub "Verified" badges, legal attribution, compliance
 
 **The Tension**:
+
 - If master key = user identity → HTTP requests leak user emails unnecessarily (privacy issue)
 - If master key = machine identity → Git commits don't get GitHub verification (usability issue)
 
@@ -35,11 +38,11 @@ Signet currently conflates two distinct identity concepts under a single master 
 ## Design Goals
 
 1. **Progressive Disclosure**: Start simple (machine identity), opt-in to complexity (user attribution)
-2. **Privacy by Default**: HTTP auth never leaks user identity unless explicitly required
-3. **GitHub Compatible**: Support verified badges without compromising architecture
-4. **Backward Compatible**: Existing Level 0 workflows continue to work unchanged
-5. **Clear Separation**: Machine capability ≠ User accountability
-6. **Offline-First**: All levels work without network connectivity for signing
+1. **Privacy by Default**: HTTP auth never leaks user identity unless explicitly required
+1. **GitHub Compatible**: Support verified badges without compromising architecture
+1. **Backward Compatible**: Existing Level 0 workflows continue to work unchanged
+1. **Clear Separation**: Machine capability ≠ User accountability
+1. **Offline-First**: All levels work without network connectivity for signing
 
 ## Solution: Layered Identity Architecture
 
@@ -63,12 +66,14 @@ Machine Master Key (base identity, always present)
 ### Identity Layers
 
 **Layer 1: Machine Identity** (always present)
+
 - Master key stored in OS keyring
 - Identified by: DID or machine hostname
 - Used for: All cryptographic operations
 - Privacy: No user PII
 
 **Layer 2: User Attribution Overlay** (optional)
+
 - Bridge certificate with email address
 - Signed by machine master key
 - Used for: Git commits only
@@ -79,6 +84,7 @@ Machine Master Key (base identity, always present)
 ### Level 0: "It Just Works" (Machine Identity Only)
 
 **Setup:**
+
 ```bash
 signet-git init
 git config --global gpg.format x509
@@ -87,6 +93,7 @@ git commit -S -m "fix bug"
 ```
 
 **What You Get:**
+
 - ✅ Cryptographically signed commits
 - ✅ Local verification works (`git log --show-signature`)
 - ✅ Offline-first
@@ -95,6 +102,7 @@ git commit -S -m "fix bug"
 - ❌ No GitHub "Verified" badge
 
 **Certificate Chain:**
+
 ```
 Master Key (10yr CA, DID: did:key:z6Mkr...)
     └─> Ephemeral Cert (5min, CN: "Signet Ephemeral")
@@ -102,16 +110,18 @@ Master Key (10yr CA, DID: did:key:z6Mkr...)
 ```
 
 **Who Uses This:**
+
 - Privacy-conscious developers
 - Internal company repos with custom verification
 - Air-gapped environments
 - Developers who don't need GitHub badges
 
----
+______________________________________________________________________
 
 ### Level 1: User Attribution (Local Verification)
 
 **Setup:**
+
 ```bash
 signet-git init --email alice@company.com
 git commit -S -m "fix bug"
@@ -119,6 +129,7 @@ git log --show-signature
 ```
 
 **What You Get:**
+
 - ✅ Everything from Level 0
 - ✅ Email in bridge certificate (user attribution)
 - ✅ Local git shows "alice@company.com signed"
@@ -126,6 +137,7 @@ git log --show-signature
 - ❌ No GitHub badge (cert not uploaded)
 
 **Certificate Chain:**
+
 ```
 Master Key (10yr CA, DID: did:key:z6Mkr...)
     └─> Bridge Cert (1yr, CN: alice@company.com, Email: alice@company.com)
@@ -134,16 +146,18 @@ Master Key (10yr CA, DID: did:key:z6Mkr...)
 ```
 
 **Who Uses This:**
+
 - Teams using git's built-in verification
 - Self-hosted GitLab/Gitea instances
 - Developers testing before uploading to GitHub
 - Hybrid environments (some repos public, some private)
 
----
+______________________________________________________________________
 
 ### Level 2: GitHub Integration (Public Verification)
 
 **Setup:**
+
 ```bash
 signet-git init --email alice@company.com
 signet-git export-bridge-cert > bridge.pem
@@ -154,30 +168,34 @@ git push
 ```
 
 **What You Get:**
+
 - ✅ Everything from Level 1
 - ✅ Green "Verified" badge on GitHub
 - ✅ Public proof of authorship
 - ✅ Commit history shows verified badges
 
 **GitHub Verification Flow:**
+
 1. GitHub extracts CMS signature from commit
-2. Finds certificate chain: ephemeral + bridge
-3. Verifies ephemeral cert signed by bridge cert
-4. Checks bridge cert fingerprint against uploaded cert
-5. Validates email in bridge cert matches commit author
-6. Displays "Verified" badge
+1. Finds certificate chain: ephemeral + bridge
+1. Verifies ephemeral cert signed by bridge cert
+1. Checks bridge cert fingerprint against uploaded cert
+1. Validates email in bridge cert matches commit author
+1. Displays "Verified" badge
 
 **Who Uses This:**
+
 - Open source maintainers
 - Teams requiring GitHub badges for compliance
 - Public repositories needing visible verification
 - Developers working across public/private repos
 
----
+______________________________________________________________________
 
 ### Level 3: Enterprise PKI (Future)
 
 **Setup:**
+
 ```bash
 # Company-issued bridge cert via OIDC
 signet-git init --oidc https://company.okta.com
@@ -190,6 +208,7 @@ signet-git init --oidc https://company.okta.com
 ```
 
 **What You Get:**
+
 - ✅ Everything from Level 2
 - ✅ Centralized identity management
 - ✅ Automated rotation/revocation
@@ -197,6 +216,7 @@ signet-git init --oidc https://company.okta.com
 - ✅ Integration with corporate SSO
 
 **Who Uses This:**
+
 - Large enterprises with PKI infrastructure
 - Regulated industries (finance, healthcare)
 - Companies requiring centralized key management
@@ -231,6 +251,7 @@ signet-git init --oidc https://company.okta.com
 ### Certificate Architecture
 
 **Level 0 (Machine Only):**
+
 ```
 ┌─────────────────────────────────────┐
 │ Master Key (CA)                     │
@@ -252,6 +273,7 @@ signet-git init --oidc https://company.okta.com
 ```
 
 **Level 1+ (User Attribution):**
+
 ```
 ┌─────────────────────────────────────┐
 │ Master Key (CA)                     │
@@ -840,7 +862,7 @@ $ git push
 
 **Experience**: Zero friction, maximum privacy, works offline.
 
----
+______________________________________________________________________
 
 ### Flow 2: Open Source Maintainer (Level 2)
 
@@ -876,7 +898,7 @@ $ git push
 
 **Experience**: One-time 2-minute setup, then transparent verification.
 
----
+______________________________________________________________________
 
 ### Flow 3: Hybrid Developer (Level 1 → Level 2 Progressive)
 
@@ -916,7 +938,7 @@ $ git push
 
 **Experience**: Smooth upgrade path, no re-learning, backward compatible.
 
----
+______________________________________________________________________
 
 ### Flow 4: Enterprise Developer (Future Level 3)
 
@@ -990,16 +1012,19 @@ $ git commit -S -m "message"
 ### Threat Model
 
 **Level 0 (Machine Only):**
+
 - Attacker gains access to workstation → Can sign as machine
 - Mitigation: OS keyring protection, short-lived ephemeral certs
 - Impact: Limited to machine identity (no user PII exposure)
 
 **Level 1+ (User Attribution):**
+
 - Attacker gains access to workstation → Can sign as user
 - Mitigation: OS keyring + separate bridge key, 1-year rotation
 - Impact: Can impersonate user on GitHub (same as stolen GPG key)
 
 **Additional Protections:**
+
 - Bridge cert rotation (yearly recommended)
 - Separate bridge key (can rotate without rotating master)
 - GitHub provides revocation (delete uploaded cert)
@@ -1008,28 +1033,33 @@ $ git commit -S -m "message"
 ### Privacy
 
 **HTTP Middleware (Always Level 0):**
+
 - ✅ Never exposes user email in API requests
 - ✅ Authenticated as machine ID only
 - ✅ Privacy preserved even with Level 1+ git config
 
 **Git Commits (Level-dependent):**
+
 - Level 0: No user PII (machine ID only)
 - Level 1+: User email in bridge cert (opt-in)
 
 ### Key Management
 
 **Master Key:**
+
 - Storage: OS keyring (Keychain on macOS)
 - Lifetime: 10 years (rotatable)
 - Purpose: Root of trust for machine identity
 
 **Bridge Key:**
+
 - Storage: `~/.signet/git/bridge-key.pem` (file-based)
 - Lifetime: 1 year (configurable)
 - Purpose: User attribution only
 - Rotation: Independent from master key
 
 **Ephemeral Key:**
+
 - Storage: Memory only (zeroized after use)
 - Lifetime: 5 minutes
 - Purpose: Single commit/request signature
@@ -1037,26 +1067,31 @@ $ git commit -S -m "message"
 ## Open Questions
 
 1. **Bridge Key Storage**: Should bridge key also use OS keyring?
+
    - Pro: Better security (hardware-backed on macOS)
    - Con: More complexity, file-based is simpler
    - **Decision**: Start with file-based, add keyring option later
 
-2. **Automatic Bridge Cert Rotation**: Should we auto-rotate bridge certs?
+1. **Automatic Bridge Cert Rotation**: Should we auto-rotate bridge certs?
+
    - Pro: Better security hygiene
    - Con: User must re-upload to GitHub
    - **Decision**: Manual rotation initially, explore automation in Level 3
 
-3. **Multiple User Identities**: Support multiple bridge certs (work vs. personal)?
+1. **Multiple User Identities**: Support multiple bridge certs (work vs. personal)?
+
    - Pro: Flexibility for developers with multiple email addresses
    - Con: Complexity in cert selection logic
    - **Decision**: Defer to future work, single email for v1
 
-4. **GitHub CLI Integration**: Auto-upload bridge cert via `gh` CLI?
+1. **GitHub CLI Integration**: Auto-upload bridge cert via `gh` CLI?
+
    - Pro: Frictionless Level 0 → Level 2 upgrade
    - Con: Dependency on GitHub CLI
    - **Decision**: Offer as optional enhancement, not required
 
-5. **Bridge Cert Revocation**: How to handle compromised bridge certs?
+1. **Bridge Cert Revocation**: How to handle compromised bridge certs?
+
    - Current: User deletes cert from GitHub (instant revocation)
    - Future: Support CRL/OCSP for enterprise (Level 3)
    - **Decision**: GitHub-based revocation sufficient for v1
@@ -1064,30 +1099,35 @@ $ git commit -S -m "message"
 ## Implementation Plan
 
 ### Phase 1: Core Infrastructure (Week 1)
+
 - [ ] Create `pkg/git/identity.go` with Identity struct
 - [ ] Implement `LoadIdentity()` function
 - [ ] Add `IssueBridgeCertificate()` to `pkg/attest/x509/bridge.go`
 - [ ] Update `pkg/git/sign.go` to route based on identity level
 
 ### Phase 2: CLI Commands (Week 1)
+
 - [ ] Add `--email` flag to `signet-git init`
 - [ ] Implement `createUserAttribution()` helper
 - [ ] Create `export-bridge-cert` subcommand
 - [ ] Update help text and examples
 
 ### Phase 3: Testing (Week 2)
+
 - [ ] Unit tests for bridge certificate generation
 - [ ] Integration test: Level 0 signing
 - [ ] Integration test: Level 1+ signing with bridge cert
 - [ ] GitHub verification test (manual, in Docker)
 
 ### Phase 4: Documentation (Week 2)
+
 - [ ] Update README.md with progressive disclosure levels
 - [ ] Create docs/github-verification.md guide
 - [ ] Add troubleshooting guide for cert upload
 - [ ] Update ARCHITECTURE.md with identity model
 
 ### Phase 5: GitHub CLI Integration (Future)
+
 - [ ] Add `--github-auto` flag for automatic upload
 - [ ] Integrate with `gh` CLI for cert upload
 - [ ] Auto-detect GitHub email from git config
@@ -1103,21 +1143,25 @@ $ git commit -S -m "message"
 ## Alternatives Considered
 
 ### Alternative 1: Separate Binaries
+
 Create `signet-git-machine` and `signet-git-user` as separate binaries.
 
 **Rejected**: Too much duplication, confusing for users, violates DRY.
 
 ### Alternative 2: Always Include Email
+
 Force users to provide email during `signet-git init`.
 
 **Rejected**: Violates privacy-by-default principle, doesn't support machine-only use cases.
 
 ### Alternative 3: Automatic GitHub Detection
+
 Auto-detect GitHub email from `git config user.email` and create bridge cert.
 
 **Rejected**: Surprising behavior (implicit user attribution), doesn't support privacy use case.
 
 ### Alternative 4: OIDC-Only Attribution
+
 Only support user attribution via OIDC (Level 3), skip manual bridge cert.
 
 **Rejected**: Too high barrier to entry, doesn't support offline workflows.
@@ -1127,11 +1171,12 @@ Only support user attribution via OIDC (Level 3), skip manual bridge cert.
 Progressive identity disclosure solves the fundamental tension between privacy (machine authentication) and accountability (user attribution) by making them orthogonal concerns.
 
 **Key Principles:**
+
 1. **Default to privacy**: Machine identity by default
-2. **Opt-in to attribution**: User chooses to add email
-3. **Clear separation**: HTTP auth never leaks user identity
-4. **Backward compatible**: Existing workflows unchanged
-5. **GitHub compatible**: Full support for verified badges
+1. **Opt-in to attribution**: User chooses to add email
+1. **Clear separation**: HTTP auth never leaks user identity
+1. **Backward compatible**: Existing workflows unchanged
+1. **GitHub compatible**: Full support for verified badges
 
 This design enables signet to serve both privacy-focused developers (Level 0) and open source maintainers needing GitHub verification (Level 2) without compromising either use case.
 

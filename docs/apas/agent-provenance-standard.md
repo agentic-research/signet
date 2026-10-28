@@ -41,13 +41,13 @@ APAS uses established provenance and remote-attestation roles. A component MAY
 fill more than one role, except where a claimed assurance level requires those
 roles to be independently controlled.
 
-| Role | APAS meaning |
-|---|---|
-| **AI Agent** | Software or a model-mediated system that observes, decides, invokes tools, or emits outputs during an Activity. In W3C PROV terms it is an Agent associated with the Activity. |
-| **Workload** | A deployed software instance or collection of code and configuration that performs Activities. Its identity may be expressed using SPIFFE or another identity system. |
-| **Attester** | Produces Evidence about an Activity, Workload, execution boundary, or Entity. |
-| **Verifier** | Appraises Evidence against policy and produces an Attestation Result. |
-| **Relying Party** | Uses an APAS attestation or Attestation Result to make a decision. |
+| Role              | APAS meaning                                                                                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **AI Agent**      | Software or a model-mediated system that observes, decides, invokes tools, or emits outputs during an Activity. In W3C PROV terms it is an Agent associated with the Activity. |
+| **Workload**      | A deployed software instance or collection of code and configuration that performs Activities. Its identity may be expressed using SPIFFE or another identity system.          |
+| **Attester**      | Produces Evidence about an Activity, Workload, execution boundary, or Entity.                                                                                                  |
+| **Verifier**      | Appraises Evidence against policy and produces an Attestation Result.                                                                                                          |
+| **Relying Party** | Uses an APAS attestation or Attestation Result to make a decision.                                                                                                             |
 
 The complete vocabulary is normative and defined in Appendix A.
 
@@ -55,16 +55,16 @@ The complete vocabulary is normative and defined in Appendix A.
 
 APAS reuses these specifications rather than creating incompatible equivalents:
 
-| Specification | APAS use |
-|---|---|
-| [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) and [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174) | Normative requirement language (BCP 14) |
-| [W3C PROV-DM](https://www.w3.org/TR/prov-dm/) | Entity, Activity, Agent, Plan, and causal relations |
-| [SPIFFE Concepts](https://spiffe.io/docs/latest/spiffe-about/spiffe-concepts/) | Workload and Workload identity terminology |
-| [IETF RATS Architecture, RFC 9334](https://www.rfc-editor.org/rfc/rfc9334) | Attester, Evidence, Verifier, Attestation Result, and Relying Party roles |
-| [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md) | Event records of Occurrences |
-| [in-toto Statement v1](https://in-toto.io/Statement/v1) | Baseline attestation statement |
-| [DSSE](https://github.com/secure-systems-lab/dsse/blob/master/protocol.md) | Baseline authentication envelope at L2 and above |
-| [SLSA v1.0](https://slsa.dev/spec/v1.0/) | Additive assurance and protected provenance generation |
+| Specification                                                                                             | APAS use                                                                  |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) and [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174) | Normative requirement language (BCP 14)                                   |
+| [W3C PROV-DM](https://www.w3.org/TR/prov-dm/)                                                             | Entity, Activity, Agent, Plan, and causal relations                       |
+| [SPIFFE Concepts](https://spiffe.io/docs/latest/spiffe-about/spiffe-concepts/)                            | Workload and Workload identity terminology                                |
+| [IETF RATS Architecture, RFC 9334](https://www.rfc-editor.org/rfc/rfc9334)                                | Attester, Evidence, Verifier, Attestation Result, and Relying Party roles |
+| [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md)                    | Event records of Occurrences                                              |
+| [in-toto Statement v1](https://in-toto.io/Statement/v1)                                                   | Baseline attestation statement                                            |
+| [DSSE](https://github.com/secure-systems-lab/dsse/blob/master/protocol.md)                                | Baseline authentication envelope at L2 and above                          |
+| [SLSA v1.0](https://slsa.dev/spec/v1.0/)                                                                  | Additive assurance and protected provenance generation                    |
 
 OpenTelemetry Events and software-bill-of-materials formats are informative
 integrations, not APAS ontology or carrier requirements.
@@ -138,9 +138,9 @@ provenance:
 
 1. Mutable references are attack surfaces; security-relevant inputs and outputs
    need content-bound identities.
-2. Long-lived, ambient credentials increase persistence and blast radius;
+1. Long-lived, ambient credentials increase persistence and blast radius;
    authority should be short-lived, scoped, and attributable to its use.
-3. Self-recording is not independent appraisal; stronger claims require a
+1. Self-recording is not independent appraisal; stronger claims require a
    Verifier and protected authority outside the Activity being appraised.
 
 These lessons constrain APAS assurance claims without prescribing one runtime or
@@ -154,13 +154,13 @@ Agent and Workload were associated with it, what relevant Occurrences were
 recorded as Events, under what authority did it operate, and what Evidence
 supports those claims?”
 
-| Property | SBOM | APAS provenance |
-|---|---|---|
-| Primary subject | Components | Agent Activity and related Entities |
-| Temporal model | Inventory or point-in-time snapshot | Lifecycle, Segments, Events, and causal relations |
-| Identity | Package or publisher | Activity, Agent, Workload, Evidence producer, and authority |
-| Verification | Digests and publisher metadata | Authenticated records and, at higher levels, independent appraisal |
-| Outcome | Component presence | Distinct lifecycle, termination, and work-outcome claims |
+| Property        | SBOM                                | APAS provenance                                                    |
+| --------------- | ----------------------------------- | ------------------------------------------------------------------ |
+| Primary subject | Components                          | Agent Activity and related Entities                                |
+| Temporal model  | Inventory or point-in-time snapshot | Lifecycle, Segments, Events, and causal relations                  |
+| Identity        | Package or publisher                | Activity, Agent, Workload, Evidence producer, and authority        |
+| Verification    | Digests and publisher metadata      | Authenticated records and, at higher levels, independent appraisal |
+| Outcome         | Component presence                  | Distinct lifecycle, termination, and work-outcome claims           |
 
 A Workload is not an Activity. A Workload is long-lived deployed software and
 may conduct many Activities. An Activity is the bounded provenance subject whose
@@ -360,7 +360,9 @@ neither, and instead converts an invisible risk into a measured one.
 
 **Origin entry.** An origin entry is a pair:
 
-    OriginEntry := (uri, vouchedBy)
+```
+OriginEntry := (uri, vouchedBy)
+```
 
 `uri` names where the content came from. `vouchedBy` is a single
 **authority identifier** — the name of the party vouching for that
@@ -391,11 +393,11 @@ destroy the total ordering that makes origin sets comparable.
 evaluation time from an origin set and the evaluator's own trusted-authority
 set:
 
-| Confidence | Condition |
-|---|---|
-| `origin-attested` | every entry is vouched by an authority the evaluator trusts |
+| Confidence        | Condition                                                                         |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `origin-attested` | every entry is vouched by an authority the evaluator trusts                       |
 | `origin-asserted` | origins are recorded, but some are unvouched or vouched by an untrusted authority |
-| `origin-unknown` | no origin information (**including the empty set**) |
+| `origin-unknown`  | no origin information (**including the empty set**)                               |
 
 Derivation MUST fail closed: an empty origin set yields `origin-unknown`, never
 `origin-attested` by vacuous truth. An implementation MUST NOT equate L4 origin
@@ -656,13 +658,13 @@ normative distinction needed for the claimed level.
 
 Profiles are named and versioned. They compose along independent axes:
 
-| Axis | Defines |
-|---|---|
-| **Carrier** | Serialization, envelope, canonicalization, and transport mapping |
+| Axis                  | Defines                                                                                  |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| **Carrier**           | Serialization, envelope, canonicalization, and transport mapping                         |
 | **Activity topology** | How implementation units map to Activities, Segments, parent/child relations, and resume |
-| **Evidence** | Evidence types, producers, protection, appraisal, and disclosure |
-| **Identity** | Agent, Workload, Attester, Verifier, authority, key, and trust semantics |
-| **Implementation** | A documented composition of the other Profiles plus implementation-specific fields |
+| **Evidence**          | Evidence types, producers, protection, appraisal, and disclosure                         |
+| **Identity**          | Agent, Workload, Attester, Verifier, authority, key, and trust semantics                 |
+| **Implementation**    | A documented composition of the other Profiles plus implementation-specific fields       |
 
 An **orchestrated topology** may map a bounded delegated execution to an
 Activity and pipeline stages to child Activities or Segments. A **durable
@@ -682,18 +684,18 @@ The legacy predicate
 `https://notme.bot/provenance/dispatch/v1` remains a compatibility carrier. An
 ART verifier maps it to `activity/v1` as follows:
 
-| ART field or mechanism | APAS mapping |
-|---|---|
-| dispatch ID and session | Activity and Segment identities |
-| agent definition, provider, model | AI Agent association and behavior-changing Entities |
-| work-item reference and pipeline | Plan, input Entity, parent/child Activity topology |
-| execution timestamps and isolation | lifecycle Events and execution Evidence |
-| permission profile and mediated tool calls | declared capability set and capability-use Events |
-| commits and changed files | generated Entities |
-| verification tiers | Evidence or Attestation Result, depending on producer independence |
-| cost and token usage | Profile-defined Event data |
-| outcome and stop reason | distinct outcome and termination reason |
-| handoff chain | Segment or child-Activity causal commitments |
+| ART field or mechanism                     | APAS mapping                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| dispatch ID and session                    | Activity and Segment identities                                    |
+| agent definition, provider, model          | AI Agent association and behavior-changing Entities                |
+| work-item reference and pipeline           | Plan, input Entity, parent/child Activity topology                 |
+| execution timestamps and isolation         | lifecycle Events and execution Evidence                            |
+| permission profile and mediated tool calls | declared capability set and capability-use Events                  |
+| commits and changed files                  | generated Entities                                                 |
+| verification tiers                         | Evidence or Attestation Result, depending on producer independence |
+| cost and token usage                       | Profile-defined Event data                                         |
+| outcome and stop reason                    | distinct outcome and termination reason                            |
+| handoff chain                              | Segment or child-Activity causal commitments                       |
 
 ART identity decomposes Owner, Machine, Actor, and Identity. Signet bridge
 certificates bind a short-lived X.509/Ed25519 identity to a running dispatch;
@@ -769,6 +771,7 @@ Timestamps, filenames, storage order, sampled telemetry, and a collection of
 otherwise valid signatures do not prove completeness. A chain root is a
 commitment, not automatically a trust root; the Relying Party still evaluates
 who authenticated it and what capture scope it covers.
+
 ## 4. Security and adversarial model
 
 APAS separates record authenticity, protected observation, appraisal, and
@@ -777,22 +780,22 @@ into proof that an Agent's decisions or outputs are correct.
 
 ### 4.1 Threat coverage
 
-| Threat or failure | Required response |
-|---|---|
-| Forged producer or Workload identity | L2 authentication binds a named producer to independently configured trust. |
-| Tampered Activity record | L2 detects changes to authenticated statement content. |
-| Substituted or unbound Evidence | L2 binds Evidence references; L3 binds the Verifier's appraisal to the same Activity and Evidence. |
-| Activity forges or rewrites execution receipts | L3 protects Evidence outside the Activity's authority. |
-| Unauthorized capability use | L3 enforces a declared, default-deny capability set; an undeclared successful operation invalidates the claim. |
-| Missing or sampled Events presented as complete | L1 requires an honest capture scope; L4 requires omission-detecting commitments for complete-capture claims. |
-| Missing or reordered Segments | L4 makes the discontinuity detectable and prevents unverified continuity from preserving Activity identity. |
-| Checkpoint, authority, or configuration drift on resume | L4 requires continuity verification or a new Activity identity. |
-| Input or output mutation | L4 content commitments detect substitution within the declared scope. |
-| Unknown origin represented as trusted | §2.5 requires fail-closed evaluator-derived confidence and explicit `origin-unknown` coverage at L4. |
-| Origin disclosure leaks an Agent's read history | Broadcast carriers disclose only a digest commitment; full origin sets require scoped disclosure. |
-| Termination represented as successful work | L1 separates lifecycle state, termination reason, and work outcome. |
-| Appraisal represented as work outcome | L3 keeps Attestation Result distinct from Activity outcome. |
-| Compromised model provider | APAS preserves attributable Evidence but does not prevent semantically malicious model behavior. |
+| Threat or failure                                       | Required response                                                                                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Forged producer or Workload identity                    | L2 authentication binds a named producer to independently configured trust.                                    |
+| Tampered Activity record                                | L2 detects changes to authenticated statement content.                                                         |
+| Substituted or unbound Evidence                         | L2 binds Evidence references; L3 binds the Verifier's appraisal to the same Activity and Evidence.             |
+| Activity forges or rewrites execution receipts          | L3 protects Evidence outside the Activity's authority.                                                         |
+| Unauthorized capability use                             | L3 enforces a declared, default-deny capability set; an undeclared successful operation invalidates the claim. |
+| Missing or sampled Events presented as complete         | L1 requires an honest capture scope; L4 requires omission-detecting commitments for complete-capture claims.   |
+| Missing or reordered Segments                           | L4 makes the discontinuity detectable and prevents unverified continuity from preserving Activity identity.    |
+| Checkpoint, authority, or configuration drift on resume | L4 requires continuity verification or a new Activity identity.                                                |
+| Input or output mutation                                | L4 content commitments detect substitution within the declared scope.                                          |
+| Unknown origin represented as trusted                   | §2.5 requires fail-closed evaluator-derived confidence and explicit `origin-unknown` coverage at L4.           |
+| Origin disclosure leaks an Agent's read history         | Broadcast carriers disclose only a digest commitment; full origin sets require scoped disclosure.              |
+| Termination represented as successful work              | L1 separates lifecycle state, termination reason, and work outcome.                                            |
+| Appraisal represented as work outcome                   | L3 keeps Attestation Result distinct from Activity outcome.                                                    |
+| Compromised model provider                              | APAS preserves attributable Evidence but does not prevent semantically malicious model behavior.               |
 
 A threat marked “detected” is detected only when the affected item lies inside
 the attestation's declared evidence and capture scope. A producer that lies about
@@ -804,39 +807,39 @@ protected completeness commitments exist to reduce that trust.
 1. **Semantic correctness and safety.** A valid attestation can describe a wrong,
    unsafe, degraded, or malicious result. APAS records provenance and appraisal;
    domain review remains separate.
-2. **Compromised model provider.** A poisoned provider can produce malicious
+1. **Compromised model provider.** A poisoned provider can produce malicious
    output through an otherwise conforming Activity. Diversity of providers,
    adversarial review, and content policy are external mitigations.
-3. **All covert channels.** L3 constrains declared channels but cannot guarantee
+1. **All covert channels.** L3 constrains declared channels but cannot guarantee
    elimination of timing, resource, model-output, or other covert channels.
-4. **Time-of-check/time-of-use outside committed scope.** Mutable state used
+1. **Time-of-check/time-of-use outside committed scope.** Mutable state used
    after appraisal can invalidate the practical decision unless snapshotting or
    an equivalent atomic binding is applied.
-5. **Self-attestation below L3.** L1 and L2 may be valuable forensic records, but
+1. **Self-attestation below L3.** L1 and L2 may be valuable forensic records, but
    a compromised producer can emit authentic falsehoods. L3 adds independent
    protected observation and appraisal.
-6. **Origin is not safety.** `origin-attested` means trusted authorities vouch
+1. **Origin is not safety.** `origin-attested` means trusted authorities vouch
    for attribution. A correctly attributed source can still be malicious.
-7. **Origin confidentiality.** Digest-only disclosure reduces read-history
+1. **Origin confidentiality.** Digest-only disclosure reduces read-history
    exposure but still leaks equality and change across observations.
-8. **Private reasoning.** APAS does not require hidden chain-of-thought. It
+1. **Private reasoning.** APAS does not require hidden chain-of-thought. It
    records observable outputs, tool and lifecycle Events, and rationale only
    when the Agent or application explicitly declares that rationale as output.
 
 ## 5. Relationship to existing standards
 
-| Standard | APAS relationship |
-|---|---|
-| **W3C PROV** | Supplies Entity, Activity, Agent, Plan, and causal relations. APAS specializes them for bounded AI-agent work. |
-| **SPIFFE** | Supplies Workload and Workload identity vocabulary. A SPIFFE ID may identify a Workload; it does not identify the Activity by itself. |
-| **IETF RATS** | Supplies Attester, Evidence, Verifier, Attestation Result, and Relying Party roles used by L3 appraisal. |
-| **in-toto** | Supplies the mandatory baseline Statement carrier and subject/predicate separation. |
-| **DSSE** | Supplies the mandatory L2+ authentication wrapper for the baseline carrier. |
-| **SLSA** | Provides precedent for cumulative assurance and protected provenance generation; APAS applies those ideas to agent Activities. |
-| **CloudEvents** | Informs Event as a record of an Occurrence with source, type, identity, time, and data. |
-| **OpenTelemetry** | MAY encode Event, trace, or span Evidence. Sampled telemetry is not proof of complete provenance. |
-| **CycloneDX** | Complements APAS with software and AI/ML component inventory; inventory is not an Activity history. |
-| **Sigstore** | MAY be used by an identity Profile for keyless signing, certificates, and transparency; it is not required by the core. |
+| Standard          | APAS relationship                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **W3C PROV**      | Supplies Entity, Activity, Agent, Plan, and causal relations. APAS specializes them for bounded AI-agent work.                        |
+| **SPIFFE**        | Supplies Workload and Workload identity vocabulary. A SPIFFE ID may identify a Workload; it does not identify the Activity by itself. |
+| **IETF RATS**     | Supplies Attester, Evidence, Verifier, Attestation Result, and Relying Party roles used by L3 appraisal.                              |
+| **in-toto**       | Supplies the mandatory baseline Statement carrier and subject/predicate separation.                                                   |
+| **DSSE**          | Supplies the mandatory L2+ authentication wrapper for the baseline carrier.                                                           |
+| **SLSA**          | Provides precedent for cumulative assurance and protected provenance generation; APAS applies those ideas to agent Activities.        |
+| **CloudEvents**   | Informs Event as a record of an Occurrence with source, type, identity, time, and data.                                               |
+| **OpenTelemetry** | MAY encode Event, trace, or span Evidence. Sampled telemetry is not proof of complete provenance.                                     |
+| **CycloneDX**     | Complements APAS with software and AI/ML component inventory; inventory is not an Activity history.                                   |
+| **Sigstore**      | MAY be used by an identity Profile for keyless signing, certificates, and transparency; it is not required by the core.               |
 
 ## 6. Non-normative implementation mappings
 
@@ -849,14 +852,14 @@ Activity and declared scope.
 
 The first implementation is a composition, not a single daemon or trust domain.
 
-| Component | APAS mapping |
-|---|---|
-| **Rosary** | Plans, capsules and Activities, phase child Activities, Events, handoffs, outcomes, work decomposition, and orchestration lineage |
-| **Cloister** | Enforced execution boundaries, capability Evidence, receipts, event-stream commitments, and content-origin production |
-| **Ley-line-open** | Execution contracts, CAS Entities, receipt and storage primitives, signature primitives, and reproducible content commitments |
-| **Signet** | Principal and Workload identity, delegated Activity identity, signature production, and trust verification |
-| **Notme** | Principals, delegation, authority, and the public predicate/schema namespace |
-| **Mache** | Projected repository and code context represented as input Entities with attributable origins |
+| Component         | APAS mapping                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Rosary**        | Plans, capsules and Activities, phase child Activities, Events, handoffs, outcomes, work decomposition, and orchestration lineage |
+| **Cloister**      | Enforced execution boundaries, capability Evidence, receipts, event-stream commitments, and content-origin production             |
+| **Ley-line-open** | Execution contracts, CAS Entities, receipt and storage primitives, signature primitives, and reproducible content commitments     |
+| **Signet**        | Principal and Workload identity, delegated Activity identity, signature production, and trust verification                        |
+| **Notme**         | Principals, delegation, authority, and the public predicate/schema namespace                                                      |
+| **Mache**         | Projected repository and code context represented as input Entities with attributable origins                                     |
 
 Cloister deliberately separates the execution boundary from appraisal authority.
 The hypervisor tier enforces isolation and produces boundary/capability Evidence;
@@ -1008,11 +1011,11 @@ a Verifier can appraise it.
 
 ## Appendix B: ART domain separation (non-normative)
 
-| Domain | Canonical URI | Purpose |
-|--------|--------------|---------|
-| `notme.bot` | `https://notme.bot/provenance/...` | APAS standard — predicate schemas, spec documentation |
-| `auth.notme.bot` | `https://auth.notme.bot/` | Signet identity authority — certificate issuance |
-| `rosary.bot` | `https://rosary.bot/` | Rosary orchestrator — reference implementation docs |
+| Domain           | Canonical URI                      | Purpose                                               |
+| ---------------- | ---------------------------------- | ----------------------------------------------------- |
+| `notme.bot`      | `https://notme.bot/provenance/...` | APAS standard — predicate schemas, spec documentation |
+| `auth.notme.bot` | `https://auth.notme.bot/`          | Signet identity authority — certificate issuance      |
+| `rosary.bot`     | `https://rosary.bot/`              | Rosary orchestrator — reference implementation docs   |
 
 These labels belong to the ART Carrier and identity Profiles. Other
 implementations do not need these domains, credentials, or services. The
@@ -1023,27 +1026,27 @@ implementations do not need these domains, credentials, or services. The
 This audit prevents the 0.4 rewrite from silently dropping prior requirements.
 “Profile” means the mechanism remains available but is not universal.
 
-| APAS 0.3 concept | APAS 0.4 disposition |
-|---|---|
-| Agent pipeline and decision-chain motivation | Retained in agent-Activity scope and generalized beyond one topology. |
-| Dispatch manifest and JSON stream | L1 machine-readable record; concrete fields retained in the ART Profile. |
-| Tool-call audit | L1 Events with lifecycle and causal context. |
-| Phase handoffs | Segment or child-Activity mapping and commitments in the ART Profile. |
-| in-toto Statement and DSSE | Mandatory baseline carrier; DSSE required at L2 and above. |
-| Fail-closed unsigned behavior | Retained in L2 and §3.4. |
-| Content hashes rather than paths | Core content-binding property plus ART commitment vectors. |
-| Dispatch and commit signatures | Core authentication property; git and dispatch details remain in the ART Profile. |
-| Bridge certificate and four-entity identity | Retained in the ART identity Profile. |
-| CMS and Ed25519 implementation | Retained in the ART Profile, not required as universal algorithms. |
-| Sandbox, workspace, network, and filesystem controls | L3 declared and enforced capabilities plus execution Evidence. |
-| Prompt, context, tool, work-item, model-output, and runtime binding | Retained and broadened as L4 behavior-changing inputs, Events, and outputs. |
-| Phase/work-item/group/lifecycle hash hierarchy | Retained in the ART Profile; core uses causal and omission-detecting commitment properties. |
-| Origin entries, evaluator-derived trust, privacy, and `originsHash` | Retained in full in §2.5 and §3.6. |
-| Threat matrix and red-team findings | Retained and expanded in §4 using core vocabulary. |
-| Cost, git statistics, and verification tiers | Retained as optional ART Profile data. |
-| Predicate splitting | Replaced by composable Carrier, topology, Evidence, identity, and implementation Profiles. |
-| Per-level implementation-status labels | Removed from normative requirements; implementation gaps are stated only in §6. |
-| Domain separation | Exact ART labels retained in Appendix B; baseline URI semantics remain in §3.2. |
+| APAS 0.3 concept                                                    | APAS 0.4 disposition                                                                        |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Agent pipeline and decision-chain motivation                        | Retained in agent-Activity scope and generalized beyond one topology.                       |
+| Dispatch manifest and JSON stream                                   | L1 machine-readable record; concrete fields retained in the ART Profile.                    |
+| Tool-call audit                                                     | L1 Events with lifecycle and causal context.                                                |
+| Phase handoffs                                                      | Segment or child-Activity mapping and commitments in the ART Profile.                       |
+| in-toto Statement and DSSE                                          | Mandatory baseline carrier; DSSE required at L2 and above.                                  |
+| Fail-closed unsigned behavior                                       | Retained in L2 and §3.4.                                                                    |
+| Content hashes rather than paths                                    | Core content-binding property plus ART commitment vectors.                                  |
+| Dispatch and commit signatures                                      | Core authentication property; git and dispatch details remain in the ART Profile.           |
+| Bridge certificate and four-entity identity                         | Retained in the ART identity Profile.                                                       |
+| CMS and Ed25519 implementation                                      | Retained in the ART Profile, not required as universal algorithms.                          |
+| Sandbox, workspace, network, and filesystem controls                | L3 declared and enforced capabilities plus execution Evidence.                              |
+| Prompt, context, tool, work-item, model-output, and runtime binding | Retained and broadened as L4 behavior-changing inputs, Events, and outputs.                 |
+| Phase/work-item/group/lifecycle hash hierarchy                      | Retained in the ART Profile; core uses causal and omission-detecting commitment properties. |
+| Origin entries, evaluator-derived trust, privacy, and `originsHash` | Retained in full in §2.5 and §3.6.                                                          |
+| Threat matrix and red-team findings                                 | Retained and expanded in §4 using core vocabulary.                                          |
+| Cost, git statistics, and verification tiers                        | Retained as optional ART Profile data.                                                      |
+| Predicate splitting                                                 | Replaced by composable Carrier, topology, Evidence, identity, and implementation Profiles.  |
+| Per-level implementation-status labels                              | Removed from normative requirements; implementation gaps are stated only in §6.             |
+| Domain separation                                                   | Exact ART labels retained in Appendix B; baseline URI semantics remain in §3.2.             |
 
 The following former assumptions are intentionally rejected as universal
 claims:

@@ -14,7 +14,7 @@
 **Context**: Preparation for signet workspace restructuring (signet + sigid + sigpol)
 **Inputs**: ADR-011 (`docs/design/011-policy-bundles-scim.md`), `pkg/policy/` on main, `pkg/policy/` on `feat/trust-policy-bundles`
 
----
+______________________________________________________________________
 
 ## 1. Designed but Not Coded
 
@@ -24,19 +24,19 @@ These items are specified in ADR-011 but have no implementation.
 
 ADR-011 Section 5.5 specifies a minimal SCIM 2.0 surface. None of this exists:
 
-| Endpoint | ADR Section | Notes |
-|----------|-------------|-------|
-| `GET /scim/v2/ServiceProviderConfig` | 5.5 | IdP probes this first; declares supported operations |
-| `GET /scim/v2/Schemas` | 5.5 | IdP validates schema support |
-| `GET /scim/v2/ResourceTypes` | 5.5 | IdP discovers User/Group resource types |
-| `POST /scim/v2/Users` | 5.5 | Provision subject -> `Compiler.AddSubject()` |
-| `GET /scim/v2/Users/{id}` | 5.5 | IdP verifies sync state |
-| `PATCH /scim/v2/Users/{id}` | 5.5 | Deactivation, group changes -> `Compiler.DeactivateSubject()` / `SetSubjectGroups()` |
-| `DELETE /scim/v2/Users/{id}` | 5.5 | Deprovision -> `Compiler.RemoveSubject()` |
-| `GET /scim/v2/Users` | 5.5 | List + filter (`eq` on userName, externalId, emails.value, active) |
-| `POST /scim/v2/Groups` | 5.5 | Optional group management -> `Compiler.DefineGroup()` |
-| `PATCH /scim/v2/Groups/{id}` | 5.5 | Membership changes -> `Compiler.DefineGroup()` (update) |
-| `DELETE /scim/v2/Groups/{id}` | 5.5 | -> `Compiler.RemoveGroup()` |
+| Endpoint                             | ADR Section | Notes                                                                                |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------ |
+| `GET /scim/v2/ServiceProviderConfig` | 5.5         | IdP probes this first; declares supported operations                                 |
+| `GET /scim/v2/Schemas`               | 5.5         | IdP validates schema support                                                         |
+| `GET /scim/v2/ResourceTypes`         | 5.5         | IdP discovers User/Group resource types                                              |
+| `POST /scim/v2/Users`                | 5.5         | Provision subject -> `Compiler.AddSubject()`                                         |
+| `GET /scim/v2/Users/{id}`            | 5.5         | IdP verifies sync state                                                              |
+| `PATCH /scim/v2/Users/{id}`          | 5.5         | Deactivation, group changes -> `Compiler.DeactivateSubject()` / `SetSubjectGroups()` |
+| `DELETE /scim/v2/Users/{id}`         | 5.5         | Deprovision -> `Compiler.RemoveSubject()`                                            |
+| `GET /scim/v2/Users`                 | 5.5         | List + filter (`eq` on userName, externalId, emails.value, active)                   |
+| `POST /scim/v2/Groups`               | 5.5         | Optional group management -> `Compiler.DefineGroup()`                                |
+| `PATCH /scim/v2/Groups/{id}`         | 5.5         | Membership changes -> `Compiler.DefineGroup()` (update)                              |
+| `DELETE /scim/v2/Groups/{id}`        | 5.5         | -> `Compiler.RemoveGroup()`                                                          |
 
 **Not implemented per ADR**: Bulk operations, PATCH path syntax beyond `replace`, `sortBy`/`sortOrder`, `PUT` (full replace).
 
@@ -45,6 +45,7 @@ The ADR proposes a package layout (`pkg/scim/handler.go`, `pkg/scim/filter.go`, 
 ### 1.2 SCIM Endpoint Authentication
 
 ADR-011 Section 5.5 specifies two mechanisms:
+
 - OAuth 2.0 Bearer Token (default for v1, pre-shared, rotated out-of-band)
 - mTLS client certificate (preferred for production)
 
@@ -69,6 +70,7 @@ ADR-011 Section 5.4 says `PolicyChecker` reuses `types.Storage` for seqno persis
 ### 1.7 Authority Integration (require-policy flag)
 
 ADR-011 Section 5.5 specifies:
+
 - `signet authority --require-policy` flag to disable bootstrap mode
 - Startup log message indicating bootstrap vs. policy-enforced mode
 - Health check field for bootstrap status
@@ -87,7 +89,7 @@ ADR-011 Section 5.2 describes SCIM operations mutating staging state that then t
 
 ADR-011 Section 5.2 lists three options for staging state storage: in-memory, local JSON file, SQLite. The current `Compiler` is in-memory only. No persistence or recovery-from-IdP-sync logic exists.
 
----
+______________________________________________________________________
 
 ## 2. Coded but Not Designed
 
@@ -98,6 +100,7 @@ These items exist in `pkg/policy/` but were not specified in ADR-011.
 The `StaticPolicyEvaluator` wraps the pre-existing `AllowedRepositories`/`AllowedWorkflows` config pattern from `pkg/oidc/github.go` into a `PolicyEvaluator` interface. ADR-011 does not mention this evaluator -- the ADR assumes policy comes from signed bundles, not static allowlists.
 
 **What it does**:
+
 - Checks repository and workflow against static string allowlists
 - Empty allowlist = allow all
 - Supports a `CapabilityMapper` function for claims-to-capability-URI mapping
@@ -110,6 +113,7 @@ The `StaticPolicyEvaluator` wraps the pre-existing `AllowedRepositories`/`Allowe
 The `PolicyEvaluator` interface (`Evaluate(ctx, *EvaluationRequest) (*EvaluationResult, error)`) is not described in ADR-011. The ADR instead shows a `PolicyChecker` with `CheckSubject()` and `ResolveCapabilities()` methods.
 
 There are now **two parallel abstractions**:
+
 - `PolicyEvaluator` (main) -- higher-level, takes provider/subject/claims, returns allowed/denied + capabilities as string URIs
 - `PolicyChecker` (feat/trust-policy-bundles) -- lower-level, takes subjectID, returns `*Subject` struct + capabilities as uint64 token IDs
 
@@ -127,7 +131,7 @@ The `RequestedCaps []string` field on `EvaluationRequest` allows subjects to req
 
 The tests use capability URIs like `urn:signet:cap:write:repo:github.com/agentic-research/signet`. ADR-011 and ADR-010 use integer token IDs (uint64) from a registry. These are different representations of capabilities and need a mapping between them.
 
----
+______________________________________________________________________
 
 ## 3. Missing Entirely
 
@@ -150,6 +154,7 @@ Google Workspace deviates from RFC 7644 in ways that would break a strict SCIM i
 ADR-011 Section 5.1 acknowledges this: "For v1 (single-authority, single-IdP), raw `sub` values are acceptable as map keys. In a multi-IdP deployment, subject keys MUST use a composite `{issuer}/{sub}` format."
 
 What is missing:
+
 - No design for when/how the transition from raw `sub` to composite `{issuer}/{sub}` happens
 - No migration path for existing bundles when a second IdP is added
 - No consideration of how the SCIM endpoint differentiates users from different IdPs (SCIM has no concept of OIDC issuer)
@@ -158,6 +163,7 @@ What is missing:
 ### 3.3 Policy Bundle Versioning / Migration
 
 Neither ADR-011 nor the code address:
+
 - **Schema versioning**: What happens when the CBOR bundle schema changes (new fields, changed semantics)? The domain prefix `sigpol-trust-v1:` implies versioning, but there is no v1-to-v2 migration design.
 - **Backwards compatibility**: Can a newer checker read an older bundle format? Can an older checker safely reject a newer bundle?
 - **Feature flags in bundles**: How are new per-subject or per-group fields introduced without breaking existing verifiers?
@@ -165,6 +171,7 @@ Neither ADR-011 nor the code address:
 ### 3.4 Epoch Semantics Across Policy + CA Bundles
 
 ADR-011 states policy bundles use epoch-based revocation "same as CA bundles." But:
+
 - CA bundle epoch bump invalidates all certs issued in the prior epoch
 - Policy bundle epoch bump (triggered by `RemoveSubject`) invalidates... what exactly?
 - If a subject is removed (epoch bump in policy bundle) but the CA bundle epoch has not bumped, do existing certs remain valid?
@@ -173,6 +180,7 @@ ADR-011 states policy bundles use epoch-based revocation "same as CA bundles." B
 ### 3.5 Observability / Audit Trail
 
 Neither ADR-011 nor the code address:
+
 - Logging of SCIM operations (who provisioned/deprovisioned whom, when)
 - Bundle compilation audit trail (which SCIM events produced which bundle version)
 - Metrics (bundle age, fetch latency, cache hit rate, bootstrap mode status)
@@ -181,6 +189,7 @@ Neither ADR-011 nor the code address:
 ### 3.6 Rate Limiting / Abuse Prevention for SCIM Endpoints
 
 SCIM endpoints are HTTP APIs that accept mutations. No design for:
+
 - Rate limiting per IdP caller
 - Request size limits
 - Protection against a compromised IdP flooding SCIM with provisions/deprovisions
@@ -192,6 +201,7 @@ ADR-011 comparison matrix mentions "Ed25519/ML-DSA" for bundle signatures. The `
 ### 3.8 Reconciliation Between StaticPolicyEvaluator and PolicyChecker
 
 The authority currently uses `PolicyEvaluator` (static allowlists). ADR-011 introduces `PolicyChecker` (bundle-driven). The transition path is undesigned:
+
 - When both are active, which takes precedence?
 - Is there a "composite evaluator" that checks static allowlists AND bundle policy?
 - Does the `--require-policy` flag disable static allowlists?
@@ -199,12 +209,13 @@ The authority currently uses `PolicyEvaluator` (static allowlists). ADR-011 intr
 ### 3.9 Testing Strategy for SCIM Compliance
 
 No test plan for:
+
 - SCIM protocol conformance testing (RFC 7644)
 - IdP-specific integration tests (Okta, Entra ID, Google Workspace)
 - SCIM filter parser edge cases
 - End-to-end: IdP pushes SCIM -> bundle compiled -> cert issued/denied
 
----
+______________________________________________________________________
 
 ## 4. Package Layout for sigpol in a Go Workspace
 
@@ -274,34 +285,39 @@ pkg/signet has NO dependency on sigid or sigpol
 
 1. **Does sigpol become its own Go module?** If yes, it gets its own `go.mod` and versioning. If no, it stays as packages under signet's module. Go workspace (`go.work`) supports either.
 
-2. **Where does `PolicyEvaluator` live?** It is the contract that the authority (in `cmd/signet/`) calls. Options:
+1. **Where does `PolicyEvaluator` live?** It is the contract that the authority (in `cmd/signet/`) calls. Options:
+
    - In `pkg/sigpol/` -- natural home, but creates import from `cmd/signet/` to sigpol
    - In `pkg/signet/` -- keeps the interface in the core, but policy is not a core signet concern
    - Recommendation: `pkg/sigpol/evaluator.go` -- the authority already imports policy; this just changes the import path
 
-3. **How does StaticPolicyEvaluator coexist with bundle-based evaluation?** Options:
+1. **How does StaticPolicyEvaluator coexist with bundle-based evaluation?** Options:
+
    - Composite evaluator that chains static + bundle checks
    - Configuration-driven: `--policy-mode=static|bundle|hybrid`
    - Bundle evaluator wraps/replaces static when a bundle is available (bootstrap mode handles the transition)
 
----
+______________________________________________________________________
 
 ## 5. Priority Ordering
 
 For initial sigpol implementation, the work naturally phases:
 
 **Phase 0 -- Reconciliation** (prerequisites):
+
 - Merge `feat/trust-policy-bundles` bundle/checker/compiler into the workspace branch
 - Reconcile `PolicyEvaluator` (main) with `PolicyChecker` (trust-policy-bundles)
 - Add algorithm agility to bundle signing (use `pkg/crypto/algorithm` registry)
 
 **Phase 1 -- Authority-side policy** (ADR-011 core):
+
 - `PolicyChecker` with durable seqno persistence
 - `BundleFetcher` concrete implementation (HTTPS, reuse CA bundle fetcher pattern)
 - Authority integration: `--require-policy` flag, health check, bootstrap mode logging
 - `BundlePolicyEvaluator` implementing `PolicyEvaluator` via `PolicyChecker`
 
 **Phase 2 -- SCIM ingestion**:
+
 - SCIM types (User, Group JSON)
 - SCIM filter parser (eq only)
 - SCIM HTTP handlers (mounted on authority)
@@ -310,6 +326,7 @@ For initial sigpol implementation, the work naturally phases:
 - IdP compatibility testing (Okta first, Entra ID second)
 
 **Phase 3 -- Production hardening**:
+
 - Google Workspace SCIM compatibility layer
 - Multi-IdP composite subject keys
 - Staging state persistence (JSON file or SQLite)
@@ -323,13 +340,13 @@ ADR-010 §6 specifies "Policy Language Engines" as extension points — the prot
 
 ### Translation Sources
 
-| Source | Format | Mache Projection | Sigpol Mapping |
-|--------|--------|-------------------|----------------|
-| SELinux | `.te` type enforcement → `.pp` compiled modules | tree-sitter AST → nodes table (type→permission→domain) | Group{CapTokens} from permission sets |
-| k8s RBAC | Role/RoleBinding YAML | schema projection → role→verb→resource graph | Subject{Groups} from RoleBindings, Group{CapTokens} from Roles |
-| Docker/cgroups | seccomp profiles, AppArmor policies | JSON/YAML projection → syscall→action constraints | Boundary claims from container constraints |
-| OPA/Rego | `.rego` policy files | Rego AST projection → rule→input→decision graph | Subject/group mappings from policy rules |
-| AWS IAM | Policy JSON documents | JSON projection → action→resource→condition | Direct 1:1 mapping to ADR-010 four pillars |
+| Source         | Format                                          | Mache Projection                                       | Sigpol Mapping                                                 |
+| -------------- | ----------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------- |
+| SELinux        | `.te` type enforcement → `.pp` compiled modules | tree-sitter AST → nodes table (type→permission→domain) | Group{CapTokens} from permission sets                          |
+| k8s RBAC       | Role/RoleBinding YAML                           | schema projection → role→verb→resource graph           | Subject{Groups} from RoleBindings, Group{CapTokens} from Roles |
+| Docker/cgroups | seccomp profiles, AppArmor policies             | JSON/YAML projection → syscall→action constraints      | Boundary claims from container constraints                     |
+| OPA/Rego       | `.rego` policy files                            | Rego AST projection → rule→input→decision graph        | Subject/group mappings from policy rules                       |
+| AWS IAM        | Policy JSON documents                           | JSON projection → action→resource→condition            | Direct 1:1 mapping to ADR-010 four pillars                     |
 
 ### How It Works
 

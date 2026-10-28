@@ -16,12 +16,12 @@ across the substrate. Each repo — and signet internally — computes a differe
 value for the *same* key, so nothing can reliably agree on *which* key signed
 or should verify something:
 
-| Site | Input hashed | Width | Encoding |
-|---|---|---|---|
-| notme `keyIdFromSpki` (`worker/src/key-id.ts:30`) | **SPKI DER** | 64-bit (`[:8]`) | hex |
-| signet `MachineFingerprint` (`pkg/sigid/identity.go:72`) | **SPKI DER** (`MarshalPKIXPublicKey`) | full 256-bit | hex |
-| signet `HashPublicKey` → ConfirmationID (`pkg/crypto/keys/signer.go:104`) | **raw pub bytes** (`algorithm.MarshalPublicKey`) | full 256-bit | raw |
-| signet `generateSubjectKeyID` (`pkg/attest/x509/localca.go:511`) | **raw pub** (Ed25519) / **SPKI** (ECDSA) | full | raw |
+| Site                                                                      | Input hashed                                     | Width           | Encoding |
+| ------------------------------------------------------------------------- | ------------------------------------------------ | --------------- | -------- |
+| notme `keyIdFromSpki` (`worker/src/key-id.ts:30`)                         | **SPKI DER**                                     | 64-bit (`[:8]`) | hex      |
+| signet `MachineFingerprint` (`pkg/sigid/identity.go:72`)                  | **SPKI DER** (`MarshalPKIXPublicKey`)            | full 256-bit    | hex      |
+| signet `HashPublicKey` → ConfirmationID (`pkg/crypto/keys/signer.go:104`) | **raw pub bytes** (`algorithm.MarshalPublicKey`) | full 256-bit    | raw      |
+| signet `generateSubjectKeyID` (`pkg/attest/x509/localca.go:511`)          | **raw pub** (Ed25519) / **SPKI** (ECDSA)         | full            | raw      |
 
 Three different *inputs* (SPKI DER, raw public-key bytes, algorithm-split),
 three different *widths*, two encodings. `MachineFingerprint` and notme's kid
@@ -98,12 +98,12 @@ This is what makes migration a widening rather than a re-keying.
 RFC 7638 JWK Thumbprint — surfaced as `cnf.jkt` in DPoP (RFC 9449) — is a
 **different identifier** and MUST stay distinct:
 
-| | canonical `kid` (this ADR) | `jkt` / JWK thumbprint |
-|---|---|---|
-| input | SPKI **DER** | canonical **JWK JSON** (RFC 7638 §3) |
-| width | 128-bit (truncated) | full 256-bit |
-| encoding | hex | base64url |
-| purpose | select a signing key from a JWKS | bind a DPoP proof key to a token |
+|          | canonical `kid` (this ADR)       | `jkt` / JWK thumbprint               |
+| -------- | -------------------------------- | ------------------------------------ |
+| input    | SPKI **DER**                     | canonical **JWK JSON** (RFC 7638 §3) |
+| width    | 128-bit (truncated)              | full 256-bit                         |
+| encoding | hex                              | base64url                            |
+| purpose  | select a signing key from a JWKS | bind a DPoP proof key to a token     |
 
 They answer different questions ("which key in the set?" vs "is the presenter
 holding the bound key?") and are not interchangeable. signet's `ConfirmationID`
@@ -177,7 +177,7 @@ Verdicts:
    attacker can seed — i.e. a confused-deputy, not a brute-force cost. The fix
    for that is the invariant, not more bits: full 256-bit without R1 would be
    false comfort. **Do not widen to 256-bit; adopt R1 instead.**
-2. **SPKI over raw — keep, but hash *canonical re-encoded* DER, not
+1. **SPKI over raw — keep, but hash *canonical re-encoded* DER, not
    as-received bytes (R2).** Folding the algorithm OID in is a feature
    (algorithm binding, stops cross-alg raw-byte collision). The footgun is
    real but is DER-canonicality, not the OID: the same key has multiple *valid*
@@ -188,7 +188,7 @@ Verdicts:
    specify *canonicalize-then-hash* (parse → re-marshal via
    `MarshalPKIXPublicKey` / a canonical SPKI serializer → hash), never
    *hash-as-received*, and MUST reject ECDSA explicit-parameters SPKI.
-3. **Leading truncation is safe.** SHA-256 avalanche makes every output byte a
+1. **Leading truncation is safe.** SHA-256 avalanche makes every output byte a
    uniform function of the whole input; the regular SPKI prefix induces no
    structure in any output region, and length-extension does not help a
    truncated-preimage grinder. Grind cost for a 128-bit prefix match is

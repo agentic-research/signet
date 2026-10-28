@@ -7,7 +7,7 @@ Reverse proxy for GitHub API with Signet offline authentication.
 **signet-proxy** consolidates authentication:
 
 1. **Clients → Proxy**: Authenticate via Signet (offline, cryptographic proof-of-possession)
-2. **Proxy → GitHub**: Use single shared GitHub token
+1. **Proxy → GitHub**: Use single shared GitHub token
 
 ## Architecture
 
@@ -110,6 +110,7 @@ signet-git export-key-id > master-public-key.hex
 ### 2. Configure Clients to Use Proxy
 
 **Before (Direct GitHub API):**
+
 ```python
 import requests
 
@@ -118,6 +119,7 @@ response = requests.get("https://api.github.com/repos/owner/repo", headers=heade
 ```
 
 **After (Via signet-proxy):**
+
 ```python
 import requests
 from signet import create_proof  # Hypothetical Python SDK
@@ -292,11 +294,13 @@ sudo journalctl -u signet-proxy -f
 ### Master Key Management
 
 **DO:**
+
 - ✅ Store master public key in config management (safe to distribute)
 - ✅ Rotate master key regularly
 - ✅ Use separate master keys per environment (dev, staging, prod)
 
 **DON'T:**
+
 - ❌ Share master private key between clients
 - ❌ Commit keys to version control
 - ❌ Use same key for different trust domains
@@ -304,12 +308,14 @@ sudo journalctl -u signet-proxy -f
 ### GitHub Token Management
 
 **DO:**
+
 - ✅ Use GitHub App Installation Tokens (scoped, short-lived)
 - ✅ Rotate tokens regularly (daily recommended)
 - ✅ Monitor token usage via GitHub audit logs
 - ✅ Set minimum required permissions (read-only when possible)
 
 **DON'T:**
+
 - ❌ Use Personal Access Tokens (tied to user, no fine-grained permissions)
 - ❌ Share tokens between environments
 - ❌ Log token values (even partial)
@@ -348,6 +354,7 @@ curl -H "Authorization: Bearer $GITHUB_TOKEN" \
 - **Network**: 100Mbps (typical GitHub API traffic)
 
 **Scaling:**
+
 - Horizontal: Run multiple replicas behind load balancer
 - Vertical: Add CPU for higher client count (linear scaling)
 - Caching: Add Redis for distributed token/nonce stores

@@ -21,6 +21,7 @@ Signet-Proof: v1;m=compact;t=<token>;jti=<jti>;cap=<cap>;s=<sig>;n=<nonce>;ts=<t
 ## Parser Features
 
 ✅ **Implemented:**
+
 - Parses all header fields
 - Base64URL decoding
 - Field validation (sizes, required fields)
@@ -29,6 +30,7 @@ Signet-Proof: v1;m=compact;t=<token>;jti=<jti>;cap=<cap>;s=<sig>;n=<nonce>;ts=<t
 - Security hardened based on review
 
 ❌ **Not Yet Implemented:**
+
 - Signature verification
 - Token validation
 - Request canonicalization
@@ -37,6 +39,7 @@ Signet-Proof: v1;m=compact;t=<token>;jti=<jti>;cap=<cap>;s=<sig>;n=<nonce>;ts=<t
 ## Security Hardening
 
 Based on security review, the parser:
+
 - Rejects duplicate fields (prevents confusion attacks)
 - Limits header size to 8KB (prevents DoS)
 - Limits token size to 4KB

@@ -53,26 +53,31 @@ type Provider interface {
 ### Provider Lifecycle
 
 1. **Configuration Loading**
+
    - Load from YAML/JSON file or environment variables
    - Parse provider-specific configuration
    - Create provider instances
 
-2. **Registration**
+1. **Registration**
+
    - Validate provider configuration
    - Register in central registry
    - Make available for token verification
 
-3. **Token Verification**
+1. **Token Verification**
+
    - Receive OIDC token from CI/CD platform
    - Route to appropriate provider
    - Extract and normalize claims
 
-4. **Capability Mapping**
+1. **Capability Mapping**
+
    - Convert platform-specific claims to capabilities
    - Follow capability URI format (urn:signet:cap:{action}:{resource})
    - Return list of granted capabilities
 
-5. **Bridge Certificate Issuance**
+1. **Bridge Certificate Issuance**
+
    - Create X.509 certificate with capabilities
    - Bind to ephemeral key from requestor
    - Set expiration (default: 5 minutes)
@@ -244,6 +249,7 @@ urn:signet:cap:{action}:{resource}[:{constraint}*]
 ### Examples by Provider
 
 **GitHub Actions:**
+
 ```
 urn:signet:cap:write:repo:github.com/agentic-research/signet
 urn:signet:cap:read:repo:github.com/agentic-research/signet
@@ -251,6 +257,7 @@ urn:signet:cap:workflow:github.com/agentic-research/signet:.github/workflows/rel
 ```
 
 **GitLab CI:**
+
 ```
 urn:signet:cap:write:project:gitlab.com/acme/widget
 urn:signet:cap:read:project:gitlab.com/acme/widget
@@ -258,6 +265,7 @@ urn:signet:cap:pipeline:gitlab.com/acme/widget:12345
 ```
 
 **AWS IAM:**
+
 ```
 urn:signet:cap:assume:role:aws:arn:aws:iam::123456789012:role/MyRole
 urn:signet:cap:invoke:lambda:aws:arn:aws:lambda:us-west-2:123456789012:function:MyFunction
@@ -268,27 +276,30 @@ urn:signet:cap:invoke:lambda:aws:arn:aws:lambda:us-west-2:123456789012:function:
 ### Token Validation
 
 All providers MUST:
+
 1. Verify token signature using OIDC discovery
-2. Check `iss` (issuer) matches expected value
-3. Check `aud` (audience) matches authority URL
-4. Check `exp` (expiration) is not in the past
-5. Validate provider-specific claims
+1. Check `iss` (issuer) matches expected value
+1. Check `aud` (audience) matches authority URL
+1. Check `exp` (expiration) is not in the past
+1. Validate provider-specific claims
 
 ### Capability Scoping
 
 Providers SHOULD:
+
 1. Map claims to minimum necessary capabilities
-2. Validate claim values before capability generation
-3. Reject tokens with suspicious or malformed claims
-4. Log capability grants for audit trails
+1. Validate claim values before capability generation
+1. Reject tokens with suspicious or malformed claims
+1. Log capability grants for audit trails
 
 ### Configuration Validation
 
 Providers MUST:
+
 1. Validate configuration at startup
-2. Fail fast on misconfiguration
-3. Reject duplicate provider registrations
-4. Sanitize user-provided configuration values
+1. Fail fast on misconfiguration
+1. Reject duplicate provider registrations
+1. Sanitize user-provided configuration values
 
 ## Testing
 
@@ -404,6 +415,6 @@ Planned provider implementations:
 - Example configurations and workflows
 - Documentation
 
----
+______________________________________________________________________
 
 *Enabling secret-free CI/CD through pluggable OIDC identity providers*

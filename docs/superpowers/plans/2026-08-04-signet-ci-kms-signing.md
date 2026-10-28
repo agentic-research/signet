@@ -18,17 +18,20 @@
 - The caller must grant `id-token: write`; no GitHub secret is introduced.
 - All work remains tracked through `rsry`, never `bd`.
 
----
+______________________________________________________________________
 
 ### Task 1: Session-backed KMS plugin
 
 **Files:**
+
 - Modify: `cmd/sigstore-kms-signet/main.go`
 - Create: `cmd/sigstore-kms-signet/session.go`
 - Create: `cmd/sigstore-kms-signet/session_test.go`
 
 **Interfaces:**
+
 - Consumes: inherited `SIGNET_KMS_SESSION_SOCKET` and `SIGNET_KMS_SESSION_TOKEN` environment variables when the resource ID is exactly `signet://session`.
+
 - Produces: `startKMSSession(signer *keys.Ed25519Signer) (*kmsSession, error)`, with `SocketPath()`, `Token()`, and `Close()`; a `sessionSigner` implementing `crypto.Signer` and `Destroy()`.
 
 - [ ] **Step 1: Write the failing session round-trip test**
@@ -70,11 +73,14 @@ Expected: PASS, including unauthorized-session and oversize-message cases.
 ### Task 2: Notme/Cloister enrollment client
 
 **Files:**
+
 - Create: `cmd/sigstore-kms-signet/enroll.go`
 - Create: `cmd/sigstore-kms-signet/enroll_test.go`
 
 **Interfaces:**
+
 - Consumes: GHA ambient OIDC variables, an audience, and an authority base URL such as `https://cluster.example/identity`.
+
 - Produces: `enrollGitHubSession(ctx context.Context, cfg enrollConfig) (*enrollment, error)` carrying the in-memory signer plus public leaf certificate, CA bundle, identity, and expiry.
 
 - [ ] **Step 1: Write failing protocol-vector tests**
@@ -100,12 +106,15 @@ Expected: PASS.
 ### Task 3: One-shot cosign orchestration
 
 **Files:**
+
 - Create: `cmd/sigstore-kms-signet/sign_artifact.go`
 - Create: `cmd/sigstore-kms-signet/sign_artifact_test.go`
 - Modify: `cmd/sigstore-kms-signet/main.go`
 
 **Interfaces:**
+
 - Consumes: `sigstore-kms-signet sign-artifact --authority-url URL --audience AUDIENCE <artifact>...` and a `cosign` executable on `PATH`.
+
 - Produces per artifact: `<artifact>.sigstore.json`, `<artifact>.signet.crt.pem`, `<artifact>.signet.ca.pem`, and `<artifact>.signet.pub`.
 
 - [ ] **Step 1: Write failing argument and failure-propagation tests**
@@ -131,13 +140,16 @@ Expected: PASS.
 ### Task 4: Language-neutral GitHub Action and Signet dogfood
 
 **Files:**
+
 - Create: `.github/actions/sign-artifact/action.yml`
 - Create: `.github/actions/sign-artifact/README.md`
 - Modify: `.github/workflows/release.yml`
 - Modify: `.github/workflows/gha-identity.yml`
 
 **Interfaces:**
+
 - Consumes: newline-delimited exact artifact paths, `authority-url`, `audience`, and caller permission `id-token: write`.
+
 - Produces: verified adjacent public signing artifacts; reusable workflow input `authority_url` forwards either `https://auth.notme.bot` or `https://<cloister>/identity`.
 
 - [ ] **Step 1: Add the composite action contract**
@@ -161,11 +173,14 @@ Expected: no diagnostics.
 ### Task 5: Consumer documentation and repository gate
 
 **Files:**
+
 - Modify: `docs/sigstore-integration.md`
 - Modify: `README.md`
 
 **Interfaces:**
+
 - Consumes: the reusable Action contract and adjacent output filenames from Task 4.
+
 - Produces: copyable usage for arbitrary-language repositories and a verification command that uses the published public key and Sigstore bundle.
 
 - [ ] **Step 1: Document local versus ephemeral CI trust**
@@ -189,11 +204,14 @@ Run: `git add cmd/sigstore-kms-signet/main.go cmd/sigstore-kms-signet/session.go
 ### Task 6: Publish, merge, and notify Ley Line Open
 
 **Files:**
+
 - No Signet source changes expected after checks, except review/CI fixes.
 - Create through `rsry` in `../ley-line-open`: a consumer bead scoped to its release workflow and signing documentation.
 
 **Interfaces:**
+
 - Consumes: the merged Signet Action commit SHA and its documented input/output contract.
+
 - Produces: a merged Signet PR, reconciled `signet-579491`, and an LLO bead linked back with `discovered-from` or a cross-repo reference in its description/comment.
 
 - [ ] **Step 1: Push and open the PR**
