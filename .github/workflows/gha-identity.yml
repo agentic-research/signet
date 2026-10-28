@@ -80,7 +80,9 @@ on:
         description: 'Ed25519 bridge cert PEM — for git commit signing + APAS attestations. Public data.'
         value: ${{ jobs.exchange.outputs.notme_signing_cert }}
       notme_identity:
-        description: 'WIMSE identity URI for this workload (wimse://notme.bot/gha/{owner}/{repo}).'
+        description: >-
+          WIMSE identity URI for this workload:
+          wimse://notme.bot/principal/<percent-encoded OIDC sub>.
         value: ${{ jobs.exchange.outputs.notme_identity }}
       expires_at:
         description: 'Bridge cert pair expiry as Unix timestamp (notme default TTL = 5 minutes).'

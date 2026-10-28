@@ -301,11 +301,14 @@ openssl verify \
 openssl x509 \
   -in signet-$PLATFORM.signet.crt.pem \
   -noout -ext subjectAltName
-# Require URI:wimse://notme.bot/gha/agentic-research/signet (or the
-# cluster's configured equivalent).
+# Require the identity of the release workflow run on THIS tag: the OIDC
+# subject repo:agentic-research/signet:ref:refs/tags/$VERSION, percent-encoded
+# as notme encodes it (scripts/release/release_identity.sh derives it).
+# Releases up to and including v0.3.0 instead carry the older, ref-blind
+# URI:wimse://notme.bot/gha/agentic-research/signet; pin that for those.
 
 AUTHORITY=https://auth.notme.bot
-IDENTITY=wimse://notme.bot/gha/agentic-research/signet
+IDENTITY="wimse://notme.bot/principal/repo%3Aagentic-research%2Fsignet%3Aref%3Arefs%2Ftags%2F$VERSION"
 
 cosign trusted-root create \
   --with-default-services \

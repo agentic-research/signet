@@ -81,6 +81,18 @@ jobs:
       # certificate. No master key or long-lived signing secret is stored.
       id-token: write
     steps:
+      # The signing certificate names the run's ref (signet-751af3), and
+      # verify_release.sh requires refs/tags/<tag>. A dispatch from a branch
+      # would sign as refs/heads/<branch> and publish a release that its own
+      # verifier rejects, so refuse it before anything is signed.
+      - name: Require the run to be on the release tag
+        run: |
+          if [ "$GITHUB_REF" != "refs/tags/$TAG" ]; then
+            echo "::error::release must run on refs/tags/$TAG, not $GITHUB_REF." \
+              "Dispatch with: gh workflow run release.yml --ref $TAG -f tag=$TAG"
+            exit 1
+          fi
+
       - name: Checkout the tagged Signet Action source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
