@@ -4,9 +4,63 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/asn1"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/agentic-research/signet/pkg/sigid"
 )
+
+const testSubject = "repo:test/repo:ref:refs/heads/main"
+
+// TestBridgeCertificateCarriesSubject guards signet-be4661: the delegated CA
+// must name the principal it was granted to in a signed extension, not only in
+// the unsigned exchange response. Before the fix its only identity was the
+// CA's own DID, so sigid resolved every such cert's owner to the authority.
+func TestBridgeCertificateCarriesSubject(t *testing.T) {
+	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := NewLocalCA(masterPriv, "did:key:test-bridge")
+	ephPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cert, _, err := ca.IssueBridgeCertificate(ephPub, testSubject, nil, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("IssueBridgeCertificate failed: %v", err)
+	}
+
+	oid := asn1.ObjectIdentifier(sigid.OIDSubject)
+	var found bool
+	for _, ext := range cert.Extensions {
+		if !ext.Id.Equal(oid) {
+			continue
+		}
+		found = true
+		if ext.Critical {
+			t.Error("subject extension must not be critical")
+		}
+		// DER UTF8String, matching the capabilities extension and the edge
+		// authority's encoding.
+		if len(ext.Value) == 0 || ext.Value[0] != 0x0c {
+			t.Fatalf("subject extension is not a DER UTF8String: % x", ext.Value)
+		}
+		var got string
+		if rest, err := asn1.Unmarshal(ext.Value, &got); err != nil || len(rest) != 0 {
+			t.Fatalf("decode subject extension: err=%v rest=%d", err, len(rest))
+		}
+		if got != testSubject {
+			t.Errorf("subject = %q, want %q", got, testSubject)
+		}
+	}
+	if !found {
+		t.Fatal("bridge cert has no OIDSubject extension")
+	}
+}
 
 func TestIssueBridgeCertificate(t *testing.T) {
 	_, masterPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -25,7 +79,7 @@ func TestIssueBridgeCertificate(t *testing.T) {
 		"urn:signet:cap:attest:build:github",
 	}
 
-	cert, der, err := ca.IssueBridgeCertificate(ephPub, caps, 5*time.Minute)
+	cert, der, err := ca.IssueBridgeCertificate(ephPub, testSubject, caps, 5*time.Minute)
 	if err != nil {
 		t.Fatalf("IssueBridgeCertificate failed: %v", err)
 	}
@@ -85,7 +139,7 @@ func TestBridgeCertCapabilityRoundTrip(t *testing.T) {
 		"urn:signet:cap:attest:build:github:main",
 	}
 
-	cert, _, err := ca.IssueBridgeCertificate(ephPub, caps, 5*time.Minute)
+	cert, _, err := ca.IssueBridgeCertificate(ephPub, testSubject, caps, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +170,7 @@ func TestBridgeCertEmptyCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cert, _, err := ca.IssueBridgeCertificate(ephPub, []string{}, 5*time.Minute)
+	cert, _, err := ca.IssueBridgeCertificate(ephPub, testSubject, []string{}, 5*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,6 +200,7 @@ func TestBridgeCertChainValidation(t *testing.T) {
 
 	bridgeCert, _, err := ca.IssueBridgeCertificate(
 		bridgePub,
+		testSubject,
 		[]string{"urn:signet:cap:sign:artifact"},
 		10*time.Minute,
 	)
@@ -223,14 +278,20 @@ func TestBridgeCertInvalidInputs(t *testing.T) {
 
 	ephPub, _, _ := ed25519.GenerateKey(rand.Reader)
 
-	if _, _, err := ca.IssueBridgeCertificate(nil, nil, time.Minute); err == nil {
+	if _, _, err := ca.IssueBridgeCertificate(nil, testSubject, nil, time.Minute); err == nil {
 		t.Error("expected error for nil public key")
 	}
-	if _, _, err := ca.IssueBridgeCertificate(ephPub, nil, 0); err == nil {
+	if _, _, err := ca.IssueBridgeCertificate(ephPub, testSubject, nil, 0); err == nil {
 		t.Error("expected error for zero validity")
 	}
-	if _, _, err := ca.IssueBridgeCertificate(ephPub, nil, -time.Minute); err == nil {
+	if _, _, err := ca.IssueBridgeCertificate(ephPub, testSubject, nil, -time.Minute); err == nil {
 		t.Error("expected error for negative validity")
+	}
+	if _, _, err := ca.IssueBridgeCertificate(ephPub, "", nil, time.Minute); err == nil {
+		t.Error("expected error for empty subject")
+	}
+	if _, _, err := ca.IssueBridgeCertificate(ephPub, strings.Repeat("a", maxBridgeSubjectBytes+1), nil, time.Minute); err == nil {
+		t.Error("expected error for oversized subject")
 	}
 }
 
