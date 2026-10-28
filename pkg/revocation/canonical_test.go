@@ -2,7 +2,12 @@ package revocation
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/agentic-research/signet/pkg/revocation/types"
@@ -72,105 +77,137 @@ func TestBundleCanonical_SignatureExcluded(t *testing.T) {
 	}
 }
 
-// TestBundleCanonical_CrossRuntimeFixture pins the 25-byte canonical encoding
-// for a fixed input. This fixture is shared with the TypeScript reference
-// implementation in
-// notme/worker/src/__tests__/bundle-canonical.test.ts ("matches a
-// hand-computed CBOR fixture") — the byte sequences MUST be identical
-// across both runtimes, otherwise cross-language CABundle verification is
-// silently broken.
+// TestBundleCanonical_CrossRuntimeFixtures asserts signet's encoding against
+// notme's shared ADR-010 fixtures (signet-0454a2), the same files notme's
+// TypeScript test and ley-line-open's Rust test load. Three implementations
+// must produce byte-identical canonical bytes, or cross-language CABundle
+// signatures silently fail to verify.
 //
-// Fixture inputs (mirrored byte-for-byte from notme's test):
+// The files are vendored under testdata/notme-fixtures by
+// scripts/testing/sync_notme_fixtures.sh, which records the notme commit and
+// each file's sha256 in SOURCE. Hashes are checked first, so a fixture edited
+// here to make this test pass fails instead. Never edit the expected bytes;
+// the encoding is the contract.
 //
-//	epoch=1, seqno=1, keys={"kid": h'abcd'},
-//	keyId="kid", prevKeyId="", issuedAt=1234, signature ignored.
-//
-// Expected RFC 8949 §4.2 canonical encoding (25 bytes):
-//
-//	a6                          map(6)
-//	  01 01                     1 → 1
-//	  02 01                     2 → 1
-//	  03 a1 63 6b6964 42 abcd   3 → {"kid": h'abcd'}
-//	  04 63 6b6964              4 → "kid"
-//	  05 60                     5 → ""
-//	  06 19 04d2                6 → 1234
-//
-// Drift: this fixture is the canary for a fxamacker/cbor upgrade that
-// would change canonical-encoding behavior. If the bytes diverge here,
-// any signed bundle in the wild produced by the old encoder will fail to
-// verify under the new one. Pin the dependency or audit the diff before
-// taking the upgrade.
-func TestBundleCanonical_CrossRuntimeFixture(t *testing.T) {
-	bundle := &types.CABundle{
-		Epoch:     1,
-		Seqno:     1,
-		Keys:      map[string][]byte{"kid": {0xab, 0xcd}},
-		KeyID:     "kid",
-		PrevKeyID: "",
-		IssuedAt:  1234,
-		Signature: []byte("ignored — must not affect canonical bytes"),
-	}
-	got, err := BundleCanonical(bundle)
+// Drift: these fixtures are also the canary for a fxamacker/cbor upgrade that
+// would change canonical-encoding behavior. If the bytes diverge, any signed
+// bundle in the wild produced by the old encoder fails under the new one.
+func TestBundleCanonical_CrossRuntimeFixtures(t *testing.T) {
+	const dir = "testdata/notme-fixtures"
+	verifyVendoredFixtures(t, dir)
+
+	inputs, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{
-		0xa6,
-		0x01, 0x01,
-		0x02, 0x01,
-		0x03, 0xa1, 0x63, 0x6b, 0x69, 0x64, 0x42, 0xab, 0xcd,
-		0x04, 0x63, 0x6b, 0x69, 0x64,
-		0x05, 0x60,
-		0x06, 0x19, 0x04, 0xd2,
+	seen := map[string]bool{}
+	for _, in := range inputs {
+		name := strings.TrimSuffix(filepath.Base(in), ".json")
+		seen[name] = true
+		t.Run(name, func(t *testing.T) {
+			bundle := loadFixtureBundle(t, in)
+			got, err := BundleCanonical(bundle)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			wantHex, err := os.ReadFile(filepath.Join(dir, name+".expected.hex"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := hex.DecodeString(strings.TrimSpace(string(wantHex)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBin, err := os.ReadFile(filepath.Join(dir, name+".bin"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(want, wantBin) {
+				t.Fatalf("%s: .expected.hex and .bin disagree; re-sync the fixtures", name)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("cross-runtime fixture %s mismatch\n got: %s\nwant: %s",
+					name, hex.EncodeToString(got), hex.EncodeToString(want))
+			}
+		})
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("cross-runtime fixture mismatch\n got: %s\nwant: %s",
-			hex.EncodeToString(got), hex.EncodeToString(want))
-	}
-	if len(got) != 25 {
-		t.Fatalf("fixture should be exactly 25 bytes, got %d", len(got))
+	// cabundle-multikey lists keys out of canonical order, so passing it proves
+	// RFC 8949 §4.2 sorting rather than insertion order. Require both.
+	for _, required := range []string{"cabundle-basic", "cabundle-multikey"} {
+		if !seen[required] {
+			t.Errorf("fixture %s missing from %s", required, dir)
+		}
 	}
 }
 
-// TestBundleCanonical_StringKeyOrderingCanonical pins RFC 8949 §4.2
-// "shorter strings first; equal-length compared bytewise" ordering for
-// string keys inside the Keys map. Mirrors notme's test of the same name
-// ("sorts multi-key keys map per RFC 8949 §4.2 (length-then-bytewise, NOT
-// alphabetical)"). The keys "b" and "ab" are chosen specifically because
-// naive alphabetical sort would place "ab" before "b" (a < b), but
-// canonical sort places "b" first (length 1 < length 2).
-func TestBundleCanonical_StringKeyOrderingCanonical(t *testing.T) {
-	bundle := &types.CABundle{
-		Epoch: 1,
-		Seqno: 1,
-		Keys: map[string][]byte{
-			"ab": {0x02},
-			"b":  {0x01},
-		},
-		KeyID:     "b",
-		PrevKeyID: "",
-		IssuedAt:  1234,
-	}
-	got, err := BundleCanonical(bundle)
+// fixtureBundle is notme's fixture JSON shape (schema/fixtures/README.md):
+// keys map kid to standard-base64 key bytes; there is no signature field.
+type fixtureBundle struct {
+	Epoch     uint64            `json:"epoch"`
+	Seqno     uint64            `json:"seqno"`
+	Keys      map[string][]byte `json:"keys"`
+	KeyID     string            `json:"keyId"`
+	PrevKeyID string            `json:"prevKeyId"`
+	IssuedAt  int64             `json:"issuedAt"`
+}
+
+func loadFixtureBundle(t *testing.T, path string) *types.CABundle {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{
-		0xa6,
-		0x01, 0x01,
-		0x02, 0x01,
-		0x03,
-		0xa2,
-		0x61, 0x62, // "b" — length 1, FIRST per §4.2
-		0x41, 0x01, // h'01'
-		0x62, 0x61, 0x62, // "ab" — length 2, SECOND
-		0x41, 0x02, // h'02'
-		0x04, 0x61, 0x62, // 4 → "b"
-		0x05, 0x60, // 5 → ""
-		0x06, 0x19, 0x04, 0xd2, // 6 → 1234
+	var f fixtureBundle
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&f); err != nil {
+		t.Fatalf("%s: %v", path, err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("string-key ordering mismatch\n got: %s\nwant: %s",
-			hex.EncodeToString(got), hex.EncodeToString(want))
+	return &types.CABundle{
+		Epoch:     f.Epoch,
+		Seqno:     f.Seqno,
+		Keys:      f.Keys,
+		KeyID:     f.KeyID,
+		PrevKeyID: f.PrevKeyID,
+		IssuedAt:  f.IssuedAt,
+		// A decoy: the signature is excluded from the signing input.
+		Signature: []byte("ignored, must not affect canonical bytes"),
+	}
+}
+
+// verifyVendoredFixtures checks every file in dir against the sha256 recorded
+// in SOURCE, and that SOURCE lists every file present.
+func verifyVendoredFixtures(t *testing.T, dir string) {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join(dir, "SOURCE"))
+	if err != nil {
+		t.Fatalf("read SOURCE (run scripts/testing/sync_notme_fixtures.sh): %v", err)
+	}
+	listed := map[string]bool{}
+	for _, line := range strings.Split(string(source), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 || fields[0] != "sha256" {
+			continue
+		}
+		name := fields[2]
+		listed[name] = true
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		if hex.EncodeToString(sum[:]) != fields[1] {
+			t.Errorf("%s does not match the sha256 recorded in SOURCE: edited by hand? re-run scripts/testing/sync_notme_fixtures.sh", name)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "SOURCE" && !listed[e.Name()] {
+			t.Errorf("%s is in %s but not in SOURCE", e.Name(), dir)
+		}
 	}
 }
