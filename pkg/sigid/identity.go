@@ -70,6 +70,13 @@ var (
 	// See signet-790ca1 and the full cross-repo table in
 	// cmd/signet/verify_notme_profile_test.go.
 	OIDPrincipalKind = []int{1, 3, 6, 1, 4, 1, 99999, 1, 8}
+
+	// OIDTaskScope is NOT SIGNET'S either. notme writes it on task
+	// certificates as SEQUENCE { UTF8String task, OCTET STRING goalHash }
+	// (notme worker/src/cert-authority.ts OID_TASK_SCOPE). On such a cert .1.1
+	// is the task id, and the sponsor is the tier principal the task's
+	// identity URI extends (signet-53b31c).
+	OIDTaskScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 9}
 )
 
 // IsNotmeProfile reports whether cert was minted by notme rather than by a
