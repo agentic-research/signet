@@ -21,9 +21,15 @@ tasks:
       - go build {{.BUILD_FLAGS}} -o signet-git ./cmd/signet-git
 
   test:
-    desc: Run Go unit tests
+    desc: Run Go unit tests and release-script tests
     cmds:
       - go test -v {{.BUILD_FLAGS}} ./...
+      - task: test:release
+
+  test:release:
+    desc: Test the release identity rule verify_release.sh pins (signet-751af3)
+    cmds:
+      - ./scripts/release/release_identity_test.sh
 
   fmt:
     desc: Format Go code (gofumpt)

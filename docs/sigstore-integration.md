@@ -122,10 +122,15 @@ openssl verify \
 openssl x509 \
   -in artifact.signet.crt.pem \
   -noout -ext subjectAltName
-# Require the expected URI:wimse://<authority>/gha/<owner>/<repo> value.
+# Require the expected URI. notme names the principal by its OIDC subject,
+# percent-encoded (encodeURIComponent):
+#   wimse://<trust-domain>/principal/<encodeURIComponent(sub)>
+# For a GitHub Actions run on tag v1.2.3 of example/my-repo, the subject is
+# repo:example/my-repo:ref:refs/tags/v1.2.3. Certificates minted before
+# notme's 2026-09-11 deploy carry wimse://<trust-domain>/gha/<owner>/<repo>.
 
 AUTHORITY=https://cluster.example/identity
-IDENTITY=wimse://notme.bot/gha/example/my-repo
+IDENTITY=wimse://notme.bot/principal/repo%3Aexample%2Fmy-repo%3Aref%3Arefs%2Ftags%2Fv1.2.3
 
 # Merge the independently trusted cluster CA with Sigstore's public Rekor/TSA
 # keys. Notme bridge certificates are not submitted to Fulcio's CT log.
