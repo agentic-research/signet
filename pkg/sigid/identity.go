@@ -53,6 +53,22 @@ var (
 	// Consumers must accept both encodings. When absent, the cert has no scope
 	// restriction (full access of the sponsor).
 	OIDScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 6}
+
+	// OIDPrincipalKind is NOT SIGNET'S. notme allocates it for what the
+	// certificate's subject IS -- "human" | "agent" | "workload" |
+	// "organization", a DER UTF8String (notme worker/src/cert-authority.ts:170).
+	//
+	// Declared here because signet has to RECOGNISE it, not write it. The arc
+	// 1.3.6.1.4.1.99999 is shared by signet, notme and ley-line-open with no
+	// registry between them, and the meanings disagree at .1.5 and .1.6: where
+	// signet reads an agent name and a scope, notme writes an authMethod and a
+	// 32-byte peer binding. Something has to tell the two apart, and this is
+	// the only slot that does it -- notme emits it on every mint path, and no
+	// other allocation under this arc uses .1.8 at all.
+	//
+	// See signet-790ca1 and the full cross-repo table in
+	// cmd/signet/verify_notme_profile_test.go.
+	OIDPrincipalKind = []int{1, 3, 6, 1, 4, 1, 99999, 1, 8}
 )
 
 // CertIdentityProvider extracts identity context from X.509 bridge certificates.

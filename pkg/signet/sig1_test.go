@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -313,4 +315,80 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// signet-178cd6: nothing attacker-supplied reaches the CBOR decoder unbounded,
+// and VerifySIG1 authenticates the payload before parsing it.
+
+func TestDecodeSIG1RejectsOversizedInput(t *testing.T) {
+	big := base64.RawURLEncoding.EncodeToString(make([]byte, MaxSIG1PayloadBytes+1))
+	for name, in := range map[string]string{
+		"payload over cap": SIG1Prefix + SIG1Separator + big + SIG1Separator + "AA",
+		// Small payload, oversized signature part: only the wire-length
+		// check can catch this one.
+		"wire string over cap": SIG1Prefix + SIG1Separator + "AA" + SIG1Separator + strings.Repeat("A", MaxSIG1Length),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeSIG1(in); !errors.Is(err, ErrSIG1TooLarge) {
+				t.Fatalf("DecodeSIG1: got %v, want ErrSIG1TooLarge", err)
+			}
+			pub, _, _ := ed25519.GenerateKey(rand.Reader)
+			verifier, err := cose.NewEd25519Verifier(pub)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := VerifySIG1(in, verifier); !errors.Is(err, ErrSIG1TooLarge) {
+				t.Fatalf("VerifySIG1: got %v, want ErrSIG1TooLarge", err)
+			}
+		})
+	}
+}
+
+func TestVerifySIG1AuthenticatesBeforeParsing(t *testing.T) {
+	// A payload that is not a token at all, under a signature that is not a
+	// signature. If the payload were parsed first, the error would be a CBOR
+	// decode error; it must be the signature failure.
+	notAToken := base64.RawURLEncoding.EncodeToString([]byte{0xff, 0xff, 0xff})
+	in := SIG1Prefix + SIG1Separator + notAToken + SIG1Separator + "AAAA"
+
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	verifier, err := cose.NewEd25519Verifier(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = VerifySIG1(in, verifier)
+	if err == nil || !strings.Contains(err.Error(), "signature verification failed") {
+		t.Fatalf("VerifySIG1: got %v, want a signature verification failure", err)
+	}
+}
+
+func TestVerifySIG1RejectsPayloadNotCoveredBySignature(t *testing.T) {
+	// A valid signature over one token, presented with another token's bytes
+	// in the payload slot: the raw bytes must match what was signed.
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	mk := func(issuer string) *Token {
+		h := sha256.Sum256(pub)
+		e := sha256.Sum256([]byte("ephemeral"))
+		tok, err := NewToken(issuer, h[:], e[:], nil, 5*time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
+	signer, _ := cose.NewEd25519Signer(priv)
+	signed, err := EncodeSIG1(mk("signed-issuer"), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := mk("other-issuer").Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(signed, SIG1Separator)
+	swapped := strings.Join([]string{parts[0], base64.RawURLEncoding.EncodeToString(other), parts[2]}, SIG1Separator)
+
+	verifier, _ := cose.NewEd25519Verifier(pub)
+	if _, err := VerifySIG1(swapped, verifier); err == nil {
+		t.Fatal("VerifySIG1 accepted a payload the signature does not cover")
+	}
 }

@@ -56,6 +56,13 @@ Policy as code: Security policies in version-controlled YAML
 Token Format (Normative)
 Wire Format
 SIG1.<b64url(CBOR payload)>.<b64url(COSE_Sign1 Ed25519 signature)>
+
+Decode bounds and ordering (signet-178cd6). Verifiers MUST:
+1. Reject a SIG1 string longer than 16384 bytes, and a payload that decodes to more than 4096 bytes, before decoding either (`MaxSIG1Length`, `MaxSIG1PayloadBytes`, `ErrSIG1TooLarge`). Typical tokens are under 250 bytes; the headroom is for the free-form cap_custom/act/del maps.
+2. Verify the COSE_Sign1 signature and require the payload bytes to equal the signed payload byte for byte, BEFORE parsing the payload as a token. Unauthenticated CBOR never reaches the token decoder.
+3. After parsing, re-encode the token and require the canonical encoding to equal the payload, so a signed but non-canonical encoding is rejected.
+
+`DecodeSIG1` is the unverified inspection path: it applies the size bounds but parses without authenticating, and nothing that acts on a token may use it.
 CBOR Payload Structure
 Key	Name	Type	Description
 1	iss_id	tstr	Issuer identifier

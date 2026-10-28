@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +19,7 @@ import (
 	attestx509 "github.com/agentic-research/signet/pkg/attest/x509"
 	oidcprovider "github.com/agentic-research/signet/pkg/oidc"
 	"github.com/agentic-research/signet/pkg/policy"
+	certprovider "github.com/agentic-research/signet/pkg/sigid/providers/cert"
 	"golang.org/x/time/rate"
 )
 
@@ -360,6 +363,24 @@ func TestHandleExchangeToken_Success(t *testing.T) {
 			preview = preview[:50]
 		}
 		t.Errorf("Expected PEM-encoded certificate, got %q", preview)
+	}
+
+	// The principal must be in the signed cert, not only in the JSON response
+	// (signet-be4661). sigid's CertProvider is the consumer that reads it.
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		t.Fatal("failed to decode certificate PEM")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+	identity, err := certprovider.NewProvider().ExtractIdentity(cert)
+	if err != nil {
+		t.Fatalf("ExtractIdentity: %v", err)
+	}
+	if want := "repo:test/repo:ref:refs/heads/main"; identity.Owner != want {
+		t.Errorf("cert owner = %q, want %q", identity.Owner, want)
 	}
 }
 

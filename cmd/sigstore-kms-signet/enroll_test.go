@@ -141,10 +141,16 @@ func newEnrollmentFixture(t *testing.T, mismatchedLeaf bool) enrollmentFixture {
 		require.Len(t, mtlsProof, 64)
 		r := new(big.Int).SetBytes(mtlsProof[:32])
 		s := new(big.Int).SetBytes(mtlsProof[32:])
-		require.True(t, ecdsa.Verify(mtlsPublic, binding[:], r, s))
+		// Each proof is checked the way notme's verifier checks it (ADR-008):
+		// both sign binding_input itself, with no outer digest. For ECDSA that
+		// is ECDSA-SHA256 over binding_input, whose message representative is
+		// SHA-256(binding_input), so ecdsa.Verify takes `binding`. Ed25519 is
+		// pure, so it must verify against binding_input directly; checking it
+		// against `binding` is how signet-89aa84 passed this test.
+		require.True(t, ecdsa.Verify(mtlsPublic, binding[:], r, s), "mTLS proof must be ECDSA-SHA256 over binding_input")
 		signingProof, err := base64.RawURLEncoding.DecodeString(body.Proofs.Signing)
 		require.NoError(t, err)
-		require.True(t, ed25519.Verify(signingPublic, binding[:], signingProof))
+		require.True(t, ed25519.Verify(signingPublic, bindingInput, signingProof), "signing proof must be Ed25519 over binding_input, not its digest")
 
 		leafPublic := ed25519.PublicKey(signingPublic)
 		if mismatchedLeaf {
