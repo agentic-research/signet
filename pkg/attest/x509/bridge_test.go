@@ -4,7 +4,10 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
+	"errors"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -390,4 +393,51 @@ func TestCapabilityDERGolden(t *testing.T) {
 	t.Logf("Single cap DER (%d bytes): %x", len(single), single)
 	t.Logf("Empty cap DER (%d bytes): %x", len(empty), empty)
 	t.Logf("Multi cap DER (%d bytes): %x", len(multi), multi)
+}
+
+// TestParseCapabilitiesRefusesNotmeProfile pins signet-06bfe7. notme writes
+// its granted scopes at .1.3 -- the slot signet reserves for capabilities --
+// and in the same DER shape, SEQUENCE OF UTF8String. So the value parses
+// cleanly, and without a profile check a notme scope list comes back as a
+// signet capability set: a mis-attributed authorization, not a parse error.
+// The bytes cannot tell the two apart; notme's .1.8 principal-kind marker can.
+func TestParseCapabilitiesRefusesNotmeProfile(t *testing.T) {
+	scopes, err := MarshalCapabilities([]string{"bead:write", "cert:mint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, err := asn1.MarshalWithParams("workload", "utf8")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		ExtraExtensions: []pkix.Extension{
+			{Id: OIDSignetCapabilities, Value: scopes},
+			{Id: asn1.ObjectIdentifier(sigid.OIDPrincipalKind), Value: kind},
+		},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	caps, err := ParseCapabilities(cert)
+	if !errors.Is(err, ErrNotmeProfile) {
+		t.Fatalf("ParseCapabilities(notme cert) = %v, %v; want ErrNotmeProfile", caps, err)
+	}
+	if caps != nil {
+		t.Errorf("capabilities = %v, want nil", caps)
+	}
 }

@@ -171,15 +171,7 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	oidSubject := asn1.ObjectIdentifier(sigid.OIDSubject)
 	oidAgent := asn1.ObjectIdentifier(sigid.OIDAgentName)
 	oidScope := asn1.ObjectIdentifier(sigid.OIDScope)
-	oidPrincipalKind := asn1.ObjectIdentifier(sigid.OIDPrincipalKind)
-
-	notmeProfile := false
-	for _, ext := range cert.Extensions {
-		if ext.Id.Equal(oidPrincipalKind) {
-			notmeProfile = true
-			break
-		}
-	}
+	notmeProfile := sigid.IsNotmeProfile(cert)
 
 	for _, ext := range cert.Extensions {
 		val := extractExtValue(ext.Value)

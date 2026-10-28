@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -70,6 +71,22 @@ var (
 	// cmd/signet/verify_notme_profile_test.go.
 	OIDPrincipalKind = []int{1, 3, 6, 1, 4, 1, 99999, 1, 8}
 )
+
+// IsNotmeProfile reports whether cert was minted by notme rather than by a
+// signet authority, decided from the cert's own signed extensions: notme
+// writes OIDPrincipalKind on every mint path and nothing else under the
+// shared arc does. Under that profile .1.3, .1.5 and .1.6 carry notme's
+// meanings (scopes, authMethod, peer binding), not signet's, and must not be
+// read as capabilities, agent name or scope (signet-790ca1, signet-06bfe7).
+func IsNotmeProfile(cert *x509.Certificate) bool {
+	oid := asn1.ObjectIdentifier(OIDPrincipalKind)
+	for _, ext := range cert.Extensions {
+		if ext.Id.Equal(oid) {
+			return true
+		}
+	}
+	return false
+}
 
 // CertIdentityProvider extracts identity context from X.509 bridge certificates.
 // This is the cert-based complement to ContextProvider (which extracts from CBOR tokens).
