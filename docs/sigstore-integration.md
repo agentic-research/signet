@@ -152,6 +152,7 @@ cosign verify-blob \
   --certificate-identity "$IDENTITY" \
   --certificate-oidc-issuer-regexp '^$' \
   --insecure-ignore-sct \
+  --allow-certificate-chain \
   --bundle artifact.sigstore.json \
   artifact
 ```

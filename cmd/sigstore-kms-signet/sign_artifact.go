@@ -191,7 +191,15 @@ func cosignSignBlobArgs(artifact string, outputs artifactOutputs, trustedRootPat
 		"sign-blob", "--yes",
 		"--key", "signet://session",
 		"--certificate", outputs.Certificate,
-		"--certificate-chain", outputs.CABundle,
+		// No --certificate-chain. From cosign 3.1.3 sign-blob embeds the chain
+		// in the v0.3 bundle's x509CertificateChain (cosign#4614), and
+		// verify-blob then refuses to load such a bundle as new-format unless
+		// --allow-certificate-chain is passed, failing with "--trusted-root
+		// only supported with --new-bundle-format" (v0.3.1-rc.1). The notme CA
+		// is the root in the trusted root built above, so the chain adds
+		// nothing; leaving it out keeps the single-certificate bundle shape
+		// v0.3.0 shipped, which every cosign verifies. The CA is still
+		// published beside the artifact as .signet.ca.pem.
 		"--trusted-root", trustedRootPath,
 		"--bundle", outputs.Bundle,
 		artifact,
@@ -216,6 +224,10 @@ func cosignVerifyBlobArgs(artifact string, outputs artifactOutputs, trustedRootP
 		// fail as required. Removing it is what turns --ctfe from a
 		// declaration into an enforcement.
 		"--insecure-ignore-sct",
+		// Accepts a bundle that does carry a chain (see cosignSignBlobArgs).
+		// The chain must still end at the trusted root, so this widens
+		// nothing. Flag exists from cosign 3.1.3, the floor signet requires.
+		"--allow-certificate-chain",
 		"--bundle", outputs.Bundle,
 		artifact,
 	}
