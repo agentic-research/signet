@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/agentic-research/signet/pkg/cli/styles"
@@ -26,9 +27,14 @@ var verifyCmd = &cobra.Command{
   2. Is not expired
   3. Contains valid signet identity extensions
 
-Extracts and displays: subject, owner (OID), issuer, validity, key type.`,
+The cert file may hold the leaf followed by intermediates (for a notme task
+certificate: task, then the tier). Intermediates only help build the path;
+it must still end at a certificate in --ca.
+
+Extracts and displays: subject, task, sponsor, issuer, validity, key type.`,
 	Example: `  signet verify ~/.signet/mcp/rosary/cert.pem
-  signet verify cert.pem --ca /etc/signet/ca.pem`,
+  signet verify cert.pem --ca /etc/signet/ca.pem
+  signet verify task/chain.pem --ca root.pem`,
 	Args: cobra.ExactArgs(1),
 	RunE: runVerify,
 }
@@ -45,6 +51,7 @@ type VerifyResult struct {
 	Owner     string // OID 99999.1.1 (sponsor identity)
 	Agent     string // OID 99999.1.5 (agent name, empty for human certs)
 	Scope     string // OID 99999.1.6 (scope restriction, empty if unrestricted)
+	Task      string // notme task id from OID 99999.1.9, empty unless a task cert
 	Issuer    string // Issuer CN
 	KeyType   string // "ECDSA P-256", "Ed25519", etc.
 	NotBefore time.Time
@@ -86,6 +93,9 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	if result.Scope != "" {
 		fmt.Fprintf(os.Stderr, "  Scope:     %s\n", styles.Code.Render(result.Scope))
 	}
+	if result.Task != "" {
+		fmt.Fprintf(os.Stderr, "  Task:      %s\n", styles.Code.Render(result.Task))
+	}
 	if result.Owner != "" {
 		fmt.Fprintf(os.Stderr, "  Sponsor:   %s\n", styles.Code.Render(result.Owner))
 	}
@@ -112,13 +122,34 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read cert: %w", err)
 	}
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, fmt.Errorf("failed to decode cert PEM")
+	// The first certificate is the leaf; any that follow are intermediates.
+	// notme task certs sit two hops below the root (root -> tier -> task) and
+	// notme's client writes chain.pem as leaf + tier, so without these no
+	// task cert can ever verify (signet-53b31c). Intermediates are untrusted:
+	// they only help build a path that must still end at a --ca root.
+	var cert *x509.Certificate
+	intermediates := x509.NewCertPool()
+	for rest := certPEM; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		c, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse cert: %w", err)
+		}
+		if cert == nil {
+			cert = c
+		} else {
+			intermediates.AddCert(c)
+		}
 	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse cert: %w", err)
+	if cert == nil {
+		return nil, fmt.Errorf("failed to decode cert PEM")
 	}
 
 	// Read CA bundle (supports multiple PEM blocks)
@@ -172,6 +203,7 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	oidAgent := asn1.ObjectIdentifier(sigid.OIDAgentName)
 	oidScope := asn1.ObjectIdentifier(sigid.OIDScope)
 	notmeProfile := sigid.IsNotmeProfile(cert)
+	oidTaskScope := asn1.ObjectIdentifier(sigid.OIDTaskScope)
 
 	for _, ext := range cert.Extensions {
 		val := extractExtValue(ext.Value)
@@ -186,14 +218,37 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 			if !notmeProfile {
 				result.Scope = val
 			}
+		case ext.Id.Equal(oidTaskScope):
+			var ts struct {
+				Task     string `asn1:"utf8"`
+				GoalHash []byte
+			}
+			if rest, err := asn1.Unmarshal(ext.Value, &ts); err == nil && len(rest) == 0 {
+				result.Task = ts.Task
+			}
+		}
+	}
+
+	// On a notme task cert .1.1 is the TASK id, not the sponsor. The sponsor
+	// is the tier principal whose identity URI the task's extends:
+	// <tier identity>/<task> (signet-53b31c).
+	if result.Task != "" {
+		result.Owner = ""
+		for _, u := range cert.URIs {
+			s := u.String()
+			if i := strings.LastIndex(s, "/"); i > 0 && s[i+1:] == result.Task {
+				result.Owner = s[:i]
+				break
+			}
 		}
 	}
 
 	// Verify chain
 	if _, err := cert.Verify(x509.VerifyOptions{
-		Roots:       pool,
-		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		CurrentTime: time.Now(),
+		Roots:         pool,
+		Intermediates: intermediates,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		CurrentTime:   time.Now(),
 	}); err != nil {
 		result.Valid = false
 		result.Reason = err.Error()
