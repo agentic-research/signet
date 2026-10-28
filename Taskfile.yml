@@ -27,9 +27,10 @@ tasks:
       - task: test:release
 
   test:release:
-    desc: Test the release identity rule verify_release.sh pins (signet-751af3)
+    desc: Test verify_release.sh's identity rule and cosign guards (signet-751af3, signet-79239a)
     cmds:
       - ./scripts/release/release_identity_test.sh
+      - ./scripts/release/cosign_guard_test.sh
 
   fmt:
     desc: Format Go code (gofumpt)
