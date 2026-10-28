@@ -112,6 +112,13 @@ verification must pin the authority CA independently and require the expected
 WIMSE URI. Do not pass `--key artifact.signet.pub`: the bundle is
 certificate-bearing, and cosign correctly rejects key-only policy for it.
 
+Use cosign 3.1.3 or later. Older releases skip certificate and identity checks
+for a legacy-format bundle whose certificate field holds a bare public key
+(GHSA-fx35-mq7g-6g98), so an attacker who can replace `artifact.sigstore.json`
+can pass verification. Signet publishes only Sigstore protobuf bundles
+(`mediaType: application/vnd.dev.sigstore.bundle...`); treat any other bundle
+format as a failure.
+
 ```bash
 # cluster-notme-ca.pem is provisioned from the Cloister cluster's trust
 # configuration, not accepted merely because it sits beside the artifact.

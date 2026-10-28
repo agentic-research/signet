@@ -99,6 +99,8 @@ done
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname "${BASH_SOURCE[0]}")/release_identity.sh"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname "${BASH_SOURCE[0]}")/cosign_guard.sh"
 if [[ -z "$IDENTITY_REGEXP" ]]; then
   IDENTITY_REGEXP="$(release_identity_regexp "$TRUST_DOMAIN" "$REPO" "$TAG")"
 fi
@@ -106,6 +108,14 @@ fi
 for tool in gh cosign curl openssl; do
   command -v "$tool" >/dev/null || { echo "FAIL: required tool not found: $tool" >&2; exit 1; }
 done
+
+# cosign <= 3.1.2 can be made to report "Verified OK" for a legacy bundle an
+# attacker swapped in (GHSA-fx35-mq7g-6g98, signet-79239a).
+cosign_version="$(cosign version 2>/dev/null | cosign_version_from_output)"
+if ! version_at_least "${cosign_version:-0}" "$COSIGN_MIN_VERSION"; then
+  echo "FAIL: cosign ${cosign_version:-(unknown)} is older than $COSIGN_MIN_VERSION; upgrade (GHSA-fx35-mq7g-6g98)" >&2
+  exit 1
+fi
 
 sha256_check() {
   if command -v sha256sum >/dev/null; then
@@ -201,6 +211,13 @@ for a in "${artifacts[@]}"; do
   bundle="$a.sigstore.json"
   if [[ ! -f "$bundle" ]]; then
     missing+=("$bundle")
+    continue
+  fi
+  # Only Sigstore protobuf bundles reach cosign. The legacy format is the one
+  # GHSA-fx35-mq7g-6g98 abuses, and signet has never published it.
+  if ! is_protobuf_bundle "$bundle"; then
+    failed+=("$a")
+    echo "    FAIL $a  ($bundle is not a Sigstore protobuf bundle)"
     continue
   fi
   identity_args=(--certificate-identity-regexp "$IDENTITY_REGEXP")

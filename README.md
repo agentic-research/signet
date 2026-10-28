@@ -280,6 +280,11 @@ Each ships a Sigstore bundle and a five-minute Notme certificate. **Verify
 before running** — pinning the Notme/Cloister CA is what distinguishes a key
 certified for this workload from one an artifact-replacement attacker created.
 
+**Use cosign 3.1.3 or later.** Older releases can report "Verified OK" for a
+legacy-format bundle an attacker substituted (GHSA-fx35-mq7g-6g98).
+`scripts/release/verify_release.sh` refuses older cosign, and refuses any
+bundle that is not a Sigstore protobuf bundle.
+
 ```bash
 VERSION=vX.Y.Z                     # the release you are installing
 PLATFORM=linux-amd64               # or darwin-arm64, linux-arm64
