@@ -122,14 +122,17 @@ jobs:
         # advisories — in an artifact this workflow executes with an OIDC
         # identity in scope (notme-28959a, P0). Verified rather than assumed:
         # the bundle at 1ccd3b04 contains 6.25.0 and no 6.28.0; the bundle
-        # here contains 6.28.0 and no 6.25.0.
+        # here contains 6.28.0 and no 6.25.0. 6.28.x is itself vulnerable
+        # (TLS certificate validation bypass, fixed in 6.29.1); 8034779 is
+        # notme#76's rebuilt bundle, which embeds 6.29.1 and changes no action
+        # source beyond a comment (signet-6d2bcd).
         #
         # This pin also carries notme's PoP fix (0d2312fe, notme-a011d2) —
         # the WebCrypto double-hash that failed signet's rc.2. Note the
         # release path does NOT use this action; it uses signet's own
         # ./.github/actions/sign-artifact. This workflow is the identity
         # canary, so advancing the pin cannot affect release signing.
-        uses: agentic-research/notme/action@f35a46a8e063b5d7c7f7ff0b4370b31131686419 # main 2026-08-07 (notme-28959a)
+        uses: agentic-research/notme/action@8034779bafc5269e611b33ab515c97245cd358c4 # goalzero 2026-10-28, undici 6.29.1 (notme-0fff62, signet-6d2bcd)
         with:
           audience: ${{ inputs.bridge_audience }}
           authority_url: ${{ inputs.authority_url }}
