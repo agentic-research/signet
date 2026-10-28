@@ -17,15 +17,24 @@ import (
 // Arc: 1.3.6.1.4.1.99999.1.3 (next after .1=subject, .2=issuance time).
 var OIDSignetCapabilities = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 3}
 
+// maxBridgeSubjectBytes bounds the encoded subject extension. It matches the
+// 512-byte limit sigid's cert provider enforces when reading it back, so an
+// accepted subject is always one a consumer will read.
+const maxBridgeSubjectBytes = 512
+
 // IssueBridgeCertificate creates an intermediate CA certificate that embeds
 // capability URIs as an X.509 extension. The bridge cert is IsCA:true with
 // MaxPathLen:0, allowing it to issue ephemeral end-entity certs but not
 // further intermediates.
 //
 // The capabilities are encoded as ASN.1 SEQUENCE OF UTF8String under
-// OID 1.3.6.1.4.1.99999.1.3.
+// OID 1.3.6.1.4.1.99999.1.3. The subject (the OIDC sub the grant was made to)
+// is encoded as a DER UTF8String under sigid.OIDSubject; the certificate's own
+// Subject stays the issuer DID, so without the extension the cert names only
+// the authority.
 func (ca *LocalCA) IssueBridgeCertificate(
 	ephemeralPubKey crypto.PublicKey,
+	subject string,
 	capabilities []string,
 	validity time.Duration,
 ) (*x509.Certificate, []byte, error) {
@@ -34,6 +43,17 @@ func (ca *LocalCA) IssueBridgeCertificate(
 	}
 	if validity <= 0 {
 		return nil, nil, errors.New("validity duration must be positive")
+	}
+	if subject == "" {
+		return nil, nil, errors.New("subject cannot be empty")
+	}
+
+	subjectExt, err := asn1.MarshalWithParams(subject, "utf8")
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(subjectExt) > maxBridgeSubjectBytes {
+		return nil, nil, errors.New("subject too long")
 	}
 
 	// Encode capabilities as ASN.1 SEQUENCE OF UTF8String
@@ -65,6 +85,10 @@ func (ca *LocalCA) IssueBridgeCertificate(
 		MaxPathLenZero:        true,
 		SubjectKeyId:          generateSubjectKeyID(ephemeralPubKey),
 		ExtraExtensions: []pkix.Extension{
+			{
+				Id:    asn1.ObjectIdentifier(sigid.OIDSubject),
+				Value: subjectExt,
+			},
 			{
 				Id:    OIDSignetCapabilities,
 				Value: capExt,
