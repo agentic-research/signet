@@ -46,7 +46,7 @@ cosign trusted-root create \
 
 cosign verify-blob \
   --trusted-root trusted-artifact-root.json \
-  --certificate-identity wimse://notme.bot/gha/example/my-repo \
+  --certificate-identity wimse://notme.bot/principal/repo%3Aexample%2Fmy-repo%3Aref%3Arefs%2Ftags%2Fv1.2.3 \
   --certificate-oidc-issuer-regexp '^$' \
   --insecure-ignore-sct \
   --bundle artifact.sigstore.json \

@@ -288,6 +288,11 @@ Each ships a Sigstore bundle and a five-minute Notme certificate. **Verify
 before running** — pinning the Notme/Cloister CA is what distinguishes a key
 certified for this workload from one an artifact-replacement attacker created.
 
+**Use cosign 3.1.3 or later.** Older releases can report "Verified OK" for a
+legacy-format bundle an attacker substituted (GHSA-fx35-mq7g-6g98).
+`scripts/release/verify_release.sh` refuses older cosign, and refuses any
+bundle that is not a Sigstore protobuf bundle.
+
 ```bash
 VERSION=vX.Y.Z                     # the release you are installing
 PLATFORM=linux-amd64               # or darwin-arm64, linux-arm64
@@ -309,11 +314,14 @@ openssl verify \
 openssl x509 \
   -in signet-$PLATFORM.signet.crt.pem \
   -noout -ext subjectAltName
-# Require URI:wimse://notme.bot/gha/agentic-research/signet (or the
-# cluster's configured equivalent).
+# Require the identity of the release workflow run on THIS tag: the OIDC
+# subject repo:agentic-research/signet:ref:refs/tags/$VERSION, percent-encoded
+# as notme encodes it (scripts/release/release_identity.sh derives it).
+# Releases up to and including v0.3.0 instead carry the older, ref-blind
+# URI:wimse://notme.bot/gha/agentic-research/signet; pin that for those.
 
 AUTHORITY=https://auth.notme.bot
-IDENTITY=wimse://notme.bot/gha/agentic-research/signet
+IDENTITY="wimse://notme.bot/principal/repo%3Aagentic-research%2Fsignet%3Aref%3Arefs%2Ftags%2F$VERSION"
 
 cosign trusted-root create \
   --with-default-services \

@@ -21,9 +21,16 @@ tasks:
       - go build {{.BUILD_FLAGS}} -o signet-git ./cmd/signet-git
 
   test:
-    desc: Run Go unit tests
+    desc: Run Go unit tests and release-script tests
     cmds:
       - go test -v {{.BUILD_FLAGS}} ./...
+      - task: test:release
+
+  test:release:
+    desc: Test verify_release.sh's identity rule and cosign guards (signet-751af3, signet-79239a)
+    cmds:
+      - ./scripts/release/release_identity_test.sh
+      - ./scripts/release/cosign_guard_test.sh
 
   fmt:
     desc: Format Go code (gofumpt)

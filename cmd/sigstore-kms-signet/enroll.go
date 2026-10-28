@@ -126,6 +126,14 @@ func enrollGitHubSession(ctx context.Context, cfg enrollConfig) (*enrollment, er
 	bindingInput = append(bindingInput, mtlsSPKI...)
 	bindingInput = append(bindingInput, signingSPKI...)
 	bindingInput = append(bindingInput, oidcHash[:]...)
+
+	// Both proofs sign binding_input itself (notme ADR-008), yet the two calls
+	// below take different arguments, and that is deliberate. Go's ECDSA signs
+	// a message REPRESENTATIVE, so ECDSA-SHA256 over binding_input is
+	// ecdsa.Sign(SHA-256(binding_input)). Go's Ed25519 is pure and signs the
+	// MESSAGE, so it takes binding_input. Passing the same digest to both is
+	// what signet-89aa84 fixed: the Ed25519 proof signed the digest and was
+	// accepted only through notme's transitional legacy-digest fallback.
 	binding := sha256.Sum256(bindingInput)
 
 	r, s, err := ecdsa.Sign(rand.Reader, mtlsPrivate, binding[:])
@@ -135,7 +143,7 @@ func enrollGitHubSession(ctx context.Context, cfg enrollConfig) (*enrollment, er
 	mtlsProof := make([]byte, 64)
 	r.FillBytes(mtlsProof[:32])
 	s.FillBytes(mtlsProof[32:])
-	signingProof, err := signer.Sign(rand.Reader, binding[:], crypto.Hash(0))
+	signingProof, err := signer.Sign(rand.Reader, bindingInput, crypto.Hash(0))
 	if err != nil {
 		return nil, fmt.Errorf("create signing proof of possession: %w", err)
 	}

@@ -94,7 +94,7 @@ This is a substantive *addition* over Sigstore: signet's middleware can revoke a
 The example `--certificate-identity` argument shown in the Rekor verification flow (`docs/sigstore-integration.md` "Verifying via Rekor" section) points at a GitHub Actions workflow URL — that's *Sigstore's* identity convention, not WIMSE or SPIFFE. But the same cert *also* carries a workload-identity URI in its SANs, and the ART substrate currently has two:
 
 - **signet** (post-L10) emits `URI:spiffe://<trust-domain>/<workload>` ([`pkg/attest/x509/localca.go`](../pkg/attest/x509/localca.go))
-- **notme** emits `wimse://notme.bot/{context}/{id}` ([`notme/schema/identity.capnp`](https://github.com/agentic-research/notme/blob/main/schema/identity.capnp) `BridgeCertPair.identity`)
+- **notme** emits `wimse://notme.bot/principal/<encodeURIComponent(principal)>` — for GitHub Actions the principal is the OIDC `sub`, e.g. `repo:owner/repo:ref:refs/tags/v1.2.3` (before 2026-09-11 it was `wimse://notme.bot/gha/<owner>/<repo>`) ([`notme/schema/identity.capnp`](https://github.com/agentic-research/notme/blob/main/schema/identity.capnp) `BridgeCertPair.identity`)
 
 For a cosign verifier inspecting a signet-signed-via-Sigstore artifact, the workload-identity URI in the cert is `spiffe://` today. For a verifier inspecting a notme-minted bridge cert, it's `wimse://`. Reconciling these is tracked at bead [`cloister-2f021f`](https://github.com/agentic-research/cloister) (ADR-0026 — pick the canonical scheme). See [`spiffe-vocabulary-map.md`](./spiffe-vocabulary-map.md) §6 for the full divergence note.
 

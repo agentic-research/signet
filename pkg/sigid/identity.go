@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -53,7 +54,39 @@ var (
 	// Consumers must accept both encodings. When absent, the cert has no scope
 	// restriction (full access of the sponsor).
 	OIDScope = []int{1, 3, 6, 1, 4, 1, 99999, 1, 6}
+
+	// OIDPrincipalKind is NOT SIGNET'S. notme allocates it for what the
+	// certificate's subject IS -- "human" | "agent" | "workload" |
+	// "organization", a DER UTF8String (notme worker/src/cert-authority.ts:170).
+	//
+	// Declared here because signet has to RECOGNISE it, not write it. The arc
+	// 1.3.6.1.4.1.99999 is shared by signet, notme and ley-line-open with no
+	// registry between them, and the meanings disagree at .1.5 and .1.6: where
+	// signet reads an agent name and a scope, notme writes an authMethod and a
+	// 32-byte peer binding. Something has to tell the two apart, and this is
+	// the only slot that does it -- notme emits it on every mint path, and no
+	// other allocation under this arc uses .1.8 at all.
+	//
+	// See signet-790ca1 and the full cross-repo table in
+	// cmd/signet/verify_notme_profile_test.go.
+	OIDPrincipalKind = []int{1, 3, 6, 1, 4, 1, 99999, 1, 8}
 )
+
+// IsNotmeProfile reports whether cert was minted by notme rather than by a
+// signet authority, decided from the cert's own signed extensions: notme
+// writes OIDPrincipalKind on every mint path and nothing else under the
+// shared arc does. Under that profile .1.3, .1.5 and .1.6 carry notme's
+// meanings (scopes, authMethod, peer binding), not signet's, and must not be
+// read as capabilities, agent name or scope (signet-790ca1, signet-06bfe7).
+func IsNotmeProfile(cert *x509.Certificate) bool {
+	oid := asn1.ObjectIdentifier(OIDPrincipalKind)
+	for _, ext := range cert.Extensions {
+		if ext.Id.Equal(oid) {
+			return true
+		}
+	}
+	return false
+}
 
 // CertIdentityProvider extracts identity context from X.509 bridge certificates.
 // This is the cert-based complement to ContextProvider (which extracts from CBOR tokens).

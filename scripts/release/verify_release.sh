@@ -12,7 +12,8 @@
 #
 # Usage:
 #   verify_release.sh <tag> [--repo OWNER/NAME] [--authority-url URL]
-#                     [--identity-regexp RE] [--ca-bundle FILE] [--keep]
+#                     [--trust-domain TD] [--identity-regexp RE]
+#                     [--ca-bundle FILE] [--keep]
 #
 # Checks, in order:
 #   1. Download every asset of the release for <tag>.
@@ -24,11 +25,12 @@
 #   4. Authenticity: cosign verify-blob each artifact against its
 #      .sigstore.json bundle with a trusted root built from the independent
 #      anchor, asserting the Fulcio OIDC issuer extension is absent. Based
-#      on cmd/sigstore-kms-signet/sign_artifact.go cosignVerifyBlobArgs,
-#      with ONE deliberate relaxation: the signing side pins the exact
-#      enrolled identity (--certificate-identity); a later verifier does
-#      not know it, so this script defaults to an anchored regexp and
-#      accepts --identity for an exact pin once the SAN shape is known.
+#      on cmd/sigstore-kms-signet/sign_artifact.go cosignVerifyBlobArgs.
+#      The expected identity is DERIVED from --repo, --trust-domain and the
+#      tag (release_identity.sh, signet-751af3): the certificate must name
+#      refs/tags/<tag> of this repo, or carry the exact legacy identity that
+#      releases up to v0.3.0 were signed with. --identity / --identity-regexp
+#      override it.
 #   5. Report the signing identity per artifact and PASS/FAIL.
 #
 # Limitations (deliberate, documented):
@@ -46,10 +48,11 @@ set -euo pipefail
 
 REPO="agentic-research/signet"
 AUTHORITY_URL="https://auth.notme.bot"
-# Anchored: the repo path must appear as a path segment of the SAN URI, not
-# as a substring of some other identity. Tighten further with --identity
-# (exact match) once the enrolled SAN shape is known from a real release.
-IDENTITY_REGEXP="(^|[/:])agentic-research/signet([/:@.]|$)"
+# WIMSE trust domain of the authority's identities. auth.notme.bot mints
+# under notme.bot; a cluster-local authority may use its own.
+TRUST_DOMAIN="notme.bot"
+# Empty means derived from REPO, TRUST_DOMAIN and TAG after argument parsing.
+IDENTITY_REGEXP=""
 IDENTITY_EXACT=""
 CA_BUNDLE=""
 KEEP=0
@@ -61,7 +64,8 @@ verify_release.sh — clean-machine verification of a published signet release
 
 Usage:
   verify_release.sh <tag> [--repo OWNER/NAME] [--authority-url URL]
-                    [--identity RE-EXACT | --identity-regexp RE]
+                    [--trust-domain TD]
+                    [--identity EXACT | --identity-regexp RE]
                     [--ca-bundle FILE] [--keep]
 
 <tag> must look like a release tag (v<digit>...), e.g. v0.3.0 or v0.3.0-rc.1.
@@ -84,6 +88,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
     --authority-url) AUTHORITY_URL="$2"; shift 2 ;;
+    --trust-domain) TRUST_DOMAIN="$2"; shift 2 ;;
     --identity) IDENTITY_EXACT="$2"; shift 2 ;;
     --identity-regexp) IDENTITY_REGEXP="$2"; shift 2 ;;
     --ca-bundle) CA_BUNDLE="$2"; shift 2 ;;
@@ -92,9 +97,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname "${BASH_SOURCE[0]}")/release_identity.sh"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname "${BASH_SOURCE[0]}")/cosign_guard.sh"
+if [[ -z "$IDENTITY_REGEXP" ]]; then
+  IDENTITY_REGEXP="$(release_identity_regexp "$TRUST_DOMAIN" "$REPO" "$TAG")"
+fi
+
 for tool in gh cosign curl openssl; do
   command -v "$tool" >/dev/null || { echo "FAIL: required tool not found: $tool" >&2; exit 1; }
 done
+
+# cosign <= 3.1.2 can be made to report "Verified OK" for a legacy bundle an
+# attacker swapped in (GHSA-fx35-mq7g-6g98, signet-79239a).
+cosign_version="$(cosign version 2>/dev/null | cosign_version_from_output)"
+if ! version_at_least "${cosign_version:-0}" "$COSIGN_MIN_VERSION"; then
+  echo "FAIL: cosign ${cosign_version:-(unknown)} is older than $COSIGN_MIN_VERSION; upgrade (GHSA-fx35-mq7g-6g98)" >&2
+  exit 1
+fi
 
 sha256_check() {
   if command -v sha256sum >/dev/null; then
@@ -179,12 +200,24 @@ cosign trusted-root create \
   --out "$trusted_root"
 
 echo "==> [4/4] verifying signature bundles"
+if [[ -n "$IDENTITY_EXACT" ]]; then
+  echo "    identity: $IDENTITY_EXACT"
+else
+  echo "    identity: $IDENTITY_REGEXP"
+fi
 missing=()
 failed=()
 for a in "${artifacts[@]}"; do
   bundle="$a.sigstore.json"
   if [[ ! -f "$bundle" ]]; then
     missing+=("$bundle")
+    continue
+  fi
+  # Only Sigstore protobuf bundles reach cosign. The legacy format is the one
+  # GHSA-fx35-mq7g-6g98 abuses, and signet has never published it.
+  if ! is_protobuf_bundle "$bundle"; then
+    failed+=("$a")
+    echo "    FAIL $a  ($bundle is not a Sigstore protobuf bundle)"
     continue
   fi
   identity_args=(--certificate-identity-regexp "$IDENTITY_REGEXP")

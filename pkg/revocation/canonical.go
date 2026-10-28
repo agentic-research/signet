@@ -27,9 +27,9 @@ import (
 // Cross-runtime contract: the bytes returned here MUST byte-equal
 // notme/worker/src/revocation.ts bundleCanonical() and
 // cloister/src/storage/bundle-canonical.ts bundleCanonical() for the same
-// logical input. The pinned cross-runtime fixture lives in
-// canonical_test.go (TestBundleCanonical_CrossRuntimeFixture) and matches
-// the 25-byte sequence pinned by notme/worker/src/__tests__/bundle-canonical.test.ts.
+// logical input. canonical_test.go (TestBundleCanonical_CrossRuntimeFixtures)
+// asserts it against notme's shared ADR-010 fixtures, vendored under
+// testdata/notme-fixtures by scripts/testing/sync_notme_fixtures.sh.
 //
 // A fxamacker/cbor library upgrade that changes encoding behavior will
 // break this byte-equality contract silently. The cross-runtime fixture

@@ -112,6 +112,13 @@ verification must pin the authority CA independently and require the expected
 WIMSE URI. Do not pass `--key artifact.signet.pub`: the bundle is
 certificate-bearing, and cosign correctly rejects key-only policy for it.
 
+Use cosign 3.1.3 or later. Older releases skip certificate and identity checks
+for a legacy-format bundle whose certificate field holds a bare public key
+(GHSA-fx35-mq7g-6g98), so an attacker who can replace `artifact.sigstore.json`
+can pass verification. Signet publishes only Sigstore protobuf bundles
+(`mediaType: application/vnd.dev.sigstore.bundle...`); treat any other bundle
+format as a failure.
+
 ```bash
 # cluster-notme-ca.pem is provisioned from the Cloister cluster's trust
 # configuration, not accepted merely because it sits beside the artifact.
@@ -122,10 +129,15 @@ openssl verify \
 openssl x509 \
   -in artifact.signet.crt.pem \
   -noout -ext subjectAltName
-# Require the expected URI:wimse://<authority>/gha/<owner>/<repo> value.
+# Require the expected URI. notme names the principal by its OIDC subject,
+# percent-encoded (encodeURIComponent):
+#   wimse://<trust-domain>/principal/<encodeURIComponent(sub)>
+# For a GitHub Actions run on tag v1.2.3 of example/my-repo, the subject is
+# repo:example/my-repo:ref:refs/tags/v1.2.3. Certificates minted before
+# notme's 2026-09-11 deploy carry wimse://<trust-domain>/gha/<owner>/<repo>.
 
 AUTHORITY=https://cluster.example/identity
-IDENTITY=wimse://notme.bot/gha/example/my-repo
+IDENTITY=wimse://notme.bot/principal/repo%3Aexample%2Fmy-repo%3Aref%3Arefs%2Ftags%2Fv1.2.3
 
 # Merge the independently trusted cluster CA with Sigstore's public Rekor/TSA
 # keys. Notme bridge certificates are not submitted to Fulcio's CT log.
