@@ -32,9 +32,12 @@ implemented in this repository today or has a filed bead named in §6.
   `<artifact>.signet.ca.pem`, `<artifact>.signet.pub`.
 - CI: `ci.yml` (pure-Go suite + Docker integration + SIG1 HTTP e2e,
   PKCS#11/CGO suite, gosec, benchmarks) — green on `main` as of
-  2026-08-05T04:34Z. `oidc-signing.yml` runs the **live**
-  auth.notme.bot token exchange on every push to `main` — a continuous
-  canary of the authority contract. Verified live during this review:
+  2026-08-05T04:34Z. `oidc-signing.yml` exercises the
+  token exchange on every push to `main`, but against a **local** Go
+  authority it starts itself (`--authority-url http://localhost:8080`),
+  never auth.notme.bot. It guards the Go authority's own logic and says
+  nothing about production (`signet-71d9d8`). Verified live during this
+  review:
   `https://auth.notme.bot/.well-known/ca-bundle.pem` serves the trust
   anchor.
 - `claude-code-review.yml` fails on every PR (`ANTHROPIC_API_KEY`
@@ -101,14 +104,16 @@ than invented infrastructure.
 Signet has two release planes. This plan promotes the **artifact
 plane** (the signed CLI binaries — what this repo owns). The **service
 plane** (auth.notme.bot authority, OAuth worker) is owned by the notme
-repos; its contract is pinned in §4 and its health is continuously
-measured by `oidc-signing.yml`.
+repos; its contract is pinned in §4. There is **no continuous production
+canary**: production is exercised by each release's own Sign + verify
+step (a real `/cert/gha` exchange) and checked from outside by
+`task verify-release` against the live CA (`signet-71d9d8`).
 
 ### Phase 0 — PR CI (always on)
 
 Every PR must be green on: CI Tests (pure Go), Test Suite (PKCS#11),
 Security Checks. Merge to `main` additionally runs OIDC Signing E2E
-against the live authority. `claude-code-review.yml` is not a gate
+against a local Go authority (not production). `claude-code-review.yml` is not a gate
 (currently broken, bead filed).
 
 ### Phase 1 — Staging: rc rehearsal tag
@@ -121,8 +126,10 @@ never promoted) and rc.2 follows the fix. The rc's `prerelease: true`
 state on the release API is also the first live confirmation of the
 channel mechanics (`signet-ee1f3b` evidence).
 
-- Entry: Phase 0 green on the candidate commit; authority live
-  (oidc-signing.yml green on that commit or later).
+- Entry: Phase 0 green on the candidate commit; production authority
+  checked directly: `task verify-release TAG=<previous release>`
+  passes against the live `https://auth.notme.bot/.well-known/ca-bundle.pem`
+  (it fetches the anchor and verifies real notme-issued certificates).
 - Exit: `task verify-release TAG=v0.3.0-rc.1` passes from a machine
   that did not build the release; binaries smoke-tested
   (`signet --help`, `signet verify` against a freshly minted cert,
@@ -165,13 +172,15 @@ Then soak:
 
 - Dogfood: developer machines install the v0.3.0 assets and use
   `signet auth login/status` and `signet-git` commit signing daily.
-- CI consumers keep exercising the authority contract
-  (`gha-identity.yml`, `signet-resign.yml`, `oidc-signing.yml`).
+- The authority contract is re-checked against production with
+  `task verify-release` (live anchor) at the start and end of the soak.
+  `oidc-signing.yml` covers only the Go authority; `gha-identity.yml` and
+  `signet-resign.yml` are not exercised (`signet-e6cbea`).
 - Soak ≥ 5 working days.
 - Entry: rc rehearsal passed; v0.3.0 assets verified.
 - Exit: zero release-attributable P0/P1 beads filed during soak;
-  oidc-signing.yml green throughout; dogfood users report no
-  regressions.
+  `task verify-release` against the live anchor green at start and
+  end; dogfood users report no regressions.
 - Rollback triggers: any release-attributable P0/P1; authority contract
   break; signing evidence found invalid. Rollback = v0.3.0 stays
   prerelease forever (documented in the release notes), fix forward to
@@ -228,12 +237,12 @@ go build -trimpath -buildvcs=false -o /tmp/a ./cmd/signet   # at each commit, th
 
 ## 3. Entry/exit criteria summary
 
-| Phase                       | Entry                                                                                                               | Exit                                                                                     | Rollback trigger → action                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| 0: PR CI                    | PR opened                                                                                                           | CI Tests + PKCS#11 + Security green                                                      | red CI → fix before merge                                      |
-| 1: Staging (rc)             | Phase 0 green; authority live                                                                                       | `task verify-release` passes on rc from clean machine; smoke OK                          | missing/failed bundles → burn rc, fix forward, rc.N+1          |
-| 2: Beta (v0.3.0 prerelease) | rc rehearsal passed                                                                                                 | ≥5 working-day soak, zero release-attributable P0/P1, oidc-signing green throughout      | any P0/P1 → v0.3.0 never promoted, fix forward v0.3.1          |
-| 3: Production               | Phase 2 exit + `signet-62f8e0` closed + `signet-e6a047` closed + no open release-gating invariant (`signet-c0a3e4`) | latest flipped; verify re-passes byte-identical; vigil watch resolves; evidence recorded | compromise/regression → demote to prerelease, advisory, v0.3.1 |
+| Phase                       | Entry                                                                                                               | Exit                                                                                                                | Rollback trigger → action                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 0: PR CI                    | PR opened                                                                                                           | CI Tests + PKCS#11 + Security green                                                                                 | red CI → fix before merge                                      |
+| 1: Staging (rc)             | Phase 0 green; authority live                                                                                       | `task verify-release` passes on rc from clean machine; smoke OK                                                     | missing/failed bundles → burn rc, fix forward, rc.N+1          |
+| 2: Beta (v0.3.0 prerelease) | rc rehearsal passed                                                                                                 | ≥5 working-day soak, zero release-attributable P0/P1, verify-release against the live anchor green at start and end | any P0/P1 → v0.3.0 never promoted, fix forward v0.3.1          |
+| 3: Production               | Phase 2 exit + `signet-62f8e0` closed + `signet-e6a047` closed + no open release-gating invariant (`signet-c0a3e4`) | latest flipped; verify re-passes byte-identical; vigil watch resolves; evidence recorded                            | compromise/regression → demote to prerelease, advisory, v0.3.1 |
 
 ## 4. Cross-repo compatibility matrix (Signet ↔ Notme ↔ Mache/LLO)
 
@@ -253,12 +262,12 @@ signing path.
 
 | Boundary                                                             | Contract signet needs                                                                  | Observed state                                                                                                                                                                                                                                                                                                                 | Class                                                                                                                                                                                                                                                                  |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| notme: `POST /cert/gha` + `GET /.well-known/ca-bundle.pem`           | OIDC→5-min cert enrollment for release signing; CA bundle for independent verification | **Healthy** (401-without-token / 200; oidc-signing.yml green per main push). Deployed from the **public** `notme` monorepo `worker/` — confirmed by diffing the live discovery doc against both candidate repos                                                                                                                | Gate for Phases 1–3 — currently **met**                                                                                                                                                                                                                                |
+| notme: `POST /cert/gha` + `GET /.well-known/ca-bundle.pem`           | OIDC→5-min cert enrollment for release signing; CA bundle for independent verification | **Healthy** (401-without-token / 200; exercised by each release's Sign + verify step; `verify_release.sh` against the live anchor passed for v0.3.0 on 2026-10-28). Deployed from the **public** `notme` monorepo `worker/` — confirmed by diffing the live discovery doc against both candidate repos                         | Gate for Phases 1–3 — currently **met**                                                                                                                                                                                                                                |
 | notme: `POST /exchange-token`, `POST /api/cert/register`             | Backing for `signet authority exchange-github-token` and `signet auth register`        | **Hard down** (500/CF-1101): worker.ts:2988-2991 falls through to the Fly `signet` upstream, which cannot start (rig `entrypoint.signet.sh` runs `/app/signet`; Dockerfile installs to `/usr/local/bin/signet`). Live discovery doc has dropped both endpoints; grants are now `github_actions_oidc`+`dpop`                    | Gate for **Phase 3 GA claims**: fix (rig entrypoint or `signet-c784cf` worker port) or document both commands as known-broken in the v0.3.0 notes. Owner: rig/notme                                                                                                    |
 | notme: OAuth login (`/oauth/authorize`, `/oauth/token`, `/api/cert`) | `signet auth login` browser flow                                                       | Live on **rosary.bot** (rig worker), not notme. rig has 12 unpushed commits; its IaC is blocked on R2 credentials (`rig-b37f6e`, P0)                                                                                                                                                                                           | Parallel — beta soak dogfoods it; regressions file against rig                                                                                                                                                                                                         |
 | notme: `gha-identity.yml` reusable workflow                          | Consistent outputs for CI consumers                                                    | Drifted: notme's copy advertises outputs that resolve **empty**; signet holds the corrected fork; rig consumes signet's. Live casualty: `signet-resign.yml` reads long-gone `bridge_cert`/`bridge_key` (`signet-e6cbea`)                                                                                                       | Advisory for the artifact train (release.yml doesn't consume it); fix flows signet → notme (`signet-b6559e`)                                                                                                                                                           |
 | notme: identity schema (`schema/identity.capnp`)                     | Wire-compat evidence for tokens/certs/bundles                                          | **No machine-checkable pin** — prose "schema-version 008"; enforcement is two hand-maintained vectors (canonical CA-bundle CBOR, ADR-012 kid `9408457a…`); shared fixture suite named in notme's skipped test does not exist; spiffe:// vs wimse:// URI divergence                                                             | Near-term evidence = both vector tests green at the release commit; long-term fix `signet-2f6b68`                                                                                                                                                                      |
-| notme staging                                                        | A staging authority to soak against                                                    | **None exists** (no `[env.*]` in any committed wrangler config). `auth-staging.notme.bot` support is in-flight, uncommitted, on notme's `goalzero` branch                                                                                                                                                                      | Parallel for v0.3.0 (artifact train soaks against prod authority, which the continuous oidc-signing canary already exercises); becomes a gate for future service-plane trains                                                                                          |
+| notme staging                                                        | A staging authority to soak against                                                    | **None exists** (no `[env.*]` in any committed wrangler config). `auth-staging.notme.bot` support is in-flight, uncommitted, on notme's `goalzero` branch                                                                                                                                                                      | Parallel for v0.3.0 (artifact train soaks against the prod authority, checked with `task verify-release` against the live anchor); becomes a gate for future service-plane trains                                                                                      |
 | notme.bot (private repo)                                             | Nobody clobbers the deployed Worker                                                    | Second repo declares the same script name/routes, no CI, hand `task ship`, 1,700 lines behind, **no rate limiters** — a ship from it would roll back the authority                                                                                                                                                             | Standing hazard, recorded here + `signet-c0a34f` (repo not rosary-registered, so no bead can live there)                                                                                                                                                               |
 | notme: `action/dist/index.js` bundle                                 | An action signet executes with `id-token: write` must not ship known-vulnerable deps   | **`notme-28959a` (P0)**: the committed bundle embeds undici 6.25.0 with three unpatched advisories; the workspace override to ^6.28.0 never reached the bundle. signet pins that commit at `gha-identity.yml:118`                                                                                                              | **Blocking for the resign/identity path** (`signet-resign.yml`, rig); **advisory for the v0.3.0 artifact train** — release.yml builds `cmd/sigstore-kms-signet` in-repo and never invokes the action. signet side: `signet-6d2bcd`, formally blocked on `notme-28959a` |
 | notme: rate limiters in production                                   | The authority enforces the limits it declares                                          | **`notme-191328` (P1)**: TOKEN/CERT/PASSKEY limiter bindings exist only in `wrangler.toml.example`; `worker.ts` guards each call with `if (env.X_LIMITER)`, so an absent binding is a **silent no-op**. Needs a production redeploy                                                                                            | Advisory for the artifact train (release signing does not depend on rate limiting), but it is a live authority-hardening gap the release notes should not imply is closed                                                                                              |
@@ -292,7 +301,8 @@ signing path.
   1. `task verify-release` transcript from the verifying machine
      (records the independent trust-anchor fetch and per-artifact
      signing identity).
-  1. oidc-signing.yml run URL bracketing the release commit.
+  1. The release.yml run URL; its Sign + verify step is the production
+     `/cert/gha` exchange for this release.
   1. At Phase 3: vigil observation of
      `"signet: next release is signed"` resolving.
 
@@ -386,7 +396,7 @@ discharges §4's release-notes obligation for the artifact train.
 1. ~~No rc rehearsal~~ — **closed**: rc.4 passed 2026-08-07.
 1. **The beta soak is running, not complete** (Phase 2 exit unmet until
    ≥5 working days elapse with zero release-attributable P0/P1 and
-   oidc-signing green throughout). This one cannot be closed by writing
+   verify-release against the live anchor green at start and end). This one cannot be closed by writing
    code — it is time under real use. Earliest Phase 3 date on a
    5-working-day soak from 2026-08-07: **2026-08-14**.
 
