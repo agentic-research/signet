@@ -160,6 +160,8 @@ These represent the "query a central authority" model that we're explicitly *not
 
 **Insight**: Cedar's policy *language* is excellent. Cedar's *architecture* (central evaluation) is what we're avoiding. A future enhancement could compile Cedar policies into signet capability tokens.
 
+> **Amended 2026-10-26 by [ADR-013](./013-chain-policy.md).** The assessment above describes *AWS Verified Permissions*, the hosted service, not Cedar. `cedar-go` evaluates policy in-process with no service call, so Cedar's language and signet's distribution model are compatible as-is: no compilation step to capability tokens is needed. ADR-013 carries Cedar policy inside the signed bundle (field 7) and evaluates it locally at issuance and at use.
+
 #### Google Zanzibar / SpiceDB
 
 - **Artifact**: Relationship tuples (`user:alice#member@group:engineering`)
@@ -505,7 +507,7 @@ The "SCIM to signed policy bundle" gap identified in Section 3.4 is confirmed. N
 
 4. **sigid as a standalone thing**. Should `sigid` be factored out of `signet` as its own binary/repo, or remain a conceptual boundary within `signet`? This is a naming and packaging decision, not an architectural one.
 
-5. **Formal Cedar/OPA bridge**. Should we define a compilation target from Cedar/Rego to signet capabilities? This could make sigpol a "universal policy runtime" — but it's scope creep for v1.
+5. **Formal Cedar/OPA bridge**. Should we define a compilation target from Cedar/Rego to signet capabilities? This could make sigpol a "universal policy runtime" — but it's scope creep for v1. *Cedar half answered by ADR-013: carry Cedar in the bundle and evaluate it directly; no compilation target.*
 
 ## 11. Implementation Plan
 
