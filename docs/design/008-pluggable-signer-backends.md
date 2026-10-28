@@ -32,9 +32,9 @@ signer, err := keys.NewSigner(
 
 Each signer implementation with special dependencies (especially `cgo`) will live in its own file and be guarded by a unique build tag. This ensures the default build remains pure Go.
 
-*   **Default Build (`go build`):** Includes only the pure Go `software` signer.
-*   **PKCS#11 Build (`go build -tags pkcs11`):** Compiles in the `pkcs11_signer.go` file and its `cgo` dependencies.
-*   **Touch ID Build (`go build -tags touchid`):** A future implementation could compile in `touchid_signer.go` and its `cgo` dependencies for macOS.
+- **Default Build (`go build`):** Includes only the pure Go `software` signer.
+- **PKCS#11 Build (`go build -tags pkcs11`):** Compiles in the `pkcs11_signer.go` file and its `cgo` dependencies.
+- **Touch ID Build (`go build -tags touchid`):** A future implementation could compile in `touchid_signer.go` and its `cgo` dependencies for macOS.
 
 This allows for a highly portable default with optional, specialized builds for users who need them.
 
@@ -42,9 +42,9 @@ This allows for a highly portable default with optional, specialized builds for 
 
 ### 3.1. `SoftwareSigner` (Default)
 
-*   **Build Tag:** None (always included).
-*   **Model:** Truly ephemeral. A new key is generated in memory for each signing operation and is securely destroyed immediately after.
-*   **Dependencies:** Pure Go.
+- **Build Tag:** None (always included).
+- **Model:** Truly ephemeral. A new key is generated in memory for each signing operation and is securely destroyed immediately after.
+- **Dependencies:** Pure Go.
 
 ### 3.2. External `cgo`-based Signers
 
@@ -52,23 +52,23 @@ For `crypto.Signer` implementations that require `cgo` to interface with platfor
 
 #### 3.2.1. `PKCS11Signer` (First External Backend)
 
-*   **Location:** `github.com/agentic-research/go-platform-signers`
-*   **Build Tag:** `pkcs11`
-*   **Model:** Persistent key with a short-lived certificate. The private key remains on the hardware token, and the `LocalCA` issues a short-lived certificate for it.
-*   **Dependencies:** `cgo`, a C compiler, and a PKCS#11 wrapper library.
+- **Location:** `github.com/agentic-research/go-platform-signers`
+- **Build Tag:** `pkcs11`
+- **Model:** Persistent key with a short-lived certificate. The private key remains on the hardware token, and the `LocalCA` issues a short-lived certificate for it.
+- **Dependencies:** `cgo`, a C compiler, and a PKCS#11 wrapper library.
 
 #### 3.2.2. `TouchIDSigner` (Future External Backend)
 
-*   **Location:** `github.com/agentic-research/go-platform-signers`
-*   **Build Tag:** `darwin,cgo,touchid`
-*   **Model:** Persistent key protected by the Secure Enclave. Signing operations are gated by a biometric prompt.
-*   **Dependencies:** `cgo`, Apple's `Security.framework` and `LocalAuthentication.framework`.
+- **Location:** `github.com/agentic-research/go-platform-signers`
+- **Build Tag:** `darwin,cgo,touchid`
+- **Model:** Persistent key protected by the Secure Enclave. Signing operations are gated by a biometric prompt.
+- **Dependencies:** `cgo`, Apple's `Security.framework` and `LocalAuthentication.framework`.
 
 ## 4. Upstream Library Changes
 
 This design requires two key changes to upstream components:
 
-1.  **`LocalCA`:** Must be enhanced with a new method, `IssueCertificateForSigner(signer crypto.Signer, ...)`, to issue a certificate for an existing key.
-2.  **`go-cms`:** Must be enhanced with a new method, `SignDataWithSigner(..., signer crypto.Signer)`, to create a CMS signature using the interface.
+1. **`LocalCA`:** Must be enhanced with a new method, `IssueCertificateForSigner(signer crypto.Signer, ...)`, to issue a certificate for an existing key.
+1. **`go-cms`:** Must be enhanced with a new method, `SignDataWithSigner(..., signer crypto.Signer)`, to create a CMS signature using the interface.
 
 These changes have been implemented, paving the way for the factory and pluggable backends.

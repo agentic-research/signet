@@ -6,11 +6,12 @@
 
 **Reference**: See `revocation-interface.md` for API design and `../design/006-revocation.md` for architectural decisions.
 
----
+______________________________________________________________________
 
 ## Prerequisites
 
 Before starting:
+
 - ✅ 006-revocation.md approved (SPIRE model decision)
 - ✅ Pluggable interface designed (`revocation-interface.md`)
 - ✅ Security analysis complete (surgical review findings incorporated)
@@ -18,7 +19,7 @@ Before starting:
 
 **Starting point**: Fresh branch from `main`
 
----
+______________________________________________________________________
 
 ## Phase 1: Core Infrastructure (Foundation)
 
@@ -27,6 +28,7 @@ Before starting:
 **What**: Set up directory structure for revocation code.
 
 **Files to create**:
+
 ```
 pkg/revocation/
 ├── checker.go           # Core Checker interface
@@ -44,7 +46,7 @@ pkg/revocation/
 
 **Test**: `go build ./pkg/revocation/...` compiles without errors.
 
----
+______________________________________________________________________
 
 ### 1.2 Implement Core Types
 
@@ -87,7 +89,7 @@ type Checker interface {
 
 **Test**: Write unit tests for type validation (seqno ordering, etc.).
 
----
+______________________________________________________________________
 
 ### 1.3 Implement Persistent Storage
 
@@ -148,18 +150,20 @@ func (s *HMACStorage) LoadSeqNo(issuerID string) (uint64, error) {
 ```
 
 **Implementations needed**:
+
 1. `KeychainStorage` (macOS/iOS)
-2. `TPMStorage` (Linux with TPM 2.0)
-3. `FileStorage` (fallback with HMAC'd file)
+1. `TPMStorage` (Linux with TPM 2.0)
+1. `FileStorage` (fallback with HMAC'd file)
 
 **Why next**: Storage is the foundation for rollback protection.
 
 **Test**:
+
 - Store seqno=100, load, verify = 100
 - Corrupt data, verify returns `ErrStorageCorrupted`
 - Store seqno=100, then 99, verify 99 is rejected
 
----
+______________________________________________________________________
 
 ## Phase 2: Bundle Distribution (Network Layer)
 
@@ -192,7 +196,7 @@ type DNSFetcher struct {
 
 **Test**: Mock server returning bundle JSON/TXT, verify parsing.
 
----
+______________________________________________________________________
 
 ### 2.2 Implement HTTPS Bundle Fetcher
 
@@ -253,11 +257,12 @@ func (f *HTTPSFetcher) FetchBundle(ctx context.Context, issuerID string) (*CABun
 **Why next**: HTTPS+pinning is simpler than DNS for initial deployment.
 
 **Test**:
+
 - Mock HTTPS server with pinned cert
 - Verify bridge cert client auth works
 - Test pin mismatch rejection
 
----
+______________________________________________________________________
 
 ### 2.3 Implement DNS Bundle Fetcher (Optional)
 
@@ -288,7 +293,7 @@ func (f *DNSFetcher) FetchBundle(ctx context.Context, issuerID string) (*CABundl
 
 **Test**: Mock DNS server, verify TXT parsing.
 
----
+______________________________________________________________________
 
 ### 2.4 Implement Bundle Cache
 
@@ -334,13 +339,14 @@ func (c *BundleCache) Get(ctx context.Context, issuerID string, fetcher BundleFe
 }
 ```
 
-**Why next**: Caching is critical for performance (P50 <3ms target).
+**Why next**: Caching is critical for performance (P50 \<3ms target).
 
 **Test**:
+
 - Fetch bundle, verify cached for 30s
 - Verify cache expiry triggers new fetch
 
----
+______________________________________________________________________
 
 ## Phase 3: Revocation Logic (Core Algorithm)
 
@@ -409,12 +415,13 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 **Why next**: This is the core algorithm implementing the revocation design.
 
 **Test**:
+
 - Token with old epoch → revoked
 - Token with unknown kid → revoked
 - Token with current kid → not revoked
 - Rollback attack (seqno decrease) → error
 
----
+______________________________________________________________________
 
 ### 3.2 Embed KID in Token
 
@@ -452,7 +459,7 @@ func (i *Issuer) IssueToken(claims Claims) (*Token, error) {
 
 **Test**: Issue token, verify kid is embedded correctly.
 
----
+______________________________________________________________________
 
 ## Phase 4: Integration (Wire It Up)
 
@@ -505,11 +512,12 @@ func (m *SignetMiddleware) Handler(next http.Handler) http.Handler {
 **Why next**: This is where revocation checking enters the request path.
 
 **Test**:
+
 - Request with valid token → 200 OK
 - Request with revoked token → 401 Unauthorized
 - Revocation check failure → 503 Service Unavailable
 
----
+______________________________________________________________________
 
 ### 4.2 Add Configuration
 
@@ -547,7 +555,7 @@ func NewChecker(cfg Config) (Checker, error) {
 
 **Test**: Verify config validation, default values.
 
----
+______________________________________________________________________
 
 ## Phase 5: Testing & Documentation
 
@@ -602,7 +610,7 @@ func TestFailClosed(t *testing.T) {
 
 **Test**: Run `make integration-test` in Docker.
 
----
+______________________________________________________________________
 
 ### 5.2 Performance Benchmarks
 
@@ -626,25 +634,27 @@ func BenchmarkIsRevoked_CacheMiss(b *testing.B) {
 }
 ```
 
-**Target**: P50 <3ms (cache hit), P99 <10ms (cache miss).
+**Target**: P50 \<3ms (cache hit), P99 \<10ms (cache miss).
 
 **Why next**: Validate revocation design performance claims.
 
 **Test**: Run on mobile ARM device, verify targets met.
 
----
+______________________________________________________________________
 
 ### 5.3 Documentation
 
 **What**: Update docs to reflect implementation.
 
 **Files to update**:
+
 - `README.md`: Add revocation section
 - `docs/design/001-signet-tokens.md`: Update with revocation approach
 - `pkg/revocation/README.md`: Usage examples
 
 **Example**:
-```markdown
+
+````markdown
 ## Revocation
 
 Signet uses SPIRE-model revocation: short-lived certificates (5min) + CA bundle rotation.
@@ -664,13 +674,14 @@ checker, _ := revocation.NewChecker(revocation.Config{
 })
 
 middleware := signet.NewSignetMiddleware(verifier, checker)
-```
+````
 
 ### SLAs
 
 - Individual token revocation: 8 minutes max (cert expiry)
-- CA key compromise: <1 minute (bundle rotation)
-```
+- CA key compromise: \<1 minute (bundle rotation)
+
+````
 
 **Why last**: Documentation after implementation ensures accuracy.
 
@@ -696,13 +707,13 @@ services:
       - ./server-cert.pem:/etc/nginx/cert.pem:ro
       - ./server-key.pem:/etc/nginx/key.pem:ro
     # ... TLS config for mTLS
-```
+````
 
 **Why optional**: Reference implementation helps users deploy.
 
 **Test**: `docker-compose up` and verify bundle accessible.
 
----
+______________________________________________________________________
 
 ### 6.2 Operational Runbook
 
@@ -735,21 +746,23 @@ services:
 
 **Why optional**: Helps operators manage production systems.
 
----
+______________________________________________________________________
 
 ## Summary
 
 **Implementation Order**:
+
 1. **Core Infrastructure**: Types, storage, interface (~2 days)
-2. **Bundle Distribution**: Fetchers, cache (~2 days)
-3. **Revocation Logic**: CABundleChecker, kid embedding (~1 day)
-4. **Integration**: Middleware, configuration (~1 day)
-5. **Testing**: Integration tests, benchmarks (~1 day)
-6. **Documentation**: README, design doc updates (~0.5 days)
+1. **Bundle Distribution**: Fetchers, cache (~2 days)
+1. **Revocation Logic**: CABundleChecker, kid embedding (~1 day)
+1. **Integration**: Middleware, configuration (~1 day)
+1. **Testing**: Integration tests, benchmarks (~1 day)
+1. **Documentation**: README, design doc updates (~0.5 days)
 
 **Total**: ~1 week (7 days) to production-ready v1.0.
 
 **What's NOT in v1.0**:
+
 - Snapshot-based revocation (deferred)
 - DNS-over-TLS fetcher (optional, HTTPS sufficient)
 - TPM storage (optional, keychain sufficient)

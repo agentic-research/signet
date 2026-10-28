@@ -23,11 +23,11 @@
 Signet provides privacy-preserving authentication through anonymous certificates signed by private roots. However, certain scenarios require proving properties about the user's identity (KYC compliance, organizational affiliation, reputation) without permanently linking their anonymous and public identities.
 
 Current bearer token systems conflate access and identity. We need a mechanism that:
+
 - Maintains cryptographic unlinkability between anonymous and public identities
 - Allows optional, selective disclosure of verified properties
 - Prevents correlation across sessions
 - Works with existing PKI infrastructure (CT logs, Sigstore)
-
 
 ## Related Documents
 
@@ -42,10 +42,12 @@ Implement **bridge certificates** - ephemeral, single-use X.509 certificates tha
 ### Core Mechanism
 
 1. **Two Independent Roots**
+
    - Private root: Generated locally, signs anonymous certificates with ppids
    - Public root: Traditional identity (GitHub, Google, employer), published in CT logs
 
-2. **Bridge Certificate Flow**
+1. **Bridge Certificate Flow**
+
    ```
    User generates anonymous cert (private root) + ephemeral key
    ↓
@@ -57,7 +59,8 @@ Implement **bridge certificates** - ephemeral, single-use X.509 certificates tha
    Bridge cert proves verified properties
    ```
 
-3. **Relying Party Validation**
+1. **Relying Party Validation**
+
    - Validates bridge cert via standard PKIX/CT/Sigstore
    - Extracts capability list from bridge cert extension
    - Validates anonymous cert signature with ephemeral key
@@ -105,6 +108,7 @@ abs-path       = <RFC 3986 path>
 ```
 
 **Examples:**
+
 - `urn:signet:cap:read:api.example.com/users`
 - `urn:signet:cap:write:repo:github.com/acme/widget`
 - `urn:signet:cap:payment:maxUSD=5000:bank.example.com`
@@ -125,7 +129,9 @@ Relying parties validate the delegate cert chains to a trusted public root and c
 ### Privacy Protection
 
 #### CT Log Publication
+
 Bridge certs are published to CT logs with privacy protection:
+
 - Log entry format: `0x00 || SHA-256(ephemeralPublicKey) || capabilities || notAfter`
 - Prefix byte (0x00) distinguishes privacy-protected entries from normal precerts
 - Full cert presented to relying party enables verification
@@ -134,6 +140,7 @@ Bridge certs are published to CT logs with privacy protection:
 **Note:** The prefix byte is reserved for future extensibility to support additional entry types.
 
 #### Timing Decorrelation
+
 - Bridge cert published at random delay T + [0, 24h]
 - Multiple dummy bridge certs published simultaneously
 - Breaks timing correlation between cert issuance and anonymous session
@@ -156,6 +163,7 @@ This prevents false rejects from ordering or unknown constraints.
 ### Revocation
 
 Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early revocation:
+
 - Publish SHA-256(ephemeralPublicKey) to revocation transparency log
 - Relying parties poll log (entries older than cert's `notAfter` ignored)
 - Simple one-bit check with minimal infrastructure
@@ -163,6 +171,7 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 ## Implementation Status
 
 **Determined but may be refined during implementation:**
+
 - Exact OID assignments (pending IANA/enterprise allocation)
 - Delegate cert lifetime defaults (current: 24 hours)
 - CT log delay distribution (current: uniform [0, 24h])
@@ -170,6 +179,7 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 - Revocation transparency log format
 
 **Ready for implementation:**
+
 - X.509 extension structure
 - Capability URI grammar
 - Validation algorithm
@@ -183,14 +193,14 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 
 ## Security Properties
 
-| Property | Implementation |
-|----------|---------------|
-| Unlinkability | Private/public roots cryptographically independent |
-| Selective Disclosure | Capabilities scoped per bridge cert |
-| Replay Prevention | Single-use ephemeral keys |
-| Timing Resistance | Delayed, noisy CT publication |
-| Key Correlation Prevention | Hashed public keys in CT logs |
-| Capability Enforcement | Cryptographic binding via signatures |
+| Property                   | Implementation                                     |
+| -------------------------- | -------------------------------------------------- |
+| Unlinkability              | Private/public roots cryptographically independent |
+| Selective Disclosure       | Capabilities scoped per bridge cert                |
+| Replay Prevention          | Single-use ephemeral keys                          |
+| Timing Resistance          | Delayed, noisy CT publication                      |
+| Key Correlation Prevention | Hashed public keys in CT logs                      |
+| Capability Enforcement     | Cryptographic binding via signatures               |
 
 ### Threat Model
 
@@ -201,14 +211,15 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 ## Migration Path
 
 1. **Phase 1:** Current Signet with private roots and ppids
-2. **Phase 2:** Add X.509 extension support for capability attestation
-3. **Phase 3:** Implement delegated bridge cert issuance
-4. **Phase 4:** CT log integration with privacy protection
-5. **Phase 5:** Public root integration (GitHub, employer OIDC, etc.)
+1. **Phase 2:** Add X.509 extension support for capability attestation
+1. **Phase 3:** Implement delegated bridge cert issuance
+1. **Phase 4:** CT log integration with privacy protection
+1. **Phase 5:** Public root integration (GitHub, employer OIDC, etc.)
 
 ## Consequences
 
 ### Positive
+
 - Decouples access from identity at cryptographic level
 - Maintains full anonymity for non-federated use cases
 - Single-use bridge certs prevent persistent tracking
@@ -217,6 +228,7 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 - Instant revocation through short TTLs
 
 ### Negative
+
 - Requires new X.509 extension (ecosystem adoption needed)
 - CT log infrastructure must support privacy-preserving publication
 - Delegated signing adds key management complexity
@@ -224,6 +236,7 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 - Capability URI namespace requires governance
 
 ### Open Questions
+
 - Multi-signature bridge certs (M-of-N public roots)?
 - Integration with hardware security modules?
 - Capability delegation chains (bridge cert delegates to sub-capabilities)?
@@ -242,6 +255,6 @@ Bridge certs are short-lived (minutes), making CRL/OCSP unnecessary. For early r
 
 Bridge certificate mechanism design refined through collaboration with cryptographic protocol reviewers. Core insight: invert trust model so capabilities flow through public root attestation rather than private root disclosure.
 
----
+______________________________________________________________________
 
 *Enabling selective identity disclosure without sacrificing privacy*

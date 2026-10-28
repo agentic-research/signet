@@ -17,8 +17,8 @@ We will acknowledge this limitation and document it clearly. The `go-keyring` li
 We will take the following actions:
 
 1. Add package-level documentation to the `keystore` package to highlight this limitation.
-2. Continue to zeroize all byte slices that contain sensitive data at the earliest possible opportunity.
-3. Investigate alternative keyring libraries that may accept `[]byte` directly in the future.
+1. Continue to zeroize all byte slices that contain sensitive data at the earliest possible opportunity.
+1. Investigate alternative keyring libraries that may accept `[]byte` directly in the future.
 
 ## Consequences
 

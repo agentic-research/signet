@@ -3,13 +3,14 @@
 Thank you for your interest in contributing! This guide will help you get started.
 
 ## Table of Contents
-1. [Development Setup](#1-development-setup)
-2. [Code Style & Conventions](#2-code-style--conventions)
-3. [Pull Request Process](#3-pull-request-process)
-4. [Good First Issues](#4-good-first-issues)
-5. [Community & Communication](#5-community--communication)
 
----
+1. [Development Setup](#1-development-setup)
+1. [Code Style & Conventions](#2-code-style--conventions)
+1. [Pull Request Process](#3-pull-request-process)
+1. [Good First Issues](#4-good-first-issues)
+1. [Community & Communication](#5-community--communication)
+
+______________________________________________________________________
 
 ## 1. Development Setup
 
@@ -63,7 +64,7 @@ git push origin feature/my-feature
 # Open PR
 ```
 
----
+______________________________________________________________________
 
 ## 2. Code Style & Conventions
 
@@ -94,6 +95,7 @@ Use conventional commits format:
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
@@ -102,6 +104,7 @@ Use conventional commits format:
 - `chore`: Maintenance tasks
 
 **Example:**
+
 ```
 feat(middleware): add nonce replay prevention
 
@@ -142,19 +145,19 @@ Closes #42
 - **Add godoc comments** for all exported functions
 - **Include examples** in package documentation
 
----
+______________________________________________________________________
 
 ## 3. Pull Request Process
 
 ### Before Submitting
 
 1. **Fork the repository** and create a feature branch
-2. **Make your changes** with tests and documentation
-3. **Run quality checks:**
+1. **Make your changes** with tests and documentation
+1. **Run quality checks:**
    ```bash
    make fmt lint test
    ```
-4. **Ensure all tests pass** locally
+1. **Ensure all tests pass** locally
 
 ### PR Description Template
 
@@ -188,9 +191,9 @@ How you tested this change:
 ### Review Process
 
 1. **Maintainer reviews** your PR (usually within 2-3 days)
-2. **Address feedback** promptly
-3. **Keep commits clean** - squash if requested
-4. **Maintainer merges** once approved
+1. **Address feedback** promptly
+1. **Keep commits clean** - squash if requested
+1. **Maintainer merges** once approved
 
 ### After Merge
 
@@ -198,7 +201,7 @@ How you tested this change:
 - You'll be added to the contributors list
 - Consider joining community discussions for future direction
 
----
+______________________________________________________________________
 
 ## 4. Good First Issues
 
@@ -261,7 +264,7 @@ From [DEVELOPMENT_ROADMAP.md Phase 4](./DEVELOPMENT_ROADMAP.md#phase-4-http-auth
 
 **Good for:** Web developers, framework contributors
 
----
+______________________________________________________________________
 
 ## 5. Community & Communication
 
@@ -281,21 +284,24 @@ For bugs and feature requests:
 - **[Feature requests](https://github.com/agentic-research/signet/issues/new?labels=enhancement)** - Suggest features
 
 **Before opening an issue:**
+
 1. Search existing issues to avoid duplicates
-2. Provide clear reproduction steps for bugs
-3. Include relevant version information
+1. Provide clear reproduction steps for bugs
+1. Include relevant version information
 
 ### Code of Conduct
 
 Be respectful, constructive, and collaborative. We follow the [Contributor Covenant](https://www.contributor-covenant.org/).
 
 **Expected behavior:**
+
 - Use welcoming and inclusive language
 - Be respectful of differing viewpoints
 - Accept constructive criticism gracefully
 - Focus on what's best for the community
 
 **Unacceptable behavior:**
+
 - Harassment, trolling, or insulting comments
 - Publishing others' private information
 - Other conduct which could reasonably be considered inappropriate
@@ -306,18 +312,18 @@ Be respectful, constructive, and collaborative. We follow the [Contributor Coven
 - **Pull requests:** First review within 2-3 days
 - **Security issues:** Report privately, immediate response
 
----
+______________________________________________________________________
 
 ## Getting Help
 
 Stuck? Reach out:
 
 1. **Comment on the relevant issue** - Maintainers will respond
-2. **Start a [GitHub Discussion](https://github.com/agentic-research/signet/discussions)** - Community support
-3. **Check [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md)** - Understand project context
-4. **Read [ARCHITECTURE.md](./ARCHITECTURE.md)** - Understand design decisions
+1. **Start a [GitHub Discussion](https://github.com/agentic-research/signet/discussions)** - Community support
+1. **Check [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md)** - Understand project context
+1. **Read [ARCHITECTURE.md](./ARCHITECTURE.md)** - Understand design decisions
 
----
+______________________________________________________________________
 
 ## Recognition
 
@@ -327,7 +333,7 @@ Contributors are recognized in:
 - **Contributors list** - Automatically updated via GitHub
 - **Community highlights** - Featured in discussions
 
----
+______________________________________________________________________
 
 **Thank you for contributing to Signet!** Every contribution, no matter how small, helps build a more secure authentication ecosystem.
 

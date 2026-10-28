@@ -36,6 +36,7 @@ Copyright (c) 2025 the document authors. All rights reserved.
 Bearer tokens transmitted in HTTP headers are vulnerable to theft and replay attacks. Even with transport security (TLS), a compromised token can be used by an attacker from any location until expiration. While proof-of-possession mechanisms exist for various protocols, there is no standard for translating PoP-verified requests at network edges to simplified internal authentication.
 
 This document specifies:
+
 - A method for edge proxies to verify proof-of-possession
 - Translation to internal authentication mechanisms (mTLS, trusted headers)
 - Capability propagation from edge to internal services
@@ -70,7 +71,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ### 3.1 Token Format
 
-The edge proxy MUST accept tokens that include a confirmation claim binding the token to a cryptographic key, as specified in RFC 8705 [RFC8705]:
+The edge proxy MUST accept tokens that include a confirmation claim binding the token to a cryptographic key, as specified in RFC 8705 \[RFC8705\]:
 
 ```json
 {
@@ -92,6 +93,7 @@ PoP-Proof: v=1; ts=1700000000; nonce=abc123; sig=<signature>
 ```
 
 The signature MUST be computed over the canonical string:
+
 ```
 <method>\n<path>\n<host>\n<timestamp>\n<nonce>
 ```
@@ -99,10 +101,11 @@ The signature MUST be computed over the canonical string:
 ### 3.3 Edge Verification
 
 The edge proxy MUST:
+
 1. Validate the token signature and expiration
-2. Verify the PoP-Proof signature matches the key bound in the token
-3. Check nonce uniqueness within the timestamp window
-4. Extract capabilities from the token
+1. Verify the PoP-Proof signature matches the key bound in the token
+1. Check nonce uniqueness within the timestamp window
+1. Extract capabilities from the token
 
 ## 4. Translation to Internal Authentication
 
@@ -133,6 +136,7 @@ Internal services MUST only trust these headers from authenticated edge proxies.
 ### 4.3 Capability Propagation
 
 Semantic capabilities extracted from the PoP token SHOULD be propagated as:
+
 - mTLS certificate attributes (Subject Alternative Names)
 - HTTP headers for capability-aware services
 - Service mesh metadata
@@ -160,6 +164,7 @@ Clients and edge proxies SHOULD synchronize clocks via NTP. Proxies SHOULD allow
 ### 6.1 Performance
 
 Edge proxies SHOULD:
+
 - Cache token validation results for the token lifetime
 - Use connection pooling for internal mTLS connections
 - Implement rate limiting per client identity
@@ -167,6 +172,7 @@ Edge proxies SHOULD:
 ### 6.2 Observability
 
 Edge proxies SHOULD emit metrics for:
+
 - PoP verification failures (by reason)
 - Translation latency
 - Capability usage patterns
@@ -174,6 +180,7 @@ Edge proxies SHOULD emit metrics for:
 ### 6.3 Migration
 
 Services MAY operate in dual mode during migration:
+
 ```
 if has_pop_proof(request):
     verify_pop(request)
@@ -206,6 +213,7 @@ X-Edge-Verified: true
 ## 8. IANA Considerations
 
 This document requests registration of:
+
 - HTTP Header: `PoP-Proof`
 - HTTP Header: `X-Internal-User`
 - HTTP Header: `X-Internal-Capabilities`
