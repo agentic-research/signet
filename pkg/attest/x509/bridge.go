@@ -9,6 +9,8 @@ import (
 	"errors"
 	"net/url"
 	"time"
+
+	"github.com/agentic-research/signet/pkg/sigid"
 )
 
 // OIDSignetCapabilities is the OID for the signet capability attestation extension.
@@ -131,9 +133,19 @@ func MarshalCapabilities(capabilities []string) ([]byte, error) {
 	return asn1.Marshal(vals)
 }
 
+// ErrNotmeProfile is returned by ParseCapabilities for a notme-minted
+// certificate. notme writes its granted scopes at .1.3 in the same DER shape
+// as signet's capabilities, so the bytes parse either way; only the profile
+// says which they are (signet-06bfe7).
+var ErrNotmeProfile = errors.New("certificate is notme-profile: .1.3 holds notme scopes, not signet capabilities")
+
 // ParseCapabilities extracts capability URIs from a certificate's signet
-// capability extension. Returns nil, nil if the extension is not present.
+// capability extension. Returns nil, nil if the extension is not present,
+// and ErrNotmeProfile for a notme-minted certificate.
 func ParseCapabilities(cert *x509.Certificate) ([]string, error) {
+	if sigid.IsNotmeProfile(cert) {
+		return nil, ErrNotmeProfile
+	}
 	for _, ext := range cert.Extensions {
 		if ext.Id.Equal(OIDSignetCapabilities) {
 			return UnmarshalCapabilities(ext.Value)
