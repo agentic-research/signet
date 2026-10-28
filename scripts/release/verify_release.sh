@@ -229,6 +229,7 @@ for a in "${artifacts[@]}"; do
     "${identity_args[@]}" \
     --certificate-oidc-issuer-regexp '^$' \
     --insecure-ignore-sct \
+    --allow-certificate-chain \
     --bundle "$bundle" \
     "$a" >/dev/null 2>&1; then
     identity="(identity unavailable)"

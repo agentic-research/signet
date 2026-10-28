@@ -49,6 +49,7 @@ cosign verify-blob \
   --certificate-identity wimse://notme.bot/principal/repo%3Aexample%2Fmy-repo%3Aref%3Arefs%2Ftags%2Fv1.2.3 \
   --certificate-oidc-issuer-regexp '^$' \
   --insecure-ignore-sct \
+  --allow-certificate-chain \
   --bundle artifact.sigstore.json \
   artifact
 ```
