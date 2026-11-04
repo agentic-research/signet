@@ -1,5 +1,7 @@
 name: Sign artifacts with Signet
-description: Sign and verify release artifacts with an ephemeral Notme certificate and the cosign-compatible Signet KMS plugin.
+description: >-
+  Sign and verify release artifacts with an ephemeral Notme certificate and the
+  cosign-compatible Signet KMS plugin.
 
 inputs:
   artifacts:
@@ -13,6 +15,22 @@ inputs:
     description: GitHub Actions OIDC audience accepted by the authority.
     required: false
     default: notme.bot
+  # The three ct-log-* inputs are all set or all empty; any other mix fails
+  # before a certificate is minted. Set, the signing certificate must carry a
+  # valid SCT from this log or verification fails. Empty (the default), SCTs
+  # are not required, as before (signet-c0d32e).
+  ct-log-url:
+    description: Static CT API log base URL whose SCT the signing certificate must carry. Empty disables SCT checking.
+    required: false
+    default: ""
+  ct-log-public-key:
+    description: The log's ECDSA P-256 public key as base64 SPKI DER (the value notme pins as CT_LOG_KEY).
+    required: false
+    default: ""
+  ct-log-start-time:
+    description: RFC 3339 time from which the log key is valid, for example 2026-07-01T00:00:00Z.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -48,6 +66,9 @@ runs:
         SIGNET_ARTIFACTS: ${{ inputs.artifacts }}
         SIGNET_AUTHORITY_URL: ${{ inputs.authority-url }}
         SIGNET_OIDC_AUDIENCE: ${{ inputs.audience }}
+        SIGNET_CT_LOG_URL: ${{ inputs.ct-log-url }}
+        SIGNET_CT_LOG_PUBLIC_KEY: ${{ inputs.ct-log-public-key }}
+        SIGNET_CT_LOG_START_TIME: ${{ inputs.ct-log-start-time }}
       run: |
         set -euo pipefail
         artifacts=()
@@ -64,4 +85,7 @@ runs:
         sigstore-kms-signet sign-artifact \
           --authority-url "$SIGNET_AUTHORITY_URL" \
           --audience "$SIGNET_OIDC_AUDIENCE" \
+          --ct-log-url "$SIGNET_CT_LOG_URL" \
+          --ct-log-public-key "$SIGNET_CT_LOG_PUBLIC_KEY" \
+          --ct-log-start-time "$SIGNET_CT_LOG_START_TIME" \
           "${artifacts[@]}"
