@@ -39,6 +39,17 @@ var oidEpoch = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 4}
 // caBundlePath is where a notme-style authority serves its signed bundle.
 const caBundlePath = "/internal/ca-bundle"
 
+const (
+	// verifyMaxBundleAge is notme's own conformance bound for a bundle
+	// (worker/src/revocation.ts BUNDLE_MAX_AGE_MS, five minutes). The
+	// checker's shared default is an hour; for a CLI deciding whether a
+	// cert is revoked, an hour-old bundle could hide an epoch bump.
+	verifyMaxBundleAge = 300 * time.Second
+	// verifyMaxFutureSkew bounds how far ahead of the local clock a
+	// bundle's issuedAt may be (signet ADR-006 max_clock_skew).
+	verifyMaxFutureSkew = 60 * time.Second
+)
+
 func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptions) error {
 	chain := result.chain
 	if len(chain) < 2 {
@@ -61,7 +72,9 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 	// The trust anchor is the --ca root the chain ended at. The bundle is
 	// fetched over the network and is believed only once that key's
 	// signature over it verifies.
-	checker := revocation.NewCABundleChecker(fetcher, storage, cache, root.PublicKey)
+	checker := revocation.NewCABundleChecker(fetcher, storage, cache, root.PublicKey,
+		revocation.WithMaxBundleAge(verifyMaxBundleAge),
+		revocation.WithMaxFutureSkew(verifyMaxFutureSkew))
 
 	// Fetch once through the shared cache so the bundle read here (for the
 	// key id lookup and the report) is the one the checker verifies.
@@ -79,7 +92,7 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 		token := &signet.Token{IssuerID: authority, Epoch: epoch, KeyID: []byte(kid)}
 		revoked, err := checker.IsRevoked(ctx, token)
 		if err != nil {
-			return fmt.Errorf("CA bundle from %s: %w", authority, err)
+			return explainBundleError(authority, storage.Path(authority), err)
 		}
 		if revoked {
 			if epoch < bundle.Epoch {
@@ -112,6 +125,19 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 		BundleAge: time.Since(time.Unix(bundle.IssuedAt, 0)),
 	}
 	return nil
+}
+
+// explainBundleError adds what the operator can do about the two refusals
+// that have a recovery path.
+func explainBundleError(authority, statePath string, err error) error {
+	switch {
+	case errors.Is(err, revocation.ErrBundleRollback):
+		return fmt.Errorf("CA bundle from %s: %w. The last seqno seen is stored in %s; deleting that file is only safe if the authority's seqno was legitimately reset -- otherwise this is a replayed old bundle", authority, err, statePath)
+	case errors.Is(err, revocation.ErrInvalidBundle):
+		return fmt.Errorf("CA bundle from %s: %w. The authority's root may have rotated: re-fetch the root and re-pin --ca from a trusted channel, not from this authority's response alone", authority, err)
+	default:
+		return fmt.Errorf("CA bundle from %s: %w", authority, err)
+	}
 }
 
 // resolveRevocationAuthority picks the authority whose bundle is consulted:
@@ -193,7 +219,7 @@ func certEpoch(c *x509.Certificate) (uint64, error) {
 		}
 		return n.Uint64(), nil
 	}
-	return 0, fmt.Errorf("carries no epoch extension (%s), so it cannot be checked against revocation; use --offline to skip the check", oidEpoch)
+	return 0, fmt.Errorf("has no epoch extension (%s): the authority does not publish revocation state for this certificate, so pass --offline if you accept that", oidEpoch)
 }
 
 // openSeqnoStorage opens the persisted last-seen bundle seqno, which is what

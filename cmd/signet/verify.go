@@ -43,19 +43,29 @@ Revocation. After the chain verifies, signet fetches the authority's signed
 CA bundle from <authority>/internal/ca-bundle and checks:
   - the bundle signature, against the --ca root the chain ended at (the
     pinned anchor; the network is not trusted);
-  - freshness: the bundle must be under an hour old;
+  - freshness: the bundle's issuedAt must be at most 300s old (notme's own
+    bound) and at most 60s in the future;
   - rollback: its seqno must not be lower than the last one seen (kept in
-    <signet home>/revocation);
+    <signet home>/revocation; delete it only if the authority's seqno was
+    legitimately reset);
   - the root key is still in the bundle;
   - every certificate below the root carries a CA epoch (OID
     1.3.6.1.4.1.99999.1.4) equal to the bundle's epoch. An older epoch means
     the authority revoked it (for notme: POST /admin/revoke-epoch).
 Any failure, including an unreachable authority, makes the certificate
-invalid. The authority defaults to https://auth.<trust domain> from the
-certificate's wimse:// URI; set it with --authority.
+invalid.
 
---offline skips the revocation check. The output then says "revocation NOT
-checked": the certificate may already be revoked.
+Authority. By default the bundle comes from https://auth.<trust domain>,
+where the trust domain is the host of the certificate's wimse:// URI
+(wimse://notme.bot/... -> https://auth.notme.bot). That convention fits the
+public notme authority. A self-hosted authority at another address fails
+closed until you name it with --authority URL. The URL is not trusted
+either way: the bundle counts only if the pinned --ca root signed it.
+
+A certificate with no epoch extension (for example one from signet's own Go
+authority) is refused: its authority does not publish revocation state for
+it. --offline skips the revocation check. The output then says "revocation
+NOT checked": the certificate may already be revoked.
 
 Extracts and displays: subject, task, sponsor, issuer, validity, key type,
 and the revocation result.`,

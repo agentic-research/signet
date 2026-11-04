@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	// maxBundleAge is the maximum allowed age for a CA bundle.
+	// maxBundleAge is the default maximum age for a CA bundle.
 	// Bundles older than this are considered stale and rejected.
+	// WithMaxBundleAge overrides it per checker.
 	maxBundleAge = 1 * time.Hour
 )
 
@@ -26,19 +27,51 @@ type CABundleChecker struct {
 	storage     types.Storage
 	cache       *cabundle.BundleCache
 	trustAnchor crypto.PublicKey // Public key to verify bundle signatures
+
+	maxAge        time.Duration // bundles older than this are stale
+	maxFutureSkew time.Duration // 0: a future-dated issuedAt is not checked
+}
+
+// CheckerOption configures a CABundleChecker.
+type CheckerOption func(*CABundleChecker)
+
+// WithMaxBundleAge sets the maximum age of an accepted bundle, in place of
+// the one-hour default. Non-positive values are ignored.
+func WithMaxBundleAge(d time.Duration) CheckerOption {
+	return func(c *CABundleChecker) {
+		if d > 0 {
+			c.maxAge = d
+		}
+	}
+}
+
+// WithMaxFutureSkew refuses a bundle whose issuedAt is more than d ahead of
+// the local clock. A bundle dated in the future would otherwise look fresh
+// for longer than the age limit allows. Off by default.
+func WithMaxFutureSkew(d time.Duration) CheckerOption {
+	return func(c *CABundleChecker) {
+		if d > 0 {
+			c.maxFutureSkew = d
+		}
+	}
 }
 
 // NewCABundleChecker creates a new CABundleChecker with signature verification.
 // The trustAnchor is the public key used to verify CA bundle signatures.
 // This prevents attackers from serving fake bundles.
 // Accepts any crypto.PublicKey (Ed25519, ML-DSA, etc.).
-func NewCABundleChecker(fetcher types.Fetcher, storage types.Storage, cache *cabundle.BundleCache, trustAnchor crypto.PublicKey) *CABundleChecker {
-	return &CABundleChecker{
+func NewCABundleChecker(fetcher types.Fetcher, storage types.Storage, cache *cabundle.BundleCache, trustAnchor crypto.PublicKey, opts ...CheckerOption) *CABundleChecker {
+	c := &CABundleChecker{
 		fetcher:     fetcher,
 		storage:     storage,
 		cache:       cache,
 		trustAnchor: trustAnchor,
+		maxAge:      maxBundleAge,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // IsRevoked checks if a token is revoked following the SPIRE model.
@@ -67,8 +100,11 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 	// This prevents using stale bundles from backups or caches
 	if bundle.IssuedAt > 0 { // Only check if IssuedAt is set (backward compatibility)
 		bundleAge := time.Since(time.Unix(bundle.IssuedAt, 0))
-		if bundleAge > maxBundleAge {
-			return false, fmt.Errorf("%w: bundle is %v old (max %v)", ErrBundleTooStale, bundleAge, maxBundleAge)
+		if bundleAge > c.maxAge {
+			return false, fmt.Errorf("%w: bundle is %v old (max %v)", ErrBundleTooStale, bundleAge, c.maxAge)
+		}
+		if c.maxFutureSkew > 0 && -bundleAge > c.maxFutureSkew {
+			return false, fmt.Errorf("%w: bundle issuedAt is %v in the future (max skew %v)", ErrBundleFromFuture, -bundleAge, c.maxFutureSkew)
 		}
 	}
 

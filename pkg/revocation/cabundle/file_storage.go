@@ -143,6 +143,10 @@ func (s *FileStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID st
 	return nil
 }
 
+// Path returns the file that holds issuerID's last-seen sequence number, so
+// callers can tell an operator which file a rollback refusal is about.
+func (s *FileStorage) Path(issuerID string) string { return s.seqnoPath(issuerID) }
+
 // seqnoPath returns the file path for an issuer's sequence number
 func (s *FileStorage) seqnoPath(issuerID string) string {
 	// Use hex encoding to avoid filesystem issues with special characters

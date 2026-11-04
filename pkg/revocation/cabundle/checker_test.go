@@ -548,3 +548,41 @@ func TestCABundleChecker_EmptyKeyID_Revoked(t *testing.T) {
 		})
 	}
 }
+
+func freshnessBundle(t *testing.T, priv ed25519.PrivateKey, issuedAt time.Time) *types.CABundle {
+	t.Helper()
+	b := createSignedBundle(t, 2, 100, "key-2024", "", priv)
+	b.IssuedAt = issuedAt.Unix()
+	canonical, err := revocation.BundleCanonical(b)
+	require.NoError(t, err)
+	b.Signature = ed25519.Sign(priv, canonical)
+	return b
+}
+
+func TestCABundleChecker_FreshnessOptions(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	check := func(b *types.CABundle, opts ...revocation.CheckerOption) error {
+		c := revocation.NewCABundleChecker(&mockFetcher{bundle: b}, newMockStorage(), cabundle.NewBundleCache(time.Minute), pub, opts...)
+		_, err := c.IsRevoked(context.Background(), createTestToken("test-issuer", 2, "key-2024", 2))
+		return err
+	}
+
+	t.Run("default age limit is still one hour", func(t *testing.T) {
+		assert.NoError(t, check(freshnessBundle(t, priv, time.Now().Add(-30*time.Minute))))
+		assert.ErrorIs(t, check(freshnessBundle(t, priv, time.Now().Add(-2*time.Hour))), revocation.ErrBundleTooStale)
+	})
+	t.Run("WithMaxBundleAge tightens it", func(t *testing.T) {
+		opt := revocation.WithMaxBundleAge(5 * time.Minute)
+		assert.NoError(t, check(freshnessBundle(t, priv, time.Now().Add(-4*time.Minute)), opt))
+		assert.ErrorIs(t, check(freshnessBundle(t, priv, time.Now().Add(-6*time.Minute)), opt), revocation.ErrBundleTooStale)
+	})
+	t.Run("future issuedAt is not checked by default", func(t *testing.T) {
+		assert.NoError(t, check(freshnessBundle(t, priv, time.Now().Add(10*time.Minute))))
+	})
+	t.Run("WithMaxFutureSkew refuses a bundle beyond the skew", func(t *testing.T) {
+		opt := revocation.WithMaxFutureSkew(time.Minute)
+		assert.NoError(t, check(freshnessBundle(t, priv, time.Now().Add(30*time.Second)), opt))
+		assert.ErrorIs(t, check(freshnessBundle(t, priv, time.Now().Add(2*time.Minute)), opt), revocation.ErrBundleFromFuture)
+	})
+}

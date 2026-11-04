@@ -398,3 +398,70 @@ func TestResolveRevocationAuthority(t *testing.T) {
 		})
 	}
 }
+
+// signet verify holds the bundle to notme's own conformance bound
+// (BUNDLE_MAX_AGE_MS, five minutes), not the checker's one-hour default.
+func TestVerifyRevocation_BundleAgeLimitIs300s(t *testing.T) {
+	c := newEpochChain(t, 3, 3)
+	t.Run("four minutes old verifies", func(t *testing.T) {
+		srv := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now().Add(-4*time.Minute)))
+		if out, err := runVerifyForTest(t, c, onlineOpts(srv)); err != nil {
+			t.Fatalf("refused a 4-minute-old bundle: %v\n%s", err, out)
+		}
+	})
+	t.Run("six minutes old is refused", func(t *testing.T) {
+		srv := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now().Add(-6*time.Minute)))
+		out, err := runVerifyForTest(t, c, onlineOpts(srv))
+		wantRefused(t, out, err, "too old", "max 5m0s")
+	})
+}
+
+func TestVerifyRevocation_FutureIssuedAt(t *testing.T) {
+	c := newEpochChain(t, 3, 3)
+	t.Run("30s ahead is within skew", func(t *testing.T) {
+		srv := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now().Add(30*time.Second)))
+		if out, err := runVerifyForTest(t, c, onlineOpts(srv)); err != nil {
+			t.Fatalf("refused a bundle 30s ahead: %v\n%s", err, out)
+		}
+	})
+	t.Run("two minutes ahead is refused", func(t *testing.T) {
+		srv := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now().Add(2*time.Minute)))
+		out, err := runVerifyForTest(t, c, onlineOpts(srv))
+		wantRefused(t, out, err, "in the future")
+	})
+}
+
+func TestVerifyRevocation_RollbackMessageNamesStateAndRisk(t *testing.T) {
+	c := newEpochChain(t, 3, 3)
+	srv := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now()))
+	opts := onlineOpts(srv)
+	opts.stateDir = t.TempDir()
+	if out, err := runVerifyForTest(t, c, opts); err != nil {
+		t.Fatalf("first run refused: %v\n%s", err, out)
+	}
+	srv.set(signedBundle(t, c, c.rootPriv, 3, 9, time.Now()))
+	out, err := runVerifyForTest(t, c, opts)
+	wantRefused(t, out, err,
+		"rollback",
+		opts.stateDir+"/", // the state file's path
+		".seqno",
+		"only safe if the authority's seqno was legitimately reset")
+}
+
+func TestVerifyRevocation_SignatureMessageSuggestsRepin(t *testing.T) {
+	c := newEpochChain(t, 3, 3)
+	_, rotated, _ := ed25519.GenerateKey(rand.Reader)
+	srv := newBundleServer(t, signedBundle(t, c, rotated, 3, 10, time.Now()))
+	out, err := runVerifyForTest(t, c, onlineOpts(srv))
+	wantRefused(t, out, err, "signature", "root may have rotated", "re-pin --ca from a trusted channel")
+}
+
+func TestVerifyRevocation_MissingEpochMessage(t *testing.T) {
+	c := newEpochChain(t, 3, noEpoch)
+	srv := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now()))
+	out, err := runVerifyForTest(t, c, onlineOpts(srv))
+	wantRefused(t, out, err,
+		"no epoch extension",
+		"the authority does not publish revocation state for this certificate",
+		"pass --offline if you accept that")
+}
