@@ -507,3 +507,44 @@ func TestCABundleChecker_ExtractKID(t *testing.T) {
 		assert.True(t, revoked, "Token with base64-encoded KeyID that doesn't match should be revoked")
 	})
 }
+
+// signet-676bf1: an empty or missing token key id must never match. The
+// checker compared tokenKID against KeyID and PrevKeyID, so an empty id
+// matched a bundle with no prevKeyId -- the shape the live notme bundle has
+// -- and the key-rotation check passed vacuously.
+func TestCABundleChecker_EmptyKeyID_Revoked(t *testing.T) {
+	trustPub, trustPriv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+
+	cases := []struct {
+		name   string
+		bundle *types.CABundle
+	}{
+		{"bundle with keyId and no prevKeyId", createSignedBundle(t, 2, 100, "key-2024", "", trustPriv)},
+		{"bundle with keyId and prevKeyId", createSignedBundle(t, 2, 100, "key-2024", "key-2023", trustPriv)},
+	}
+	// A bundle with no key ids at all falls back to the Keys map; an entry
+	// under the empty name must not match an empty token id either.
+	keysOnly := &types.CABundle{Epoch: 2, Seqno: 100, Keys: map[string][]byte{"": trustPub}}
+	canonical, err := revocation.BundleCanonical(keysOnly)
+	require.NoError(t, err)
+	keysOnly.Signature = ed25519.Sign(trustPriv, canonical)
+	cases = append(cases, struct {
+		name   string
+		bundle *types.CABundle
+	}{"keys map with an empty-named key and no key ids", keysOnly})
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			checker := revocation.NewCABundleChecker(&mockFetcher{bundle: tc.bundle}, newMockStorage(), cabundle.NewBundleCache(time.Minute), trustPub)
+			revoked, err := checker.IsRevoked(context.Background(), createTestToken("test-issuer", 2, "", 2))
+			require.NoError(t, err)
+			assert.True(t, revoked, "a token with an empty key id must be revoked")
+			tok := createTestToken("test-issuer", 2, "", 2)
+			tok.KeyID = nil // missing, not just empty
+			revoked, err = checker.IsRevoked(context.Background(), tok)
+			require.NoError(t, err)
+			assert.True(t, revoked, "a token with no key id must be revoked")
+		})
+	}
+}

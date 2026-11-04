@@ -39,11 +39,6 @@ var oidEpoch = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 99999, 1, 4}
 // caBundlePath is where a notme-style authority serves its signed bundle.
 const caBundlePath = "/internal/ca-bundle"
 
-// noAnchorKID stands in for the root's key id when the bundle does not list
-// the root's key. It can never equal a bundle key id, so the checker's key
-// check refuses it -- an empty id would match an empty prevKeyId.
-const noAnchorKID = "\x00signet-verify:anchor-not-in-bundle"
-
 func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptions) error {
 	chain := result.chain
 	if len(chain) < 2 {
@@ -169,18 +164,19 @@ func isLoopbackHost(h string) bool {
 func bundleURL(authority string) string { return authority + caBundlePath }
 
 // anchorKeyID returns the bundle key id whose key is the root's public key,
-// or noAnchorKID when the bundle does not list it.
+// or "" when the bundle does not list it. The checker refuses an empty key
+// id (signet-676bf1), so a root missing from the bundle reads as revoked.
 func anchorKeyID(bundle *types.CABundle, root *x509.Certificate) string {
 	raw, err := algorithm.MarshalPublicKey(root.PublicKey)
 	if err != nil {
-		return noAnchorKID
+		return ""
 	}
 	for kid, key := range bundle.Keys {
 		if bytes.Equal(key, raw) {
 			return kid
 		}
 	}
-	return noAnchorKID
+	return ""
 }
 
 // certEpoch reads the CA epoch extension. Go's encoding/asn1 enforces

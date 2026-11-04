@@ -113,6 +113,14 @@ func (c *CABundleChecker) IsRevoked(ctx context.Context, token *signet.Token) (b
 	// Extract kid from token (embedded during issuance)
 	tokenKID := extractKID(token)
 
+	// SECURITY (signet-676bf1): an empty or missing key id never matches.
+	// Without this, "" equalled an absent PrevKeyID (or an empty-named
+	// entry in Keys), so a token carrying no key id passed the rotation
+	// check vacuously against any bundle that had no previous key.
+	if tokenKID == "" {
+		return true, nil
+	}
+
 	// Check against both current and previous key IDs (grace period)
 	if bundle.KeyID != "" || bundle.PrevKeyID != "" {
 		// Use the explicit KeyID/PrevKeyID fields if available
