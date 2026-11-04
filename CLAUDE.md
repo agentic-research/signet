@@ -57,7 +57,7 @@ task docker-shell           # Interactive shell for debugging
 - ✅ **LRU cache** (incl. GetOrPut atomicity) - lru_test.go
 - ⚠️ **File signing** (`signet sign`) - PARTIAL (sign_test.go regression tests, no integration)
 - ✅ **Auth login** (`signet auth login`) - DOGFOODED (real cert minted 2026-03-24)
-- ✅ **Cert verification** (`signet verify`) - verify_test.go (4 tests: valid, expired, wrong CA, missing) + verify_revocation_test.go (revocation against a signed CA bundle: epoch, signature, freshness, rollback, fail-closed, `--offline`)
+- ✅ **Cert verification** (`signet verify`) - verify_test.go (4 tests: valid, expired, wrong CA, missing) + verify_revocation_test.go (revocation against a signed CA bundle: epoch, signature, freshness, rollback, fail-closed, `--offline`) + verify_criteria_test.go (notme `.1.10` criteria against golden notme-minted fixtures in `cmd/signet/testdata/criteria`, legacy cutoff)
 - ✅ **Trust policy bundles** (`pkg/policy/`) - bundle_test.go + checker_test.go + compiler_test.go + golden_path_test.go (37 tests)
 - ✅ **Identity extraction** (sigid) - providers/cert, providers/basic, providers/cell (25+ tests)
 - ✅ **Policy gate** - authority_oidc_test.go TestPolicyGate\_\* + TestExchangeToken_PolicyCheckerDeniesDeactivated
@@ -89,16 +89,16 @@ task security                 # Security scan (requires gosec)
 
 ## CLI Commands
 
-| Command                                  | Purpose                                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------------------ |
-| `signet sign`                            | Sign files with ephemeral certificates                                         |
-| `signet authority`                       | Run OIDC certificate authority server                                          |
-| `signet authority exchange-github-token` | Exchange GHA OIDC token for bridge cert (CI/CD)                                |
-| `signet auth login`                      | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow) |
-| `signet auth register`                   | Register agent with GitHub token (headless, no browser)                        |
-| `signet auth status`                     | Show MCP certificate status and expiry                                         |
-| `signet auth daemon`                     | Auto-renew certificates before expiry (background process)                     |
-| `signet verify`                          | Verify a bridge certificate against the signet CA, incl. epoch revocation      |
+| Command                                  | Purpose                                                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `signet sign`                            | Sign files with ephemeral certificates                                                       |
+| `signet authority`                       | Run OIDC certificate authority server                                                        |
+| `signet authority exchange-github-token` | Exchange GHA OIDC token for bridge cert (CI/CD)                                              |
+| `signet auth login`                      | Authenticate and provision MCP client certificate (OAuth2 + PKCE browser flow)               |
+| `signet auth register`                   | Register agent with GitHub token (headless, no browser)                                      |
+| `signet auth status`                     | Show MCP certificate status and expiry                                                       |
+| `signet auth daemon`                     | Auto-renew certificates before expiry (background process)                                   |
+| `signet verify`                          | Verify a bridge certificate against the signet CA, incl. notme criteria and epoch revocation |
 
 ## Key Packages
 
