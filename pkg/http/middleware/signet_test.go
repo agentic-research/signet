@@ -98,6 +98,7 @@ func generateTestToken(t *testing.T, masterPriv ed25519.PrivateKey, purpose stri
 		ephemeralKeyHash[:],
 		nonce,
 		5*time.Minute,
+		signet.WithIssuerKey(masterPriv.Public()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -718,7 +719,7 @@ func TestSignetMiddleware_SkipPaths(t *testing.T) {
 	}{
 		{"exact match", "/health", true},
 		{"prefix with segment", "/health/check", true},
-		{"no prefix overlap", "/healthz", false},          // /healthz does NOT start with /health/
+		{"no prefix overlap", "/healthz", false}, // /healthz does NOT start with /health/
 		{"exact match nested", "/api/public", true},
 		{"prefix nested", "/api/public/docs", true},
 		{"no overlap nested", "/api/private", false},
