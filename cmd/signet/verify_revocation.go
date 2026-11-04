@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -67,7 +70,13 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 		return err
 	}
 
-	fetcher := cabundle.NewHTTPSFetcher(bundleURL(authority), opts.client)
+	// Rollback state, and the cache, are keyed by the pinned root, not by
+	// the fetch URL. The URL may come from the leaf's wimse:// host, which a
+	// holder of a revoked tier key chooses; keyed by URL, every new URL
+	// would start a fresh seqno history and accept a replayed old bundle.
+	stateID := anchorStateID(root)
+
+	fetcher := cabundle.NewHTTPSFetcher(bundleURL(authority), noRedirectClient(opts.client))
 	cache := cabundle.NewBundleCache(time.Minute)
 	// The trust anchor is the --ca root the chain ended at. The bundle is
 	// fetched over the network and is believed only once that key's
@@ -78,7 +87,7 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 
 	// Fetch once through the shared cache so the bundle read here (for the
 	// key id lookup and the report) is the one the checker verifies.
-	bundle, err := cache.Get(ctx, authority, fetcher)
+	bundle, err := cache.Get(ctx, stateID, fetcher)
 	if err != nil {
 		return fmt.Errorf("fetch CA bundle from %s: %w", bundleURL(authority), err)
 	}
@@ -89,10 +98,10 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 		if err != nil {
 			return fmt.Errorf("certificate %q %w", c.Subject.CommonName, err)
 		}
-		token := &signet.Token{IssuerID: authority, Epoch: epoch, KeyID: []byte(kid)}
+		token := &signet.Token{IssuerID: stateID, Epoch: epoch, KeyID: []byte(kid)}
 		revoked, err := checker.IsRevoked(ctx, token)
 		if err != nil {
-			return explainBundleError(authority, storage.Path(authority), err)
+			return explainBundleError(authority, storage.Path(stateID), err)
 		}
 		if revoked {
 			if epoch < bundle.Epoch {
@@ -125,6 +134,34 @@ func checkRevocation(ctx context.Context, result *VerifyResult, opts verifyOptio
 		BundleAge: time.Since(time.Unix(bundle.IssuedAt, 0)),
 	}
 	return nil
+}
+
+// anchorStateID names the rollback history of the authority whose root is
+// root: the SHA-256 of the root's SubjectPublicKeyInfo. It is fixed by the
+// --ca pin, so it cannot be changed by choosing a different fetch URL.
+func anchorStateID(root *x509.Certificate) string {
+	sum := sha256.Sum256(root.RawSubjectPublicKeyInfo)
+	return "root-spki-sha256:" + hex.EncodeToString(sum[:])
+}
+
+// errBundleRedirect is returned for any redirect from the bundle endpoint.
+var errBundleRedirect = errors.New("the CA bundle endpoint redirected; redirects are refused")
+
+// noRedirectClient returns a copy of base (or a default client) that
+// refuses every redirect. The https-or-loopback rule is applied to the URL
+// signet requests; following a redirect would let an allowed endpoint hand
+// the fetch to plain http elsewhere. notme's bundle endpoint answers 200
+// directly, so refusing costs nothing.
+func noRedirectClient(base *http.Client) *http.Client {
+	c := &http.Client{Timeout: 15 * time.Second}
+	if base != nil {
+		cp := *base
+		c = &cp
+	}
+	c.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		return fmt.Errorf("%w (to %s)", errBundleRedirect, req.URL.Redacted())
+	}
+	return c
 }
 
 // explainBundleError adds what the operator can do about the two refusals
@@ -243,26 +280,47 @@ func openSeqnoStorage(dir string) (*cabundle.FileStorage, error) {
 		return nil, fmt.Errorf("revocation state key %s: %w", keyPath, err)
 	}
 	if len(key) != 32 {
-		return nil, fmt.Errorf("revocation state key %s is corrupt (%d bytes)", keyPath, len(key))
+		// Not self-healed. signet publishes the key only once it is
+		// complete, so a short file was truncated or written by something
+		// else; replacing it silently would also orphan every seqno file
+		// HMAC'd under the old key.
+		return nil, fmt.Errorf("revocation state key %s is corrupt (%d bytes, want 32). signet publishes this key only when complete, so it was truncated or written outside signet. To start over, delete %s; this discards the rollback history", keyPath, len(key), dir)
 	}
 	return cabundle.NewFileStorage(dir, key)
 }
 
+// createStateKey makes the HMAC key without ever exposing a partial one: the
+// bytes go to a unique temp file that is fsynced and closed, then hard-linked
+// to path. Link fails if path exists, so the first complete key wins, and a
+// run that loses the race reads the winner's key -- which is complete,
+// because it was published only after its bytes were on disk.
 func createStateKey(path string) ([]byte, error) {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 - fixed name under the operator's signet home, not untrusted input
-	if errors.Is(err, os.ErrExist) {
-		return os.ReadFile(path) // #nosec G304 - as above; another run created it first
-	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return nil, err
 	}
-	if _, err := f.Write(key); err != nil {
-		_ = f.Close()
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(key); err != nil {
+		_ = tmp.Close()
 		return nil, err
 	}
-	return key, f.Close()
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Link(tmpName, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return os.ReadFile(path) // #nosec G304 - as above; another run published its key first
+		}
+		return nil, err
+	}
+	return key, nil
 }
