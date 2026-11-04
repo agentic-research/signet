@@ -171,6 +171,7 @@ func issueTokenHandler(w http.ResponseWriter, r *http.Request) {
 		ephemeralKeyHash[:],
 		nonce,
 		5*time.Minute,
+		signet.WithIssuerKey(serverMasterPub),
 	)
 	if err != nil {
 		log.Printf("failed to construct token: %v", err)
