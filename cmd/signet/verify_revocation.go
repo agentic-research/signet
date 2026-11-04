@@ -210,7 +210,8 @@ func resolveRevocationAuthority(flag string, leaf *x509.Certificate) (string, er
 		return "", fmt.Errorf("authority URL %q must use https", raw)
 	}
 	// Accept either the base URL or the full bundle URL.
-	u.Path = strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), caBundlePath)
+	u.Path = strings.TrimSuffix(u.Path, "/")
+	u.Path = strings.TrimSuffix(strings.TrimSuffix(u.Path, caBundlePath), epochsPath)
 	u.Path = strings.TrimSuffix(u.Path, "/")
 	u.RawPath, u.RawQuery, u.Fragment = "", "", ""
 	return u.String(), nil

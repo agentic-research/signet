@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +30,13 @@ var (
 	// --legacy-cutoff is read through verifyLegacyCutoff, which needs to
 	// know whether the flag was given at all; the variable is only its home.
 	verifyLegacyCutoffFlag string
+
+	// Verification as of the signing time (signet-677e94).
+	verifyBundlePath       string
+	verifyArtifactPath     string
+	verifyAtFlag           string
+	verifyUntrustedTime    bool
+	verifyStrictRevocation bool
 )
 
 var verifyCmd = &cobra.Command{
@@ -87,6 +96,33 @@ public notme authority. A self-hosted authority at another address fails
 closed until you name it with --authority URL. The URL is not trusted
 either way: the bundle counts only if the pinned --ca root signed it.
 
+As of the signing time. A release certificate lives five minutes, so by the
+time anyone installs the release it is expired, and the checks above refuse
+it before reaching revocation. --bundle <artifact.sigstore.json> verifies it
+as of the moment it signed instead:
+  - the signing time T is the Rekor integrated time of the bundle's entry,
+    verified: the log's signed entry timestamp, the inclusion proof and its
+    signed checkpoint, under the public-good Rekor key signet pins; the
+    entry must name this certificate and carry the bundle's signature,
+    which must verify under the certificate's key. --artifact FILE also
+    checks the artifact against the logged digest;
+  - the chain, and the criteria, are verified at T;
+  - revocation is checked against the authority's SIGNED epoch history at
+    <authority>/.well-known/epochs.json (notme ADR-019 D7): its signature
+    verifies under the --ca root, its seqno must not go backwards (gaps are
+    fine; kept beside the bundle's in <signet home>/revocation), it must be
+    issued after T, and each certificate's epoch must not have been revoked
+    at or before T. An epoch that ended with no revocation record is
+    refused: the history cannot say when it ended. --strict-revocation
+    refuses any revoked epoch, even for a signature made before the
+    revocation. The history need not be fresh.
+An authority that serves only the older, unsigned epochs.json cannot be
+checked this way; the command says so and fails (or pass --offline).
+T never comes from your clock or from the signer. A bundle with no Rekor
+entry has no trusted time: revocation can then only be checked as of now.
+--at RFC3339 takes T from you instead, only with --untrusted-time, and the
+output marks it UNVERIFIED.
+
 A certificate with no epoch extension (for example one from signet's own Go
 authority) is refused: its authority does not publish revocation state for
 it. --offline skips the revocation check. The output then says "revocation
@@ -99,15 +135,22 @@ and the revocation result.`,
   signet verify task/chain.pem --ca root.pem
   signet verify cert.pem --ca root.pem --authority https://auth.notme.bot
   signet verify cert.pem --ca root.pem --offline
-  signet verify task/chain.pem --ca root.pem --legacy-cutoff 2026-12-01`,
+  signet verify task/chain.pem --ca root.pem --legacy-cutoff 2026-12-01
+  signet verify signet-linux-amd64.signet.crt.pem --ca ca-bundle.pem \
+      --bundle signet-linux-amd64.sigstore.json --artifact signet-linux-amd64`,
 	Args: cobra.ExactArgs(1),
 	RunE: runVerify,
 }
 
 func init() {
 	verifyCmd.Flags().StringVar(&verifyCAPath, "ca", "", "CA certificate PEM file (default: ~/.signet/ca.pem)")
-	verifyCmd.Flags().StringVar(&verifyAuthority, "authority", "", "Authority URL serving /internal/ca-bundle for the revocation check (default: https://auth.<trust domain> from the cert's wimse:// URI)")
+	verifyCmd.Flags().StringVar(&verifyAuthority, "authority", "", "Authority URL serving /internal/ca-bundle (and, with --bundle, /.well-known/epochs.json) for the revocation check (default: https://auth.<trust domain> from the cert's wimse:// URI)")
 	verifyCmd.Flags().BoolVar(&verifyOffline, "offline", false, "Skip the revocation check (output says \"revocation NOT checked\")")
+	verifyCmd.Flags().StringVar(&verifyBundlePath, "bundle", "", "Sigstore bundle (.sigstore.json): verify as of its verified Rekor integrated time, with revocation from the signed epoch history")
+	verifyCmd.Flags().StringVar(&verifyArtifactPath, "artifact", "", "With --bundle: also check this artifact against the logged digest")
+	verifyCmd.Flags().StringVar(&verifyAtFlag, "at", "", "Verify as of this RFC3339 time; needs --untrusted-time, and the output marks the time UNVERIFIED")
+	verifyCmd.Flags().BoolVar(&verifyUntrustedTime, "untrusted-time", false, "Accept --at, a time no trusted timestamp vouches for")
+	verifyCmd.Flags().BoolVar(&verifyStrictRevocation, "strict-revocation", false, "With --bundle or --at: refuse any revoked epoch, even for a signature made before the revocation")
 	verifyCmd.Flags().StringVar(&verifyLegacyCutoffFlag, "legacy-cutoff", "", "Refuse legacy (pre-criteria) notme task certs after this ISO date (default: $NOTME_LEGACY_CUTOFF; unset accepts them)")
 	rootCmd.AddCommand(verifyCmd)
 }
@@ -128,6 +171,12 @@ type VerifyResult struct {
 	Reason     string // if invalid, why
 	Revocation RevocationResult
 	Criteria   CriteriaResult
+	// Time is what the chain and revocation were judged at (signet-677e94).
+	Time verifyTime
+
+	// expired is set when the chain failed only because a certificate is
+	// outside its validity window at the verification time.
+	expired bool
 
 	// chain is the verified path, leaf first and the --ca root last. Set
 	// only when the chain verified; the revocation check reads it.
@@ -145,10 +194,17 @@ type CriteriaResult struct {
 
 // RevocationResult records what the revocation check established.
 type RevocationResult struct {
-	Checked   bool          // the bundle was fetched, verified and every epoch matched
+	Checked   bool          // the bundle (or history) was fetched, verified and every epoch passed
 	Authority string        // where the bundle came from
-	Epoch     uint64        // the authority's current epoch, from the signed bundle
-	BundleAge time.Duration // age of the bundle at check time
+	Epoch     uint64        // now: the authority's current epoch; as of signing: the leaf's epoch
+	BundleAge time.Duration // age of the bundle at check time (as of now only)
+
+	// As of the signing time (signet-677e94): judged against the signed
+	// epoch history rather than the live bundle.
+	AsOfSigning  bool
+	CurrentEpoch uint64 // the history's currentEpoch
+	HistorySeqno uint64
+	Strict       bool
 }
 
 // verifyOptions carries everything a verification run needs, so tests can
@@ -165,6 +221,13 @@ type verifyOptions struct {
 	at time.Time
 	// legacyCutoff is --legacy-cutoff / NOTME_LEGACY_CUTOFF; nil means none.
 	legacyCutoff *time.Time
+
+	bundlePath       string
+	artifactPath     string
+	claimedAt        time.Time
+	untrustedTime    bool
+	strictRevocation bool
+	rekorLogs        []crypto.PublicKey
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
@@ -185,14 +248,26 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	var claimedAt time.Time
+	if verifyAtFlag != "" {
+		claimedAt, err = time.Parse(time.RFC3339, verifyAtFlag)
+		if err != nil {
+			return fmt.Errorf("--at must be an RFC3339 time, such as 2026-10-28T23:39:48Z: %w", err)
+		}
+	}
 
 	return verifyAndReport(cmd.Context(), os.Stderr, certPath, verifyOptions{
-		caPath:       verifyCAPath,
-		authority:    verifyAuthority,
-		offline:      verifyOffline,
-		client:       &http.Client{Timeout: 15 * time.Second},
-		stateDir:     filepath.Join(cfg.Home, "revocation"),
-		legacyCutoff: legacyCutoff,
+		caPath:           verifyCAPath,
+		authority:        verifyAuthority,
+		offline:          verifyOffline,
+		client:           &http.Client{Timeout: 15 * time.Second},
+		stateDir:         filepath.Join(cfg.Home, "revocation"),
+		legacyCutoff:     legacyCutoff,
+		bundlePath:       verifyBundlePath,
+		artifactPath:     verifyArtifactPath,
+		claimedAt:        claimedAt,
+		untrustedTime:    verifyUntrustedTime,
+		strictRevocation: verifyStrictRevocation,
 	})
 }
 
@@ -203,14 +278,25 @@ func verifyAndReport(ctx context.Context, w io.Writer, certPath string, opts ver
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	at := opts.at
-	if at.IsZero() {
-		at = time.Now()
+	if err := checkTimeFlags(opts); err != nil {
+		return err
 	}
+	vt := verifyTime{source: timeNow, at: opts.at}
+	if vt.at.IsZero() {
+		vt.at = time.Now()
+	}
+	if opts.bundlePath != "" || opts.untrustedTime {
+		var err error
+		if vt, err = resolveSigningTime(certPath, opts); err != nil {
+			return err
+		}
+	}
+	at := vt.at
 	result, err := verifyCertAt(certPath, opts.caPath, at)
 	if err != nil {
 		return err
 	}
+	result.Time = vt
 
 	// Criteria next, on a verified chain only (notme's verifyChain judges
 	// criteria after the signatures), and before revocation: it is offline,
@@ -223,7 +309,13 @@ func verifyAndReport(ctx context.Context, w io.Writer, certPath string, opts ver
 	// against the root the chain ended at, and a cert that does not chain is
 	// already invalid. Fail closed: any error here makes the cert invalid.
 	if result.Valid && !opts.offline {
-		if err := checkRevocation(ctx, result, opts); err != nil {
+		check := checkRevocation
+		if vt.asOfSigning() {
+			check = func(ctx context.Context, r *VerifyResult, o verifyOptions) error {
+				return checkRevocationAt(ctx, r, o, vt)
+			}
+		}
+		if err := check(ctx, result, opts); err != nil {
 			result.Valid = false
 			result.Reason = "revocation check failed: " + err.Error()
 		}
@@ -241,13 +333,32 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 	// Output is best-effort (a terminal); a write error has nowhere to go.
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	p("\n")
+	vt := result.Time
+	asOf := ""
+	switch vt.source {
+	case timeRekor:
+		asOf = " as of its signing time, " + vt.at.Format(time.RFC3339) + " (Rekor)"
+	case timeUntrusted:
+		asOf = " as of " + vt.at.Format(time.RFC3339) + ", an UNVERIFIED time (--untrusted-time)"
+	}
 	switch {
 	case result.Valid && offline:
-		p("%s Certificate valid (revocation NOT checked)\n", styles.Success.Render("✓"))
+		p("%s Certificate valid%s (revocation NOT checked)\n", styles.Success.Render("✓"), asOf)
 	case result.Valid:
-		p("%s Certificate valid\n", styles.Success.Render("✓"))
+		p("%s Certificate valid%s\n", styles.Success.Render("✓"), asOf)
 	default:
 		p("%s Certificate invalid: %s\n", styles.Error.Render("✗"), result.Reason)
+	}
+	switch vt.source {
+	case timeRekor:
+		p("  Signed at: %s (Rekor integrated time, log index %d, verified)\n", vt.at.Format(time.RFC3339), vt.logIndex)
+		if vt.artifactChecked {
+			p("  Artifact:  matches the logged digest\n")
+		} else {
+			p("  Artifact:  not checked (pass --artifact FILE to check it against the logged digest)\n")
+		}
+	case timeUntrusted:
+		p("  Time:      %s UNVERIFIED: supplied with --at, not a trusted timestamp; whoever chose it could have picked any time\n", vt.at.Format(time.RFC3339))
 	}
 
 	p("  Subject:   %s\n", styles.Code.Render(result.Subject))
@@ -268,7 +379,7 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 	p("  Valid:     %s → %s\n",
 		result.NotBefore.Format(time.RFC3339),
 		result.NotAfter.Format(time.RFC3339))
-	if result.Valid {
+	if result.Valid && !vt.asOfSigning() {
 		p("  Remaining: %s\n", result.Remaining.Round(time.Minute))
 	}
 	switch c := result.Criteria; {
@@ -281,14 +392,25 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 	case c.Checked:
 		p("  Criteria:  %s (authority-minted)\n", styles.Code.Render(c.ID))
 	}
-	switch {
+	switch r := result.Revocation; {
 	case offline:
 		p("  Revocation: revocation NOT checked (--offline): a revoked certificate still shows as valid\n")
-	case result.Revocation.Checked:
-		p("  Revocation: checked (epoch %d, bundle age %ds, %s)\n",
-			result.Revocation.Epoch,
-			int64(result.Revocation.BundleAge.Seconds()),
-			result.Revocation.Authority)
+	case r.Checked && r.AsOfSigning:
+		strict := ""
+		if r.Strict {
+			strict = ", strict"
+		}
+		unverified := ""
+		if vt.source == timeUntrusted {
+			unverified = " (an UNVERIFIED time)"
+		}
+		p("  Revocation: checked as of the signing time%s: epoch %d not revoked at or before it (signed epoch history seqno %d, current epoch %d%s, %s)\n",
+			unverified, r.Epoch, r.HistorySeqno, r.CurrentEpoch, strict, r.Authority)
+	case r.Checked:
+		p("  Revocation: checked (epoch %d, bundle age %ds, %s), as of now\n",
+			r.Epoch, int64(r.BundleAge.Seconds()), r.Authority)
+	case result.expired && !vt.asOfSigning():
+		p("  Revocation: not checked: the certificate is expired, and with no trusted timestamp revocation can only be checked as of now. Pass --bundle <sigstore.json> to verify it as of its Rekor signing time\n")
 	}
 	p("\n")
 }
@@ -436,6 +558,8 @@ func verifyCertAt(certPath, caPath string, at time.Time) (*VerifyResult, error) 
 	if err != nil {
 		result.Valid = false
 		result.Reason = err.Error()
+		var inv x509.CertificateInvalidError
+		result.expired = errors.As(err, &inv) && inv.Reason == x509.Expired
 		return result, nil
 	}
 

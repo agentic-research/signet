@@ -307,6 +307,54 @@ channel.
 `revocation NOT checked`, because a revoked certificate still shows as
 valid.
 
+#### As of the signing time (`--bundle`)
+
+The checks above are as of now, so they refuse an expired certificate before
+reaching revocation. A release certificate lives five minutes and is long
+expired by install time. `--bundle` verifies a certificate as of the moment
+it signed:
+
+```bash
+signet verify signet-$PLATFORM.signet.crt.pem --ca trusted-notme-ca.pem \
+  --bundle signet-$PLATFORM.sigstore.json --artifact signet-$PLATFORM
+# ✓ Certificate valid as of its signing time, 2026-10-28T23:39:48Z (Rekor)
+#   Signed at: 2026-10-28T23:39:48Z (Rekor integrated time, log index 3552326250, verified)
+#   Artifact:  matches the logged digest
+#   ...
+#   Revocation: checked as of the signing time: epoch 1 not revoked at or before it (...)
+```
+
+- **The signing time T** is the Rekor integrated time of the bundle's log
+  entry. Signet verifies it under the public-good Rekor key it pins: the
+  signed entry timestamp, the inclusion proof, and the signed checkpoint.
+  The entry must name this certificate and carry the bundle's signature, and
+  that signature must verify under the certificate's key. `--artifact FILE`
+  also checks the artifact against the logged digest. T never comes from
+  your clock or from the signer.
+- **The chain** and the criteria are verified at T.
+- **Revocation** is checked against the authority's signed epoch history at
+  `<authority>/.well-known/epochs.json` (notme ADR-019 D7). Its signature
+  must verify under the `--ca` root, and its seqno must not be lower than the
+  last one seen. Gaps are fine. This seqno is kept in `~/.signet/revocation`,
+  separately from the bundle's. The history must be issued after T. Each
+  certificate's epoch must not have been revoked at or before T. An epoch
+  that ended with no revocation record is refused, because the history
+  cannot say when it ended. The history does not need to be fresh.
+- **`--strict-revocation`** refuses any revoked epoch, even for a signature
+  made before the revocation.
+
+A bundle with no Rekor entry has no trusted time. Signet says so, and
+revocation can then only be checked as of now. `--at RFC3339` takes T from
+you instead. It works only together with `--untrusted-time`, and the output
+marks the time `UNVERIFIED`. Use it only for a timestamp you have verified
+some other way.
+
+An authority that serves only the older, unsigned `epochs.json` cannot be
+checked this way. `signet verify` says that the authority does not publish a
+signed epoch history yet, and fails. `--offline` then verifies the chain at
+the Rekor time and reports `revocation NOT checked`. As of 2026-11-04 this is
+the case for `https://auth.notme.bot`.
+
 ## Core Libraries
 
 Signet's primitives are designed to be used independently:
@@ -399,19 +447,18 @@ from the bundle.
 **cosign does not check revocation.** `cosign verify-blob` checks the chain
 to the pinned CA, the identity and the Rekor proof. It does not check
 notme's CA epoch, so it still accepts a certificate whose epoch the
-authority has since revoked (`POST /admin/revoke-epoch`). `signet verify`
-checks the epoch against the authority's signed bundle (see
-[Verifying a Certificate](#verifying-a-certificate-signet-verify)). Run it on
-any certificate that is still inside its validity window. A release
-certificate lives five minutes, so by the time you install it has expired.
-`signet verify` then reports it as expired and does not reach the revocation
-check. For a release, compare the epoch by hand: the certificate's epoch
-(`openssl asn1parse -in signet-$PLATFORM.signet.crt.pem`; the INTEGER after
-OID `1.3.6.1.4.1.99999.1.4`) should equal `.epoch` from
-`$AUTHORITY/internal/ca-bundle`. If it is lower, the authority has revoked
-that epoch since the release was signed. This manual comparison does not
-check the bundle's signature. It is a hint, not a substitute for
-`signet verify`.
+authority has since revoked (`POST /admin/revoke-epoch`). A release
+certificate lives five minutes and has expired by the time you install, so
+check its revocation as of its signing time with `signet verify --bundle`
+(see [As of the signing time](#as-of-the-signing-time---bundle)):
+
+```bash
+signet verify signet-$PLATFORM.signet.crt.pem --ca trusted-notme-ca.pem \
+  --bundle signet-$PLATFORM.sigstore.json --artifact signet-$PLATFORM
+```
+
+This needs an authority that publishes a signed epoch history. Until
+`https://auth.notme.bot` does, the command fails with that reason.
 
 `checksums-sha256.txt` is published and signed too, but it is not a substitute:
 checksums tell you a download is intact, not who produced it.

@@ -63,6 +63,46 @@
 
 ## Added
 
+- **`signet verify --bundle <sigstore.json>`** verifies a certificate as of
+  the time it signed (signet-677e94). Until now an expired certificate, such
+  as a five-minute release certificate checked at install time, was refused
+  before revocation was ever checked. The signing time is the Rekor
+  integrated time of the bundle's entry. Signet verifies it under the
+  public-good Rekor key it pins, by checking the signed entry timestamp, the
+  inclusion proof and the signed checkpoint. The entry must be this
+  certificate's signature. The chain is then verified at that time.
+  Revocation is checked against the authority's signed epoch history at
+  `<authority>/.well-known/epochs.json` (notme ADR-019 D7). A certificate
+  passes if its epoch was not revoked at or before the signing time. An
+  epoch that ended with no revocation record is refused. The history's
+  signature and rollback state (seqno gaps are accepted) are checked, but
+  freshness is not. Related flags:
+
+  - `--artifact FILE` checks the artifact against the logged digest.
+  - `--strict-revocation` refuses any revoked epoch, whatever the signing
+    time.
+  - `--at RFC3339` takes the time from you instead, only together with
+    `--untrusted-time`. The output then marks the time `UNVERIFIED`.
+
+  A bundle with no Rekor entry is refused, with the message that revocation
+  can only be checked as of now. An authority that serves the older,
+  unsigned `epochs.json` is refused, with the message that it does not
+  publish a signed epoch history yet. As of this writing that includes
+  `https://auth.notme.bot`, until notme deploys notme-6a4f23. `--offline`
+  still verifies the chain at the signing time.
+
+- When `signet verify` refuses an expired certificate, its output now says
+  that revocation can only be checked as of now without a trusted
+  timestamp. The online revocation line now ends `, as of now`.
+
+- `pkg/rekor`, which verifies a Sigstore bundle's Rekor entry and returns its
+  integrated time, with `pkg/rekor/rekortest` for tests. It uses only the
+  standard library, and adds no dependency.
+
+- `pkg/revocation/epochhistory`, which parses and verifies notme's signed
+  epoch history and applies the ADR-019 D7 rule. It is tested against
+  notme's golden fixtures, which are vendored with their signatures.
+
 - `signet verify --legacy-cutoff ISO-DATE`, or `NOTME_LEGACY_CUTOFF`. A
   legacy notme task certificate has no criteria and was issued under a tier
   that has none. It is accepted until the cutoff and refused after it. The

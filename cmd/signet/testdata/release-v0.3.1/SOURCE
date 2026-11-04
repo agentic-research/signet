@@ -1,0 +1,6 @@
+# The published v0.3.1 release (linux-amd64), copied as served on 2026-11-04.
+# .cert, not .pem: the repository ignores *.pem.
+signet-linux-amd64.sigstore.json   https://github.com/agentic-research/signet/releases/download/v0.3.1/signet-linux-amd64.sigstore.json
+signet-linux-amd64.signet.cert     https://github.com/agentic-research/signet/releases/download/v0.3.1/signet-linux-amd64.signet.crt.pem
+ca-bundle.cert                     https://auth.notme.bot/.well-known/ca-bundle.pem
+epochs-unsigned-production.json    https://auth.notme.bot/.well-known/epochs.json (pre-notme-6a4f23, unsigned)
