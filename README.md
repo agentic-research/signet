@@ -18,6 +18,13 @@ from the authority, not from the release:
 task verify-release TAG=v0.3.0
 ```
 
+The gate also checks each artifact's revocation as of its signing time with
+`signet verify --bundle`, so it needs a `signet` you already trust (built from
+source, or from an earlier verified release; set `SIGNET_BIN` to choose one).
+Until `https://auth.notme.bot` serves a signed epoch history, that check fails;
+see [From a Release](#from-a-release-verify-the-signature) for the temporary
+opt-out.
+
 **Known limitations in v0.3.0:** `signet authority exchange-github-token` and
 `signet auth register` are non-functional against the default authority (both
 endpoints return 404). CI/CD signing — the path this project's own releases
@@ -512,8 +519,33 @@ signet verify signet-$PLATFORM.signet.crt.pem --ca trusted-notme-ca.pem \
   --bundle signet-$PLATFORM.sigstore.json --artifact signet-$PLATFORM
 ```
 
+Run a `signet` you already trust here, built from source or installed from an
+earlier verified release, not the binary you are verifying: the question is
+whether that binary's signing certificate was revoked, and a binary signed
+with a compromised key would answer for itself.
+
 This needs an authority that publishes a signed epoch history. Until
 `https://auth.notme.bot` does, the command fails with that reason.
+
+`task verify-release TAG=<tag>` runs this check on every artifact after
+cosign, and fails the release unless every artifact passes with exit 0. It
+uses `$SIGNET_BIN`, or `signet` on `PATH`. Exit 3 (valid with reduced
+assurance) is a failure.
+
+**Temporary opt-out.** While `https://auth.notme.bot` still serves the older,
+unsigned `epochs.json`, the gate fails at this step for every release. To
+verify the rest in the meantime, run:
+
+```bash
+SIGNET_RELEASE_SKIP_HISTORY=1 task verify-release TAG=<tag>
+```
+
+That runs `signet verify --bundle ... --offline`: the chain and the Rekor
+signing time are still verified, but revocation is **not**, and the
+transcript says `revocation NOT checked` in each artifact's line and in the
+final result. It is not a full promotion gate. The opt-out will be removed
+once the authority serves a signed epoch history (notme-6a4f23), that is,
+once the gate passes against `https://auth.notme.bot` without it.
 
 `checksums-sha256.txt` is published and signed too, but it is not a substitute:
 checksums tell you a download is intact, not who produced it.

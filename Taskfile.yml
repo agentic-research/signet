@@ -27,10 +27,11 @@ tasks:
       - task: test:release
 
   test:release:
-    desc: Test verify_release.sh's identity rule and cosign guards (signet-751af3, signet-79239a)
+    desc: Test verify_release.sh (identity rule, cosign guards, revocation step)
     cmds:
       - ./scripts/release/release_identity_test.sh
       - ./scripts/release/cosign_guard_test.sh
+      - ./scripts/release/verify_release_test.sh
 
   fmt:
     desc: Format Go code (gofumpt)
@@ -167,7 +168,7 @@ tasks:
         echo "Verify a PUBLISHED release instead with: task verify-release TAG=<tag>"
 
   verify-release:
-    desc: Verify a published release's checksums + signature bundles (TAG=vX.Y.Z)
+    desc: Verify a published release's checksums, signature bundles and revocation as of signing (TAG=vX.Y.Z)
     # Single source for the release promotion gate (signet-cf2adc). Promotion
     # workflows and operators invoke THIS target — never re-implement the
     # checks inline (taskfile-ci-parity).

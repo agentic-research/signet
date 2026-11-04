@@ -53,7 +53,12 @@ per the bead's instruction not to silently weaken missing gates):
   builds a cosign trusted root, and verifies every artifact's bundle
   with pinned identity and no-Fulcio-issuer assertions, mirroring
   `cosignVerifyBlobArgs`. Failure-mode tested against v0.2.1: checksums
-  pass, then hard-fails listing the four missing bundles.
+  pass, then hard-fails listing the four missing bundles. Since
+  signet-6f2965 it also checks each artifact's revocation as of its
+  signing time (`signet verify --bundle`), which fails against
+  `https://auth.notme.bot` until it serves a signed epoch history; the
+  temporary `SIGNET_RELEASE_SKIP_HISTORY=1` opt-out skips that check and
+  says so (README, "From a Release").
 - `release.yml` now publishes **every** tag as a GitHub prerelease and
   **never self-promotes to latest** (`prerelease: true`,
   `make_latest: "false"`). This is permanent pipeline behavior, not a

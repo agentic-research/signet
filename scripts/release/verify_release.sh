@@ -31,7 +31,29 @@
 #      refs/tags/<tag> of this repo, or carry the exact legacy identity that
 #      releases up to v0.3.0 were signed with. --identity / --identity-regexp
 #      override it.
-#   5. Report the signing identity per artifact and PASS/FAIL.
+#   5. Revocation as of signing (signet-6f2965): `signet verify --bundle`
+#      each artifact. cosign does not check notme's CA epoch, so a release
+#      signed under an epoch that was revoked before it signed still passes
+#      step 4. signet verifies the bundle's Rekor integrated time, the chain
+#      at that time, and the authority's SIGNED epoch history
+#      (<authority>/.well-known/epochs.json). Its exit 3 (valid, reduced
+#      assurance) fails the release unless the operator opted out below.
+#   6. Report the signing identity per artifact and PASS/FAIL.
+#
+# Which signet: $SIGNET_BIN, else `signet` on PATH. NEVER the binary this
+# script just downloaded: step 5 asks whether that binary's signing
+# certificate was revoked, and a binary signed with a compromised key would
+# answer for itself. Use a signet built from source at a commit you trust,
+# or one installed from an earlier verified release; it must support
+# `signet verify --bundle` (signet-677e94).
+#
+# TEMPORARY opt-out: SIGNET_RELEASE_SKIP_HISTORY=1 runs step 5 with
+# --offline (chain and Rekor time still verified, revocation NOT checked)
+# and accepts its exit 3, printing a loud warning. It exists only because
+# https://auth.notme.bot still serves the older, UNSIGNED epochs.json, which
+# `signet verify --bundle` refuses. Remove it once the authority serves a
+# signed epoch history (notme-6a4f23 deployed), that is, once this gate
+# passes against auth.notme.bot without the opt-out.
 #
 # Limitations (deliberate, documented):
 #   - The "independent" anchor is fetched over bare HTTPS with no pinning
@@ -105,9 +127,30 @@ if [[ -z "$IDENTITY_REGEXP" ]]; then
   IDENTITY_REGEXP="$(release_identity_regexp "$TRUST_DOMAIN" "$REPO" "$TAG")"
 fi
 
+case "${SIGNET_RELEASE_SKIP_HISTORY:-0}" in
+  0) SKIP_HISTORY=0 ;;
+  1) SKIP_HISTORY=1 ;;
+  *)
+    echo "FAIL: SIGNET_RELEASE_SKIP_HISTORY must be 1 (skip the revocation check) or 0, not '$SIGNET_RELEASE_SKIP_HISTORY'" >&2
+    exit 2
+    ;;
+esac
+
 for tool in gh cosign curl openssl; do
   command -v "$tool" >/dev/null || { echo "FAIL: required tool not found: $tool" >&2; exit 1; }
 done
+
+SIGNET_BIN="${SIGNET_BIN:-signet}"
+if ! command -v "$SIGNET_BIN" >/dev/null; then
+  echo "FAIL: signet not found ($SIGNET_BIN): the revocation check needs a signet you already trust." >&2
+  echo "    Build one from source (task build) and set SIGNET_BIN=\$PWD/signet, or install an earlier verified release." >&2
+  echo "    Do not use the binary being verified: it would vouch for its own signing certificate." >&2
+  exit 1
+fi
+if ! "$SIGNET_BIN" verify --help 2>/dev/null | grep -q -- '--bundle'; then
+  echo "FAIL: $SIGNET_BIN has no 'signet verify --bundle' (signet-677e94), so it cannot check revocation as of signing time; use a newer signet" >&2
+  exit 1
+fi
 
 # cosign <= 3.1.2 can be made to report "Verified OK" for a legacy bundle an
 # attacker swapped in (GHSA-fx35-mq7g-6g98, signet-79239a).
@@ -135,14 +178,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==> [1/4] downloading assets of $REPO $TAG"
+echo "==> [1/5] downloading assets of $REPO $TAG"
 gh release download "$TAG" --repo "$REPO" --dir "$workdir"
 
 cd "$workdir"
 
 [[ -f checksums-sha256.txt ]] || { echo "FAIL: release has no checksums-sha256.txt" >&2; exit 1; }
 
-echo "==> [2/4] verifying sha256 checksums"
+echo "==> [2/5] verifying sha256 checksums"
 sha256_check checksums-sha256.txt
 
 # Everything named in the checksum file, plus the checksum file itself, must
@@ -168,7 +211,7 @@ for a in "${artifacts[@]}"; do
   fi
 done
 
-echo "==> [3/4] establishing independent trust anchor"
+echo "==> [3/5] establishing independent trust anchor"
 anchor="$workdir/authority-ca.pem"
 if [[ -n "$CA_BUNDLE" ]]; then
   cp "$CA_BUNDLE" "$anchor"
@@ -199,7 +242,7 @@ cosign trusted-root create \
   --fulcio="url=$AUTHORITY_URL,certificate-chain=$anchor" \
   --out "$trusted_root"
 
-echo "==> [4/4] verifying signature bundles"
+echo "==> [4/5] verifying signature bundles"
 if [[ -n "$IDENTITY_EXACT" ]]; then
   echo "    identity: $IDENTITY_EXACT"
 else
@@ -257,5 +300,54 @@ if [[ ${#failed[@]} -gt 0 ]]; then
   exit 1
 fi
 
+echo "==> [5/5] checking revocation as of signing time (signet verify --bundle)"
+echo "    signet: $(command -v "$SIGNET_BIN")"
+signet_args=(--ca "$anchor" --authority "$AUTHORITY_URL")
+if [[ "$SKIP_HISTORY" -eq 1 ]]; then
+  signet_args+=(--offline)
+  echo "    !!! SIGNET_RELEASE_SKIP_HISTORY=1: revocation NOT checked. A certificate the"
+  echo "    !!! authority revoked before it signed would still pass. TEMPORARY, until"
+  echo "    !!! $AUTHORITY_URL serves a signed epochs.json (notme-6a4f23)."
+fi
+revocation_failed=()
+for a in "${artifacts[@]}"; do
+  cert="$a.signet.crt.pem"
+  if [[ ! -f "$cert" ]]; then
+    revocation_failed+=("$a")
+    echo "    FAIL $a  (no $cert published)"
+    continue
+  fi
+  rc=0
+  "$SIGNET_BIN" verify "$cert" "${signet_args[@]}" \
+    --bundle "$a.sigstore.json" --artifact "$a" >"$workdir/signet-verify.out" 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 && "$SKIP_HISTORY" -eq 0 ]]; then
+    echo "    OK   $a  not revoked as of signing"
+  elif [[ "$SKIP_HISTORY" -eq 1 && ("$rc" -eq 0 || "$rc" -eq 3) ]]; then
+    echo "    OK   $a  chain and Rekor time verified; revocation NOT checked"
+  else
+    revocation_failed+=("$a")
+    if [[ "$rc" -eq 3 ]]; then
+      echo "    FAIL $a  (signet exit 3: valid only with reduced assurance)"
+    else
+      echo "    FAIL $a  (signet exit $rc)"
+    fi
+    # signet's report, through its first Error: line (cobra's usage follows).
+    awk '{ print "        | " $0 } /^Error: /{ exit }' "$workdir/signet-verify.out"
+  fi
+done
+
+if [[ ${#revocation_failed[@]} -gt 0 ]]; then
+  echo
+  echo "FAIL: revocation as of signing time not established for: ${revocation_failed[*]}" >&2
+  echo "    If the authority does not publish a signed epoch history yet, SIGNET_RELEASE_SKIP_HISTORY=1" >&2
+  echo "    skips this check (TEMPORARY; the release is then NOT checked for revocation)." >&2
+  exit 1
+fi
+
 echo
-echo "PASS: $REPO $TAG — ${#artifacts[@]} artifacts, checksums and signature bundles verified"
+if [[ "$SKIP_HISTORY" -eq 1 ]]; then
+  echo "PASS: $REPO $TAG — ${#artifacts[@]} artifacts, checksums and signature bundles verified"
+  echo "!!! revocation NOT checked (SIGNET_RELEASE_SKIP_HISTORY=1, TEMPORARY): not a full promotion gate"
+else
+  echo "PASS: $REPO $TAG — ${#artifacts[@]} artifacts, checksums, signature bundles and revocation as of signing verified"
+fi
