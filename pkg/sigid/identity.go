@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	"github.com/agentic-research/signet/pkg/signet"
 )
 
 // Identity represents the binding of Owner × Machine — the bridge cert itself.
@@ -140,11 +142,9 @@ func MachineFingerprint(pub crypto.PublicKey) (string, error) {
 // Distinct from MachineFingerprint (full 256-bit device fingerprint) and from
 // an RFC 7638 JWK thumbprint / DPoP `jkt` (base64url of a canonical JWK) — see
 // ADR-012 for why these must not be conflated.
+//
+// The derivation lives in signet.IssuerKeyID, so the kid a token issuer
+// stamps and the kid this package computes cannot differ.
 func CanonicalKeyID(pub crypto.PublicKey) (string, error) {
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		return "", fmt.Errorf("marshal public key: %w", err)
-	}
-	hash := sha256.Sum256(der)
-	return hex.EncodeToString(hash[:16]), nil
+	return signet.IssuerKeyID(pub)
 }

@@ -240,15 +240,42 @@ SPIRE-model revocation using CA bundle rotation and epoch-based invalidation:
 
 **How it works:**
 
+The issuer names its key in every token it mints, and the bundle lists the
+same key under the same id. Both sides derive that id with
+`signet.IssuerKeyID`. A token with no key id, or one whose key is neither the
+bundle's `keyId` nor its `prevKeyId`, is refused as revoked.
+
 ```go
-// Configure revocation checker
+// Issuer: mint the token with the id of the key that issues it.
+token, err := signet.NewToken(issuerID, masterKeyHash, ephemeralKeyHash, nonce,
+    5*time.Minute, signet.WithIssuerKey(masterPubKey))
+if err != nil {
+    log.Fatal(err)
+}
+token.Epoch = currentEpoch
+
+// Bundle publisher: list the issuing key under the same id, then sign the
+// bundle (revocation.BundleCanonical) with the bundle signing key.
+kid, err := signet.IssuerKeyID(masterPubKey)
+if err != nil {
+    log.Fatal(err)
+}
+bundle := &types.CABundle{
+    Epoch:    currentEpoch,
+    Seqno:    seqno,
+    Keys:     map[string][]byte{kid: masterPubKey},
+    KeyID:    kid,
+    IssuedAt: time.Now().Unix(),
+}
+
+// Verifier: check every request's token against the signed bundle.
 fetcher := cabundle.NewHTTPSFetcher(bundleServerURL, nil)
 storage := cabundle.NewMemoryStorage()
 cache := cabundle.NewBundleCache(30 * time.Second)
 checker := revocation.NewCABundleChecker(fetcher, storage, cache, bundleSigningPublicKey)
 
-// Add to middleware
 auth, err := middleware.SignetMiddleware(
+    middleware.WithMasterKey(masterPubKey),
     middleware.WithRevocationChecker(checker),
 )
 if err != nil {
