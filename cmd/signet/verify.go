@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/agentic-research/signet/pkg/cli/styles"
 	"github.com/agentic-research/signet/pkg/sigid"
@@ -24,6 +25,9 @@ var (
 	verifyCAPath    string
 	verifyAuthority string
 	verifyOffline   bool
+	// --legacy-cutoff is read through verifyLegacyCutoff, which needs to
+	// know whether the flag was given at all; the variable is only its home.
+	verifyLegacyCutoffFlag string
 )
 
 var verifyCmd = &cobra.Command{
@@ -33,11 +37,32 @@ var verifyCmd = &cobra.Command{
   1. Chains to the specified CA (or default signet CA)
   2. Is not expired
   3. Contains valid signet identity extensions
-  4. Has not been revoked: its CA epoch matches the authority's signed CA bundle
+  4. Fits its notme criteria (.1.10), for a notme task certificate
+  5. Has not been revoked: its CA epoch matches the authority's signed CA bundle
 
 The cert file may hold the leaf followed by intermediates (for a notme task
 certificate: task, then the tier). Intermediates only help build the path;
 it must still end at a certificate in --ca.
+
+Criteria. A notme task certificate names the criteria it was minted under
+(OID 1.3.6.1.4.1.99999.1.10): agent-session/1 (at most 300s, scopes within
+bridgeCert, sign:git, sign:attestation), llo-run/1 (300s, bridgeCert, and it
+needs the run's confinementDigest, .1.7), or deploy/1 (900s, bridgeCert,
+minted by the authority itself, never a tier). Its tier carries the
+criteria its approver granted. These are notme's task-cert verify rules,
+with its reasons. The certificate is refused when:
+  - the tier carries criteria but the task names none;
+  - the task names criteria the tier did not grant, or carries criteria
+    under a tier that carries none;
+  - its lifetime is over the criteria's limit;
+  - a scope is outside the criteria's ceiling;
+  - the criteria is minted elsewhere (a tier-signed deploy/1, a
+    root-signed agent-session/1) or needs what the cert lacks;
+  - the criteria is unknown or the extension is malformed.
+A task with no criteria under a tier with none is legacy (pre-criteria). It
+is accepted until the operator's cutoff, --legacy-cutoff ISO-DATE, or the
+NOTME_LEGACY_CUTOFF environment variable (the flag wins). Certificates
+that are not notme task certificates are not judged on criteria.
 
 Revocation. After the chain verifies, signet fetches the authority's signed
 CA bundle from <authority>/internal/ca-bundle and checks:
@@ -73,7 +98,8 @@ and the revocation result.`,
   signet verify cert.pem --ca /etc/signet/ca.pem
   signet verify task/chain.pem --ca root.pem
   signet verify cert.pem --ca root.pem --authority https://auth.notme.bot
-  signet verify cert.pem --ca root.pem --offline`,
+  signet verify cert.pem --ca root.pem --offline
+  signet verify task/chain.pem --ca root.pem --legacy-cutoff 2026-12-01`,
 	Args: cobra.ExactArgs(1),
 	RunE: runVerify,
 }
@@ -82,6 +108,7 @@ func init() {
 	verifyCmd.Flags().StringVar(&verifyCAPath, "ca", "", "CA certificate PEM file (default: ~/.signet/ca.pem)")
 	verifyCmd.Flags().StringVar(&verifyAuthority, "authority", "", "Authority URL serving /internal/ca-bundle for the revocation check (default: https://auth.<trust domain> from the cert's wimse:// URI)")
 	verifyCmd.Flags().BoolVar(&verifyOffline, "offline", false, "Skip the revocation check (output says \"revocation NOT checked\")")
+	verifyCmd.Flags().StringVar(&verifyLegacyCutoffFlag, "legacy-cutoff", "", "Refuse legacy (pre-criteria) notme task certs after this ISO date (default: $NOTME_LEGACY_CUTOFF; unset accepts them)")
 	rootCmd.AddCommand(verifyCmd)
 }
 
@@ -100,10 +127,20 @@ type VerifyResult struct {
 	Remaining  time.Duration
 	Reason     string // if invalid, why
 	Revocation RevocationResult
+	Criteria   CriteriaResult
 
 	// chain is the verified path, leaf first and the --ca root last. Set
 	// only when the chain verified; the revocation check reads it.
 	chain []*x509.Certificate
+}
+
+// CriteriaResult records what the notme criteria (.1.10) check established.
+type CriteriaResult struct {
+	Checked bool   // the certificate is a notme task cert and was judged
+	ID      string // the task's criteria, e.g. "agent-session/1"; empty if legacy
+	Legacy  bool   // no criteria anywhere: issued under a pre-criteria tier
+	ByTier  bool   // issued by a tier (else by the authority's root)
+	Refused string // notme's reason, when refused
 }
 
 // RevocationResult records what the revocation check established.
@@ -122,6 +159,12 @@ type verifyOptions struct {
 	offline   bool         // --offline: skip the revocation check
 	client    *http.Client // fetches the CA bundle
 	stateDir  string       // holds the last-seen bundle seqno (rollback protection)
+
+	// at is the verification time; zero means now. Tests pin it so golden
+	// fixtures minted at a fixed time verify.
+	at time.Time
+	// legacyCutoff is --legacy-cutoff / NOTME_LEGACY_CUTOFF; nil means none.
+	legacyCutoff *time.Time
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
@@ -138,12 +181,18 @@ func runVerify(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	legacyCutoff, err := verifyLegacyCutoff(cmd)
+	if err != nil {
+		return err
+	}
+
 	return verifyAndReport(cmd.Context(), os.Stderr, certPath, verifyOptions{
-		caPath:    verifyCAPath,
-		authority: verifyAuthority,
-		offline:   verifyOffline,
-		client:    &http.Client{Timeout: 15 * time.Second},
-		stateDir:  filepath.Join(cfg.Home, "revocation"),
+		caPath:       verifyCAPath,
+		authority:    verifyAuthority,
+		offline:      verifyOffline,
+		client:       &http.Client{Timeout: 15 * time.Second},
+		stateDir:     filepath.Join(cfg.Home, "revocation"),
+		legacyCutoff: legacyCutoff,
 	})
 }
 
@@ -154,9 +203,20 @@ func verifyAndReport(ctx context.Context, w io.Writer, certPath string, opts ver
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result, err := verifyCert(certPath, opts.caPath)
+	at := opts.at
+	if at.IsZero() {
+		at = time.Now()
+	}
+	result, err := verifyCertAt(certPath, opts.caPath, at)
 	if err != nil {
 		return err
+	}
+
+	// Criteria next, on a verified chain only (notme's verifyChain judges
+	// criteria after the signatures), and before revocation: it is offline,
+	// so a misfit is refused without asking the network anything.
+	if result.Valid {
+		checkTaskCriteria(result, at, opts.legacyCutoff)
 	}
 
 	// Revocation runs only on a chain that verified: the bundle is checked
@@ -211,6 +271,16 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 	if result.Valid {
 		p("  Remaining: %s\n", result.Remaining.Round(time.Minute))
 	}
+	switch c := result.Criteria; {
+	case c.Refused != "":
+		p("  Criteria:  refused: %s\n", c.Refused)
+	case c.Checked && c.Legacy:
+		p("  Criteria:  none (legacy: issued under a pre-criteria tier)\n")
+	case c.Checked && c.ByTier:
+		p("  Criteria:  %s (within tier grant)\n", styles.Code.Render(c.ID))
+	case c.Checked:
+		p("  Criteria:  %s (authority-minted)\n", styles.Code.Render(c.ID))
+	}
 	switch {
 	case offline:
 		p("  Revocation: revocation NOT checked (--offline): a revoked certificate still shows as valid\n")
@@ -223,8 +293,13 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 	p("\n")
 }
 
-// verifyCert verifies a certificate against a CA and extracts identity info.
+// verifyCert verifies a certificate against a CA, now, and extracts identity info.
 func verifyCert(certPath, caPath string) (*VerifyResult, error) {
+	return verifyCertAt(certPath, caPath, time.Now())
+}
+
+// verifyCertAt is verifyCert at a given time.
+func verifyCertAt(certPath, caPath string, at time.Time) (*VerifyResult, error) {
 	// Read cert
 	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
@@ -356,7 +431,7 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 		Roots:         pool,
 		Intermediates: intermediates,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		CurrentTime:   time.Now(),
+		CurrentTime:   at,
 	})
 	if err != nil {
 		result.Valid = false
@@ -366,7 +441,7 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 
 	result.Valid = true
 	result.chain = chains[0]
-	result.Remaining = time.Until(cert.NotAfter)
+	result.Remaining = cert.NotAfter.Sub(at)
 	return result, nil
 }
 
@@ -393,6 +468,69 @@ func extractExtValue(raw []byte) string {
 
 	// Fallback: treat bounded raw bytes as a string (Go authority encoding).
 	return string(raw)
+}
+
+// verifyLegacyCutoff resolves --legacy-cutoff and NOTME_LEGACY_CUTOFF as
+// notme's task-cert verify does: the flag wins, a flag given with no value
+// is an error, an empty env var is unset, and anything but an ISO date is an
+// error rather than "no cutoff".
+func verifyLegacyCutoff(cmd *cobra.Command) (*time.Time, error) {
+	var flag *string
+	if f := cmd.Flags().Lookup("legacy-cutoff"); f != nil && f.Changed {
+		v := f.Value.String()
+		flag = &v
+	}
+	return sigid.ResolveLegacyCutoff(flag, os.Getenv("NOTME_LEGACY_CUTOFF"))
+}
+
+// checkTaskCriteria applies notme's criteria rules (signet-be49b9) to a
+// verified chain, and marks the result invalid on a misfit.
+//
+// The tier is the leaf's issuer when that is not the root: notme task certs
+// sit at root -> tier -> task. Which certificates are judged:
+//   - any chain where the leaf or its tier carries .1.10;
+//   - a notme-profile (.1.8) chain with a tier, which without .1.10 is a
+//     legacy task, subject to the cutoff.
+//
+// A certificate the root issues directly with no .1.10 (signet's own
+// authority, notme's /cert/gha bridge certs) is not a task and is not
+// judged: notme's task-cert verify only ever judges a task under a tier, and
+// the cutoff exists to retire pre-criteria TASKS.
+func checkTaskCriteria(result *VerifyResult, at time.Time, legacyCutoff *time.Time) {
+	leaf := result.chain[0]
+	var tier *x509.Certificate
+	if len(result.chain) >= 3 {
+		tier = result.chain[1]
+	}
+	_, leafHas, _ := sigid.ReadCriteria(leaf)
+	tierHas := false
+	if tier != nil {
+		_, tierHas, _ = sigid.ReadCriteria(tier)
+	}
+	notmeTask := tier != nil && (sigid.IsNotmeProfile(leaf) || sigid.IsNotmeProfile(tier))
+	if !leafHas && !tierHas && !notmeTask {
+		return
+	}
+
+	v := sigid.CheckCriteria(tier, leaf, sigid.CriteriaOptions{At: at, LegacyCutoff: legacyCutoff})
+	result.Criteria = CriteriaResult{Checked: true, Legacy: v.Legacy, ByTier: tier != nil}
+	if !v.OK {
+		// A reason can quote a scope string from the certificate; keep
+		// control characters out of the terminal.
+		reason := strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return '?'
+			}
+			return r
+		}, v.Reason)
+		result.Criteria.Refused = reason
+		result.Valid = false
+		result.Reason = "criteria: " + reason
+		return
+	}
+	if v.Criteria != nil {
+		result.Criteria.ID = v.Criteria.ID()
+	}
 }
 
 func keyTypeName(cert *x509.Certificate) string {

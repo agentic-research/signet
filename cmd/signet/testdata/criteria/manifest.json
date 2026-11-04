@@ -1,0 +1,223 @@
+{
+  "generated_by": "notme worker/src/cert-authority.ts + scripts/task-cert/lib.ts",
+  "at": "2026-11-04T12:00:00.000Z",
+  "cases": [
+    {
+      "name": "agent-session-ok",
+      "tier": "as",
+      "cutoff": null,
+      "how": "mintTask under a tier granting agent-session/1",
+      "notme": {
+        "ok": true,
+        "criteria": "agent-session/1",
+        "legacy": false
+      }
+    },
+    {
+      "name": "multi-grant-ok",
+      "tier": "multi",
+      "cutoff": null,
+      "how": "mintTask --criteria agent-session/1 under a tier granting agent-session/1 and llo-run/1",
+      "notme": {
+        "ok": true,
+        "criteria": "agent-session/1",
+        "legacy": false
+      }
+    },
+    {
+      "name": "legacy-ok",
+      "tier": "legacy",
+      "cutoff": null,
+      "how": "mintTask under a pre-criteria tier, no cutoff",
+      "notme": {
+        "ok": true,
+        "criteria": null,
+        "legacy": true
+      }
+    },
+    {
+      "name": "legacy-before-cutoff",
+      "tier": "legacy",
+      "cutoff": "2026-12-01",
+      "how": "legacy, cutoff after T0",
+      "notme": {
+        "ok": true,
+        "criteria": null,
+        "legacy": true
+      }
+    },
+    {
+      "name": "legacy-past-cutoff",
+      "tier": "legacy",
+      "cutoff": "2026-11-01T00:00:00Z",
+      "how": "legacy, cutoff before T0",
+      "notme": {
+        "ok": false,
+        "reason": "legacy certificate past the operator's cutoff"
+      }
+    },
+    {
+      "name": "tier-criteria-task-none",
+      "tier": "as",
+      "cutoff": null,
+      "how": "stripped-.1.10 control: a real legacy task shown with an agent-session/1 tier of the same key",
+      "notme": {
+        "ok": false,
+        "reason": "tier carries criteria; the task names none"
+      }
+    },
+    {
+      "name": "not-granted",
+      "tier": "llo",
+      "cutoff": null,
+      "how": "a real agent-session/1 task shown with an llo-run/1 tier of the same key",
+      "notme": {
+        "ok": false,
+        "reason": "task criteria agent-session/1 is not granted by its tier"
+      }
+    },
+    {
+      "name": "task-claims-without-tier",
+      "tier": "legacy",
+      "cutoff": null,
+      "how": "a real agent-session/1 task shown with a pre-criteria tier of the same key",
+      "notme": {
+        "ok": false,
+        "reason": "task claims criteria its tier does not carry"
+      }
+    },
+    {
+      "name": "lifetime-300-ok",
+      "tier": "as",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, agent-session/1, 300 s",
+      "notme": {
+        "ok": true,
+        "criteria": "agent-session/1",
+        "legacy": false
+      }
+    },
+    {
+      "name": "lifetime-over",
+      "tier": "as",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, agent-session/1, 301 s",
+      "notme": {
+        "ok": false,
+        "reason": "agent-session/1 allows at most 300s, this certificate spans 301s"
+      }
+    },
+    {
+      "name": "scope-over",
+      "tier": "as",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, agent-session/1, scope certMint",
+      "notme": {
+        "ok": false,
+        "reason": "agent-session/1 does not allow scope certMint"
+      }
+    },
+    {
+      "name": "scope-sign-git-ok",
+      "tier": "as",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, agent-session/1, sign:git within the ceiling",
+      "notme": {
+        "ok": true,
+        "criteria": "agent-session/1",
+        "legacy": false
+      }
+    },
+    {
+      "name": "llo-run-no-digest",
+      "tier": "llo",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, llo-run/1 without .1.7 (not mintable)",
+      "notme": {
+        "ok": false,
+        "reason": "llo-run/1 requires the run's confinementDigest (.1.7)"
+      }
+    },
+    {
+      "name": "llo-run-scope-over",
+      "tier": "llo",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, llo-run/1 with sign:git",
+      "notme": {
+        "ok": false,
+        "reason": "llo-run/1 does not allow scope sign:git"
+      }
+    },
+    {
+      "name": "deploy-under-tier",
+      "tier": "dep",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, deploy/1 signed by a tier",
+      "notme": {
+        "ok": false,
+        "reason": "deploy/1 is minted by the authority only"
+      }
+    },
+    {
+      "name": "deploy-authority-ok",
+      "tier": null,
+      "cutoff": null,
+      "how": "mintBridgeCertPair, deploy/1 signed by the root, 900 s",
+      "notme": {
+        "ok": true,
+        "criteria": "deploy/1",
+        "legacy": false
+      }
+    },
+    {
+      "name": "deploy-authority-too-long",
+      "tier": null,
+      "cutoff": null,
+      "how": "mintBridgeCertPair, deploy/1 signed by the root, 3 h",
+      "notme": {
+        "ok": false,
+        "reason": "deploy/1 allows at most 900s, this certificate spans 10800s"
+      }
+    },
+    {
+      "name": "agent-session-from-root",
+      "tier": null,
+      "cutoff": null,
+      "how": "mintBridgeCertPair, agent-session/1 signed by the root",
+      "notme": {
+        "ok": false,
+        "reason": "agent-session/1 is minted by the tier only"
+      }
+    },
+    {
+      "name": "unknown-criteria",
+      "tier": "mystery",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, mystery/3 under a mystery/3 tier",
+      "notme": {
+        "ok": false,
+        "reason": "unknown criteria mystery/3"
+      }
+    },
+    {
+      "name": "malformed-leaf",
+      "tier": "as",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, .1.10 = empty SEQUENCE",
+      "notme": {
+        "ok": false,
+        "reason": "malformed criteria on leaf"
+      }
+    },
+    {
+      "name": "two-on-task",
+      "tier": "multi",
+      "cutoff": null,
+      "how": "mintBridgeCertPair, two criteria on a task",
+      "notme": {
+        "ok": false,
+        "reason": "a task carries exactly one criteria"
+      }
+    }
+  ]
+}
