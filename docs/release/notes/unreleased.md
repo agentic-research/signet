@@ -63,6 +63,33 @@
   criteria. These include signet's own and notme's `/cert/gha` bridge
   certificates.
 
+- **`task verify-release` checks revocation as of signing time, and fails
+  until notme serves a signed epoch history** (signet-6f2965). After cosign,
+  `scripts/release/verify_release.sh` now runs `signet verify` with
+  `--bundle <artifact>.sigstore.json --artifact <artifact>` on each
+  artifact's `.signet.crt.pem`, against the same independent anchor. cosign
+  does not check notme's CA epoch, so until now a release signed under an
+  epoch that was already revoked passed the gate. What now fails that used
+  to pass:
+
+  - **Every release, against `https://auth.notme.bot` today.** It still
+    serves the older, unsigned `epochs.json`, which `signet verify --bundle`
+    refuses. `task verify-release TAG=v0.3.1`, as the v0.3.1 notes give it,
+    fails at step 5 until notme deploys notme-6a4f23.
+    `SIGNET_RELEASE_SKIP_HISTORY=1` is a **temporary** opt-out: it runs
+    step 5 with `--offline`, accepts signet's exit 3, and prints
+    `revocation NOT checked` for each artifact and in the final result. It
+    will be removed once the gate passes against `https://auth.notme.bot`
+    without it. Any value other than `1` or `0` is an error.
+  - **A machine with no `signet`, or one older than `verify --bundle`.** The
+    gate uses `$SIGNET_BIN`, or `signet` on `PATH`. It never runs the binary
+    it just downloaded: that binary would vouch for its own signing
+    certificate. Build one from source (`task build`, then
+    `SIGNET_BIN=$PWD/signet`) or install an earlier verified release.
+  - **Exit 3 from signet** (valid with reduced assurance) fails the gate
+    unless the opt-out is set.
+  - **A missing `<artifact>.signet.crt.pem`** fails the gate.
+
 ## Added
 
 - **`signet verify --bundle <sigstore.json>`** verifies a certificate as of
@@ -103,8 +130,8 @@
   Exit status 3 is new. It means the certificate is valid with reduced
   assurance: `--untrusted-time`, `--no-artifact`, or `--offline` together
   with `--bundle`. Exits 0 and 1 are unchanged, and `--offline` without
-  `--bundle` still exits 0. No script in this repository runs
-  `signet verify`.
+  `--bundle` still exits 0. `scripts/release/verify_release.sh` runs it
+  (signet-6f2965, above).
 
 - When `signet verify` refuses an expired certificate, its output now says
   that revocation can only be checked as of now without a trusted
