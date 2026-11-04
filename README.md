@@ -260,6 +260,44 @@ Tokens are automatically checked against the CA bundle for:
 
 See [`docs/design/006-revocation.md`](./docs/design/006-revocation.md) for architecture details.
 
+### Verifying a Certificate (`signet verify`)
+
+`signet verify` checks a bridge or task certificate: the chain to a pinned
+root, the validity window, the identity extensions, and **revocation**.
+
+```bash
+curl -fsS https://auth.notme.bot/.well-known/ca-bundle.pem -o trusted-notme-ca.pem
+signet verify ~/.notme/tasks/<task>/chain.pem --ca trusted-notme-ca.pem
+# ✓ Certificate valid
+#   ...
+#   Revocation: checked (epoch 1, bundle age 7s, https://auth.notme.bot)
+```
+
+The revocation check runs once the chain has verified. Signet fetches the
+authority's signed CA bundle from `<authority>/internal/ca-bundle`, then
+checks it with the same `CABundleChecker` the middleware uses:
+
+- **The bundle signature** is checked against the `--ca` root the chain ended
+  at. That root is the pinned anchor, so the network is not trusted.
+- **Freshness**: the bundle must be under an hour old.
+- **Rollback**: the bundle's seqno must not be lower than the last one seen.
+  The last seqno is kept in `~/.signet/revocation`.
+- **The root's key** must still be in the bundle.
+- **The epoch**: every certificate below the root must carry a CA epoch (OID
+  `1.3.6.1.4.1.99999.1.4`) equal to the bundle's epoch. When notme bumps its
+  epoch (`POST /admin/revoke-epoch`), every earlier certificate fails here,
+  without waiting for it to expire.
+
+The check **fails closed**. An unreachable authority, a bad signature, a
+stale bundle, a rollback, or an old, future or missing epoch all make the
+certificate invalid, and the output gives the reason. The authority defaults
+to `https://auth.<trust domain>` from the certificate's `wimse://` URI. Set
+it with `--authority URL`.
+
+`--offline` skips the revocation check. The output then says
+`revocation NOT checked`, because a revoked certificate still shows as
+valid.
+
 ## Core Libraries
 
 Signet's primitives are designed to be used independently:
@@ -348,6 +386,23 @@ an attacker who can replace every release asset could replace that file too.
 `--insecure-ignore-sct` is required because Notme bridge certificates are not
 Fulcio CT certificates; it does not disable the Rekor inclusion proof checked
 from the bundle.
+
+**cosign does not check revocation.** `cosign verify-blob` checks the chain
+to the pinned CA, the identity and the Rekor proof. It does not check
+notme's CA epoch, so it still accepts a certificate whose epoch the
+authority has since revoked (`POST /admin/revoke-epoch`). `signet verify`
+checks the epoch against the authority's signed bundle (see
+[Verifying a Certificate](#verifying-a-certificate-signet-verify)). Run it on
+any certificate that is still inside its validity window. A release
+certificate lives five minutes, so by the time you install it has expired.
+`signet verify` then reports it as expired and does not reach the revocation
+check. For a release, compare the epoch by hand: the certificate's epoch
+(`openssl asn1parse -in signet-$PLATFORM.signet.crt.pem`; the INTEGER after
+OID `1.3.6.1.4.1.99999.1.4`) should equal `.epoch` from
+`$AUTHORITY/internal/ca-bundle`. If it is lower, the authority has revoked
+that epoch since the release was signed. This manual comparison does not
+check the bundle's signature. It is a hint, not a substitute for
+`signet verify`.
 
 `checksums-sha256.txt` is published and signed too, but it is not a substitute:
 checksums tell you a download is intact, not who produced it.
