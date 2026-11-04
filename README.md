@@ -279,9 +279,12 @@ checks it with the same `CABundleChecker` the middleware uses:
 
 - **The bundle signature** is checked against the `--ca` root the chain ended
   at. That root is the pinned anchor, so the network is not trusted.
-- **Freshness**: the bundle must be under an hour old.
+- **Freshness**: the bundle's `issuedAt` must be at most 300 s old (notme's
+  own bound) and at most 60 s in the future.
 - **Rollback**: the bundle's seqno must not be lower than the last one seen.
-  The last seqno is kept in `~/.signet/revocation`.
+  The last seqno is kept in `~/.signet/revocation`. Delete it only if the
+  authority's seqno was legitimately reset; otherwise a lower seqno is a
+  replayed old bundle.
 - **The root's key** must still be in the bundle.
 - **The epoch**: every certificate below the root must carry a CA epoch (OID
   `1.3.6.1.4.1.99999.1.4`) equal to the bundle's epoch. When notme bumps its
@@ -293,6 +296,12 @@ stale bundle, a rollback, or an old, future or missing epoch all make the
 certificate invalid, and the output gives the reason. The authority defaults
 to `https://auth.<trust domain>` from the certificate's `wimse://` URI. Set
 it with `--authority URL`.
+
+A certificate with no epoch extension, such as one from signet's own Go
+authority, is refused: its authority does not publish revocation state for
+it. A bundle-signature failure usually means the authority's root has
+rotated. In that case, re-fetch the root and re-pin `--ca` from a trusted
+channel.
 
 `--offline` skips the revocation check. The output then says
 `revocation NOT checked`, because a revoked certificate still shows as
