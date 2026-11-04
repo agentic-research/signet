@@ -14,6 +14,9 @@ var ErrBundleRollback = errors.New("revocation: bundle seqno decreased (rollback
 // ErrBundleTooStale indicates that the CA bundle is too old to be trusted.
 var ErrBundleTooStale = errors.New("revocation: bundle too old, cannot verify freshness")
 
+// ErrBundleFromFuture indicates a CA bundle dated beyond the allowed clock skew.
+var ErrBundleFromFuture = errors.New("revocation: bundle issuedAt is in the future")
+
 // ErrStorageCorrupted indicates that the persistent storage for the sequence number is corrupted.
 var ErrStorageCorrupted = errors.New("revocation: persistent storage HMAC verification failed")
 

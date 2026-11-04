@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,55 +20,116 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var verifyCAPath string
+var (
+	verifyCAPath    string
+	verifyAuthority string
+	verifyOffline   bool
+)
 
 var verifyCmd = &cobra.Command{
 	Use:   "verify <cert.pem>",
-	Short: "Verify a bridge certificate against the signet CA",
+	Short: "Verify a bridge certificate against the signet CA, including revocation",
 	Long: `Verify that a bridge certificate:
   1. Chains to the specified CA (or default signet CA)
   2. Is not expired
   3. Contains valid signet identity extensions
+  4. Has not been revoked: its CA epoch matches the authority's signed CA bundle
 
 The cert file may hold the leaf followed by intermediates (for a notme task
 certificate: task, then the tier). Intermediates only help build the path;
 it must still end at a certificate in --ca.
 
-Extracts and displays: subject, task, sponsor, issuer, validity, key type.`,
+Revocation. After the chain verifies, signet fetches the authority's signed
+CA bundle from <authority>/internal/ca-bundle and checks:
+  - the bundle signature, against the --ca root the chain ended at (the
+    pinned anchor; the network is not trusted);
+  - freshness: the bundle's issuedAt must be at most 300s old (notme's own
+    bound) and at most 60s in the future;
+  - rollback: its seqno must not be lower than the last one seen (kept in
+    <signet home>/revocation; delete it only if the authority's seqno was
+    legitimately reset);
+  - the root key is still in the bundle;
+  - every certificate below the root carries a CA epoch (OID
+    1.3.6.1.4.1.99999.1.4) equal to the bundle's epoch. An older epoch means
+    the authority revoked it (for notme: POST /admin/revoke-epoch).
+Any failure, including an unreachable authority, makes the certificate
+invalid.
+
+Authority. By default the bundle comes from https://auth.<trust domain>,
+where the trust domain is the host of the certificate's wimse:// URI
+(wimse://notme.bot/... -> https://auth.notme.bot). That convention fits the
+public notme authority. A self-hosted authority at another address fails
+closed until you name it with --authority URL. The URL is not trusted
+either way: the bundle counts only if the pinned --ca root signed it.
+
+A certificate with no epoch extension (for example one from signet's own Go
+authority) is refused: its authority does not publish revocation state for
+it. --offline skips the revocation check. The output then says "revocation
+NOT checked": the certificate may already be revoked.
+
+Extracts and displays: subject, task, sponsor, issuer, validity, key type,
+and the revocation result.`,
 	Example: `  signet verify ~/.signet/mcp/rosary/cert.pem
   signet verify cert.pem --ca /etc/signet/ca.pem
-  signet verify task/chain.pem --ca root.pem`,
+  signet verify task/chain.pem --ca root.pem
+  signet verify cert.pem --ca root.pem --authority https://auth.notme.bot
+  signet verify cert.pem --ca root.pem --offline`,
 	Args: cobra.ExactArgs(1),
 	RunE: runVerify,
 }
 
 func init() {
 	verifyCmd.Flags().StringVar(&verifyCAPath, "ca", "", "CA certificate PEM file (default: ~/.signet/ca.pem)")
+	verifyCmd.Flags().StringVar(&verifyAuthority, "authority", "", "Authority URL serving /internal/ca-bundle for the revocation check (default: https://auth.<trust domain> from the cert's wimse:// URI)")
+	verifyCmd.Flags().BoolVar(&verifyOffline, "offline", false, "Skip the revocation check (output says \"revocation NOT checked\")")
 	rootCmd.AddCommand(verifyCmd)
 }
 
 // VerifyResult holds the outcome of certificate verification.
 type VerifyResult struct {
-	Valid     bool
-	Subject   string // CN
-	Owner     string // OID 99999.1.1 (sponsor identity)
-	Agent     string // OID 99999.1.5 (agent name, empty for human certs)
-	Scope     string // OID 99999.1.6 (scope restriction, empty if unrestricted)
-	Task      string // notme task id from OID 99999.1.9, empty unless a task cert
-	Issuer    string // Issuer CN
-	KeyType   string // "ECDSA P-256", "Ed25519", etc.
-	NotBefore time.Time
-	NotAfter  time.Time
-	Remaining time.Duration
-	Reason    string // if invalid, why
+	Valid      bool
+	Subject    string // CN
+	Owner      string // OID 99999.1.1 (sponsor identity)
+	Agent      string // OID 99999.1.5 (agent name, empty for human certs)
+	Scope      string // OID 99999.1.6 (scope restriction, empty if unrestricted)
+	Task       string // notme task id from OID 99999.1.9, empty unless a task cert
+	Issuer     string // Issuer CN
+	KeyType    string // "ECDSA P-256", "Ed25519", etc.
+	NotBefore  time.Time
+	NotAfter   time.Time
+	Remaining  time.Duration
+	Reason     string // if invalid, why
+	Revocation RevocationResult
+
+	// chain is the verified path, leaf first and the --ca root last. Set
+	// only when the chain verified; the revocation check reads it.
+	chain []*x509.Certificate
+}
+
+// RevocationResult records what the revocation check established.
+type RevocationResult struct {
+	Checked   bool          // the bundle was fetched, verified and every epoch matched
+	Authority string        // where the bundle came from
+	Epoch     uint64        // the authority's current epoch, from the signed bundle
+	BundleAge time.Duration // age of the bundle at check time
+}
+
+// verifyOptions carries everything a verification run needs, so tests can
+// drive the same code path as the command.
+type verifyOptions struct {
+	caPath    string
+	authority string       // --authority; empty means derive from the cert
+	offline   bool         // --offline: skip the revocation check
+	client    *http.Client // fetches the CA bundle
+	stateDir  string       // holds the last-seen bundle seqno (rollback protection)
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
 	certPath := args[0]
+	cfg := getConfig()
 
 	if verifyCAPath == "" {
 		// Try default location
-		cfg := getConfig()
 		defaultCA := filepath.Join(cfg.Home, "ca.pem")
 		if _, err := os.Stat(defaultCA); err == nil {
 			verifyCAPath = defaultCA
@@ -74,45 +138,89 @@ func runVerify(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	result, err := verifyCert(certPath, verifyCAPath)
+	return verifyAndReport(cmd.Context(), os.Stderr, certPath, verifyOptions{
+		caPath:    verifyCAPath,
+		authority: verifyAuthority,
+		offline:   verifyOffline,
+		client:    &http.Client{Timeout: 15 * time.Second},
+		stateDir:  filepath.Join(cfg.Home, "revocation"),
+	})
+}
+
+// verifyAndReport verifies the chain, then (unless offline) revocation, and
+// writes the human-readable result to w. It returns an error whenever the
+// certificate is not valid, so the exit status is non-zero.
+func verifyAndReport(ctx context.Context, w io.Writer, certPath string, opts verifyOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result, err := verifyCert(certPath, opts.caPath)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintln(os.Stderr)
-	if result.Valid {
-		fmt.Fprintf(os.Stderr, "%s Certificate valid\n", styles.Success.Render("✓"))
-	} else {
-		fmt.Fprintf(os.Stderr, "%s Certificate invalid: %s\n", styles.Error.Render("✗"), result.Reason)
+	// Revocation runs only on a chain that verified: the bundle is checked
+	// against the root the chain ended at, and a cert that does not chain is
+	// already invalid. Fail closed: any error here makes the cert invalid.
+	if result.Valid && !opts.offline {
+		if err := checkRevocation(ctx, result, opts); err != nil {
+			result.Valid = false
+			result.Reason = "revocation check failed: " + err.Error()
+		}
 	}
 
-	fmt.Fprintf(os.Stderr, "  Subject:   %s\n", styles.Code.Render(result.Subject))
-	if result.Agent != "" {
-		fmt.Fprintf(os.Stderr, "  Agent:     %s\n", styles.Code.Render(result.Agent))
-	}
-	if result.Scope != "" {
-		fmt.Fprintf(os.Stderr, "  Scope:     %s\n", styles.Code.Render(result.Scope))
-	}
-	if result.Task != "" {
-		fmt.Fprintf(os.Stderr, "  Task:      %s\n", styles.Code.Render(result.Task))
-	}
-	if result.Owner != "" {
-		fmt.Fprintf(os.Stderr, "  Sponsor:   %s\n", styles.Code.Render(result.Owner))
-	}
-	fmt.Fprintf(os.Stderr, "  Issuer:    %s\n", styles.Code.Render(result.Issuer))
-	fmt.Fprintf(os.Stderr, "  Key:       %s\n", styles.Code.Render(result.KeyType))
-	fmt.Fprintf(os.Stderr, "  Valid:     %s → %s\n",
-		result.NotBefore.Format(time.RFC3339),
-		result.NotAfter.Format(time.RFC3339))
-	if result.Valid {
-		fmt.Fprintf(os.Stderr, "  Remaining: %s\n", result.Remaining.Round(time.Minute))
-	}
-	fmt.Fprintln(os.Stderr)
+	renderVerifyResult(w, result, opts.offline)
 
 	if !result.Valid {
 		return fmt.Errorf("certificate verification failed: %s", result.Reason)
 	}
 	return nil
+}
+
+func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
+	// Output is best-effort (a terminal); a write error has nowhere to go.
+	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+	p("\n")
+	switch {
+	case result.Valid && offline:
+		p("%s Certificate valid (revocation NOT checked)\n", styles.Success.Render("✓"))
+	case result.Valid:
+		p("%s Certificate valid\n", styles.Success.Render("✓"))
+	default:
+		p("%s Certificate invalid: %s\n", styles.Error.Render("✗"), result.Reason)
+	}
+
+	p("  Subject:   %s\n", styles.Code.Render(result.Subject))
+	if result.Agent != "" {
+		p("  Agent:     %s\n", styles.Code.Render(result.Agent))
+	}
+	if result.Scope != "" {
+		p("  Scope:     %s\n", styles.Code.Render(result.Scope))
+	}
+	if result.Task != "" {
+		p("  Task:      %s\n", styles.Code.Render(result.Task))
+	}
+	if result.Owner != "" {
+		p("  Sponsor:   %s\n", styles.Code.Render(result.Owner))
+	}
+	p("  Issuer:    %s\n", styles.Code.Render(result.Issuer))
+	p("  Key:       %s\n", styles.Code.Render(result.KeyType))
+	p("  Valid:     %s → %s\n",
+		result.NotBefore.Format(time.RFC3339),
+		result.NotAfter.Format(time.RFC3339))
+	if result.Valid {
+		p("  Remaining: %s\n", result.Remaining.Round(time.Minute))
+	}
+	switch {
+	case offline:
+		p("  Revocation: revocation NOT checked (--offline): a revoked certificate still shows as valid\n")
+	case result.Revocation.Checked:
+		p("  Revocation: checked (epoch %d, bundle age %ds, %s)\n",
+			result.Revocation.Epoch,
+			int64(result.Revocation.BundleAge.Seconds()),
+			result.Revocation.Authority)
+	}
+	p("\n")
 }
 
 // verifyCert verifies a certificate against a CA and extracts identity info.
@@ -244,18 +352,20 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 	}
 
 	// Verify chain
-	if _, err := cert.Verify(x509.VerifyOptions{
+	chains, err := cert.Verify(x509.VerifyOptions{
 		Roots:         pool,
 		Intermediates: intermediates,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		CurrentTime:   time.Now(),
-	}); err != nil {
+	})
+	if err != nil {
 		result.Valid = false
 		result.Reason = err.Error()
 		return result, nil
 	}
 
 	result.Valid = true
+	result.chain = chains[0]
 	result.Remaining = time.Until(cert.NotAfter)
 	return result, nil
 }
