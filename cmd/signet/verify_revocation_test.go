@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -464,4 +466,101 @@ func TestVerifyRevocation_MissingEpochMessage(t *testing.T) {
 		"no epoch extension",
 		"the authority does not publish revocation state for this certificate",
 		"pass --offline if you accept that")
+}
+
+// PR #198 review: rollback state was keyed by the fetch URL, so after seqno
+// 10 was seen at one URL, the same root's still-fresh seqno 9 bundle passed
+// at another. The default URL comes from the leaf's wimse:// host, which a
+// holder of a revoked tier key controls. State is keyed by the pinned root.
+func TestVerifyRevocation_RollbackStateIsPerRootNotPerURL(t *testing.T) {
+	c := newEpochChain(t, 3, 3)
+	stateDir := t.TempDir()
+
+	srvA := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 10, time.Now()))
+	optsA := onlineOpts(srvA)
+	optsA.stateDir = stateDir
+	if out, err := runVerifyForTest(t, c, optsA); err != nil {
+		t.Fatalf("seqno 10 via URL A refused: %v\n%s", err, out)
+	}
+
+	srvB := newBundleServer(t, signedBundle(t, c, c.rootPriv, 3, 9, time.Now()))
+	optsB := onlineOpts(srvB)
+	optsB.stateDir = stateDir
+	out, err := runVerifyForTest(t, c, optsB)
+	wantRefused(t, out, err, "rollback")
+}
+
+// PR #198 review: the client followed redirects without re-applying the
+// https-or-loopback rule. Redirects are refused outright: notme's bundle
+// endpoint answers 200 directly.
+func TestVerifyRevocation_RedirectRefused(t *testing.T) {
+	c := newEpochChain(t, 3, 3)
+	bundle := signedBundle(t, c, c.rootPriv, 3, 10, time.Now())
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(bundle)
+	}))
+	t.Cleanup(plain.Close)
+	redirector := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL+caBundlePath, http.StatusFound)
+	}))
+	t.Cleanup(redirector.Close)
+
+	out, err := runVerifyForTest(t, c, verifyOptions{authority: redirector.URL, client: redirector.Client()})
+	wantRefused(t, out, err, "redirect")
+}
+
+// PR #198 review: O_EXCL published the key file's name before its bytes, so
+// a concurrent first run could read an empty key. Every concurrent first run
+// must open the same, complete key.
+func TestVerifyRevocation_ConcurrentFirstRunsShareOneKey(t *testing.T) {
+	for round := 0; round < 20; round++ {
+		dir := t.TempDir()
+		const n = 16
+		var wg sync.WaitGroup
+		errs := make(chan error, n)
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s, err := openSeqnoStorage(dir)
+				if err != nil {
+					errs <- err
+					return
+				}
+				// Every instance must agree on the key: a write by one is
+				// readable (HMAC-valid) by all.
+				if err := s.SetLastSeenSeqnoIfGreater(context.Background(), "x", 1); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("round %d: concurrent first run failed: %v", round, err)
+		}
+		s, err := openSeqnoStorage(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.GetLastSeenSeqno(context.Background(), "x"); err != nil {
+			t.Fatalf("round %d: instances used different keys: %v", round, err)
+		}
+	}
+}
+
+func TestVerifyRevocation_PartialKeyIsCorruptWithRecovery(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "seqno-hmac.key"), []byte("short"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := openSeqnoStorage(dir)
+	if err == nil {
+		t.Fatal("accepted a 5-byte key")
+	}
+	for _, f := range []string{"corrupt", dir, "discards the rollback history"} {
+		if !strings.Contains(err.Error(), f) {
+			t.Errorf("error %q does not mention %q", err, f)
+		}
+	}
 }
