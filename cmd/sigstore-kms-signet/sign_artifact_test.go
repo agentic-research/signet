@@ -69,7 +69,7 @@ func TestSignArtifactsWithSession_UsesSignetKMSAndVerifiesBundle(t *testing.T) {
 		return errors.New("verification failed")
 	}
 
-	err = signArtifactsWithSession(t.Context(), enrolled, []string{artifact}, runner, io.Discard, io.Discard)
+	err = signArtifactsWithSession(t.Context(), enrolled, nil, []string{artifact}, runner, io.Discard, io.Discard)
 	require.ErrorContains(t, err, "verification failed")
 	require.Len(t, calls, 3)
 	require.Equal(t, []string{
@@ -166,6 +166,7 @@ func TestCosignSessionIntegration(t *testing.T) {
 	err = signArtifactsWithSession(
 		t.Context(),
 		enrolled,
+		nil,
 		[]string{artifact},
 		runCosign,
 		&cosignStdout,
