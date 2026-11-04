@@ -33,7 +33,12 @@ are signed through — is unaffected. See the
   signature was logged; you cannot audit what certificates the authority
   issued, and a certificate minted but never used to sign appears nowhere.
   Closing this needs the authority to run a transparency log *and* signet to
-  require an SCT — a log nobody enforces is a sample, not a record.
+  require an SCT — a log nobody enforces is a sample, not a record. The
+  signing side is prepared and off by default: the sign-artifact Action's
+  `ct-log-url`, `ct-log-public-key` and `ct-log-start-time` inputs make an
+  SCT from that log mandatory. Do not set them until notme's log is live and
+  its certificates carry SCTs (see the
+  [Action README](.github/actions/sign-artifact/README.md#requiring-an-sct-off-by-default)).
 - Core cryptography is unit-tested (13k+ LOC) and partially fuzzed (3 fuzz functions covering critical parsing paths)
 - Native Go implementation via [`go-cms`](https://github.com/agentic-research/go-cms) (no external review, passes OpenSSL interop tests)
 - **Platform:** Built for macOS, should work on Linux (minimal testing)
@@ -488,7 +493,11 @@ pinned Notme CA instead of the public-authority URL above. Do not trust the
 an attacker who can replace every release asset could replace that file too.
 `--insecure-ignore-sct` is required because Notme bridge certificates are not
 Fulcio CT certificates; it does not disable the Rekor inclusion proof checked
-from the bundle.
+from the bundle. Once notme's CT log is live and signet's releases are signed
+with an SCT, this becomes `--ctfe` plus verification without
+`--insecure-ignore-sct`; the
+[Action README](.github/actions/sign-artifact/README.md#requiring-an-sct-off-by-default)
+has that variant.
 
 **cosign does not check revocation.** `cosign verify-blob` checks the chain
 to the pinned CA, the identity and the Rekor proof. It does not check

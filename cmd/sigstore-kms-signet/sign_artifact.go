@@ -66,6 +66,7 @@ func validateArtifactPaths(artifacts []string) error {
 func signArtifactsWithSession(
 	ctx context.Context,
 	enrolled *enrollment,
+	ctLog *ctLogConfig,
 	artifacts []string,
 	runner cosignRunner,
 	stdout io.Writer,
@@ -95,7 +96,7 @@ func signArtifactsWithSession(
 		sessionSocketEnv: session.SocketPath(),
 		sessionTokenEnv:  session.Token(),
 	})
-	trustedRootPath, removeTrustedRoot, err := createCosignTrustedRoot(ctx, enrolled, environment, runner, stdout, stderr)
+	trustedRootPath, removeTrustedRoot, err := createCosignTrustedRoot(ctx, enrolled, ctLog, environment, runner, stdout, stderr)
 	if err != nil {
 		return err
 	}
@@ -119,7 +120,7 @@ func signArtifactsWithSession(
 		if err := runner(ctx, environment, stdout, stderr, cosignSignBlobArgs(artifact, outputs, trustedRootPath)...); err != nil {
 			return fmt.Errorf("cosign sign-blob %s: %w", artifact, err)
 		}
-		if err := runner(ctx, environment, stdout, stderr, cosignVerifyBlobArgs(artifact, outputs, trustedRootPath, enrolled.Identity)...); err != nil {
+		if err := runner(ctx, environment, stdout, stderr, cosignVerifyBlobArgs(artifact, outputs, trustedRootPath, enrolled.Identity, ctLog != nil)...); err != nil {
 			return fmt.Errorf("cosign verify-blob %s: %w", artifact, err)
 		}
 		if _, err := fmt.Fprintf(stdout, "signed and verified %s as %s\n", artifact, enrolled.Identity); err != nil {
@@ -132,6 +133,7 @@ func signArtifactsWithSession(
 func createCosignTrustedRoot(
 	ctx context.Context,
 	enrolled *enrollment,
+	ctLog *ctLogConfig,
 	environment []string,
 	runner cosignRunner,
 	stdout io.Writer,
@@ -155,22 +157,35 @@ func createCosignTrustedRoot(
 	}
 	trustedRootPath := filepath.Join(tempDir, "trusted-root.json")
 	fulcioSpec := "--fulcio=url=" + enrolled.AuthorityURL + ",certificate-chain=" + caPath
-	if err := runner(ctx, environment, stdout, stderr,
+	args := []string{
 		"trusted-root", "create",
 		"--with-default-services",
-		// Notme/Cloister does not issue RFC 6962 SCTs. Keep public Rekor and
-		// TSA verification material, but do not advertise CTFE for this CA.
+		// Keep public Rekor and TSA verification material, but never the
+		// public Sigstore CT logs: they do not log this CA, so with a notme
+		// log configured below it is the ONLY log whose SCT satisfies
+		// verify. Measured (cosign v3.1.4): without this flag the root
+		// carries ctfe.sigstore.dev/test and /2022 beside the --ctfe log.
 		//
-		// SCT SITE 1 of 5 (signet-c0d32e). When notme's Static CT log runs,
-		// this becomes --ctfe AND the --insecure-ignore-sct below must go in
-		// the SAME change — configuring a log while still ignoring SCTs
-		// yields a green test that verifies nothing. The other sites are
-		// sign_artifact_test.go, scripts/release/verify_release.sh, and
+		// SCT SITE 1 of 5 (signet-c0d32e). Whether an SCT is REQUIRED is
+		// decided by --insecure-ignore-sct in cosignVerifyBlobArgs, which
+		// drops out exactly when a log is configured here — configuring a
+		// log while still ignoring SCTs yields a green test that verifies
+		// nothing. The other sites are sign_artifact_test.go,
+		// scripts/release/verify_release.sh, and
 		// .github/actions/sign-artifact/README.md.
 		"--no-default-ctfe",
 		fulcioSpec,
-		"--out", trustedRootPath,
-	); err != nil {
+	}
+	if ctLog != nil {
+		ctfeSpec, err := ctLog.cosignSpec(tempDir)
+		if err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		args = append(args, ctfeSpec)
+	}
+	args = append(args, "--out", trustedRootPath)
+	if err := runner(ctx, environment, stdout, stderr, args...); err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("cosign trusted-root create: %w", err)
 	}
@@ -206,8 +221,8 @@ func cosignSignBlobArgs(artifact string, outputs artifactOutputs, trustedRootPat
 	}
 }
 
-func cosignVerifyBlobArgs(artifact string, outputs artifactOutputs, trustedRootPath, identity string) []string {
-	return []string{
+func cosignVerifyBlobArgs(artifact string, outputs artifactOutputs, trustedRootPath, identity string, requireSCT bool) []string {
+	args := []string{
 		"verify-blob",
 		"--trusted-root", trustedRootPath,
 		"--certificate-identity", identity,
@@ -215,22 +230,26 @@ func cosignVerifyBlobArgs(artifact string, outputs artifactOutputs, trustedRootP
 		// not Fulcio's OIDC issuer extension. Assert that it is absent while
 		// pinning the exact WIMSE SAN and authority CA above.
 		"--certificate-oidc-issuer-regexp", "^$",
-		// Notme/Cloister bridge certificates are not submitted to a CT log.
+	}
+	if !requireSCT {
+		// No CT log configured: the authority's certificates carry no SCT.
 		// Rekor inclusion remains required by the generated trusted root.
 		//
 		// SCT SITE 2 of 5 (signet-c0d32e) — the load-bearing one. While this
 		// flag is present cosign ignores SCTs entirely, so the CT bead's
 		// negative control ("a cert with no valid SCT is rejected") CANNOT
-		// fail as required. Removing it is what turns --ctfe from a
+		// fail as required. Omitting it is what turns --ctfe from a
 		// declaration into an enforcement.
-		"--insecure-ignore-sct",
+		args = append(args, "--insecure-ignore-sct")
+	}
+	return append(args,
 		// Accepts a bundle that does carry a chain (see cosignSignBlobArgs).
 		// The chain must still end at the trusted root, so this widens
 		// nothing. Flag exists from cosign 3.1.3, the floor signet requires.
 		"--allow-certificate-chain",
 		"--bundle", outputs.Bundle,
 		artifact,
-	}
+	)
 }
 
 func writePublicFile(path string, contents []byte) error {
@@ -275,10 +294,25 @@ func runCosign(ctx context.Context, environment []string, stdout, stderr io.Writ
 }
 
 func runSignArtifactCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	return signArtifactCommand(ctx, args, stdout, stderr, enrollGitHubSession, runCosign)
+}
+
+// signArtifactCommand is runSignArtifactCommand with enrollment and cosign
+// injected, so tests can follow the flags all the way to cosign's argv.
+func signArtifactCommand(
+	ctx context.Context,
+	args []string,
+	stdout, stderr io.Writer,
+	enroll func(context.Context, enrollConfig) (*enrollment, error),
+	runner cosignRunner,
+) error {
 	flags := flag.NewFlagSet("sign-artifact", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	authorityURL := flags.String("authority-url", defaultAuthorityURL, "Notme authority base URL (use https://<cloister>/identity for cluster-rooted trust)")
 	audience := flags.String("audience", defaultOIDCAudience, "GitHub Actions OIDC audience")
+	ctLogURL := flags.String("ct-log-url", "", "Static CT API log base URL whose SCT the signing certificate must carry (with --ct-log-public-key and --ct-log-start-time; unset = SCTs not required)")
+	ctLogPublicKey := flags.String("ct-log-public-key", "", "CT log ECDSA P-256 public key, base64 SPKI DER (notme's CT_LOG_KEY)")
+	ctLogStartTime := flags.String("ct-log-start-time", "", "RFC 3339 time from which the CT log key is valid")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -286,8 +320,13 @@ func runSignArtifactCommand(ctx context.Context, args []string, stdout, stderr i
 	if err := validateArtifactPaths(artifacts); err != nil {
 		return err
 	}
+	// Before enrollment, so a half-configured log fails without minting.
+	ctLog, err := parseCTLogConfig(*ctLogURL, *ctLogPublicKey, *ctLogStartTime)
+	if err != nil {
+		return err
+	}
 
-	enrolled, err := enrollGitHubSession(ctx, enrollConfig{
+	enrolled, err := enroll(ctx, enrollConfig{
 		AuthorityURL: *authorityURL,
 		Audience:     *audience,
 	})
@@ -295,5 +334,5 @@ func runSignArtifactCommand(ctx context.Context, args []string, stdout, stderr i
 		return err
 	}
 	defer enrolled.Destroy()
-	return signArtifactsWithSession(ctx, enrolled, artifacts, runCosign, stdout, stderr)
+	return signArtifactsWithSession(ctx, enrolled, ctLog, artifacts, runner, stdout, stderr)
 }

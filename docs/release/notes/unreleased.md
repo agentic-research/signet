@@ -119,6 +119,26 @@
   epoch history and applies the ADR-019 D7 rule. It is tested against
   notme's golden fixtures, which are vendored with their signatures.
 
+- **Optional SCT enforcement for `sign-artifact`** (signet-c0d32e), off by
+  default. The `sigstore-kms-signet sign-artifact` flags `--ct-log-url`,
+  `--ct-log-public-key` and `--ct-log-start-time`, or the Action inputs of
+  the same names without the dashes, add that
+  Static CT API log to the trusted root with `--ctfe` and verify each bundle
+  **without** `--insecure-ignore-sct`. A certificate with no valid SCT from
+  the log then fails verification. The key is ECDSA P-256 as base64 SPKI DER,
+  the value notme pins as `CT_LOG_KEY`. Setting some of the three and not the
+  others is an error, raised before a certificate is minted. Unset, the
+  invocation is unchanged. `--no-default-ctfe` stays in both cases, so the
+  public Sigstore CT logs never satisfy the check.
+
+  **Switch-on, once notme's log is live:** confirm the authority's
+  certificates carry SCTs, take the key from notme's release-signed CT log
+  pin, set the three inputs, and verify with the `--ctfe` variant in
+  `.github/actions/sign-artifact/README.md`. Setting them earlier makes every
+  signing run fail closed. `scripts/release/verify_release.sh` and the
+  enrollment's log-key output are not covered yet; they stay with
+  signet-c0d32e.
+
 - **Tokens can name their issuing key** (signet-708f30).
   `signet.NewToken` takes options, and `signet.WithIssuerKey(pub)` sets
   `Token.KeyID` (CBOR key 10, already in the format) to
