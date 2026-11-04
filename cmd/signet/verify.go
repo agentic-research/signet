@@ -323,18 +323,32 @@ func verifyAndReport(ctx context.Context, w io.Writer, certPath string, opts ver
 	if err := checkTimeFlags(opts); err != nil {
 		return err
 	}
+	// The certificate file is read exactly once. The signing time, the
+	// chain, the identity, the criteria and the epochs are all judged on
+	// these bytes; reading the path twice would let a file swapped in
+	// between supply the chain for another certificate's Rekor time.
+	certPEM, err := os.ReadFile(certPath) // #nosec G304 - operator-supplied certificate path
+	if err != nil {
+		return fmt.Errorf("read cert: %w", err)
+	}
+	if verifyAfterCertRead != nil {
+		verifyAfterCertRead()
+	}
 	vt := verifyTime{source: timeNow, at: opts.at}
 	if vt.at.IsZero() {
 		vt.at = time.Now()
 	}
 	if opts.bundlePath != "" || opts.untrustedTime {
-		var err error
-		if vt, err = resolveSigningTime(certPath, opts); err != nil {
+		leaf, _, err := parseCertPEM(certPEM)
+		if err != nil {
+			return err
+		}
+		if vt, err = resolveSigningTime(leaf, opts); err != nil {
 			return err
 		}
 	}
 	at := vt.at
-	result, err := verifyCertAt(certPath, opts.caPath, at)
+	result, err := verifyCertPEM(certPEM, opts.caPath, at)
 	if err != nil {
 		return err
 	}
@@ -468,16 +482,19 @@ func verifyCert(certPath, caPath string) (*VerifyResult, error) {
 
 // verifyCertAt is verifyCert at a given time.
 func verifyCertAt(certPath, caPath string, at time.Time) (*VerifyResult, error) {
-	// Read cert
-	certPEM, err := os.ReadFile(certPath)
+	certPEM, err := os.ReadFile(certPath) // #nosec G304 - operator-supplied certificate path
 	if err != nil {
 		return nil, fmt.Errorf("read cert: %w", err)
 	}
-	// The first certificate is the leaf; any that follow are intermediates.
-	// notme task certs sit two hops below the root (root -> tier -> task) and
-	// notme's client writes chain.pem as leaf + tier, so without these no
-	// task cert can ever verify (signet-53b31c). Intermediates are untrusted:
-	// they only help build a path that must still end at a --ca root.
+	return verifyCertPEM(certPEM, caPath, at)
+}
+
+// parseCertPEM returns the leaf (the first certificate) and a pool of the
+// rest. notme task certs sit two hops below the root (root -> tier -> task)
+// and notme's client writes chain.pem as leaf + tier, so without these no
+// task cert can ever verify (signet-53b31c). Intermediates are untrusted:
+// they only help build a path that must still end at a --ca root.
+func parseCertPEM(certPEM []byte) (*x509.Certificate, *x509.CertPool, error) {
 	var cert *x509.Certificate
 	intermediates := x509.NewCertPool()
 	for rest := certPEM; ; {
@@ -491,7 +508,7 @@ func verifyCertAt(certPath, caPath string, at time.Time) (*VerifyResult, error) 
 		}
 		c, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("parse cert: %w", err)
+			return nil, nil, fmt.Errorf("parse cert: %w", err)
 		}
 		if cert == nil {
 			cert = c
@@ -500,7 +517,16 @@ func verifyCertAt(certPath, caPath string, at time.Time) (*VerifyResult, error) 
 		}
 	}
 	if cert == nil {
-		return nil, fmt.Errorf("failed to decode cert PEM")
+		return nil, nil, fmt.Errorf("failed to decode cert PEM")
+	}
+	return cert, intermediates, nil
+}
+
+// verifyCertPEM is verifyCertAt on certificate bytes already read.
+func verifyCertPEM(certPEM []byte, caPath string, at time.Time) (*VerifyResult, error) {
+	cert, intermediates, err := parseCertPEM(certPEM)
+	if err != nil {
+		return nil, err
 	}
 
 	// Read CA bundle (supports multiple PEM blocks)

@@ -64,6 +64,11 @@ type atChain struct {
 // leaf is long expired.
 func newAtChain(t *testing.T, epoch int64, signedAt time.Time) atChain {
 	t.Helper()
+	return newAtChainCN(t, epoch, signedAt, "repo:example/project:ref:refs/tags/v1.0.0")
+}
+
+func newAtChainCN(t *testing.T, epoch int64, signedAt time.Time, cn string) atChain {
+	t.Helper()
 	dir := t.TempDir()
 	rootKey := fixtureRootKey()
 	rootTmpl := &x509.Certificate{
@@ -84,7 +89,7 @@ func newAtChain(t *testing.T, epoch int64, signedAt time.Time) atChain {
 	leafPub, leafKey, _ := ed25519.GenerateKey(rand.Reader)
 	leafTmpl := &x509.Certificate{
 		SerialNumber:    big.NewInt(2),
-		Subject:         pkix.Name{CommonName: "repo:example/project:ref:refs/tags/v1.0.0", Organization: []string{"notme"}},
+		Subject:         pkix.Name{CommonName: cn, Organization: []string{"notme"}},
 		NotBefore:       signedAt.Add(-time.Minute),
 		NotAfter:        signedAt.Add(4 * time.Minute),
 		KeyUsage:        x509.KeyUsageDigitalSignature,
@@ -342,7 +347,11 @@ func TestVerifyAt_RollbackStateIsSeparateFromBundle(t *testing.T) {
 
 func mustReadCert(t *testing.T, path string) *x509.Certificate {
 	t.Helper()
-	c, err := readLeafCert(path)
+	data, err := os.ReadFile(path) // #nosec G304 - test file
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := parseCertPEM(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,5 +633,41 @@ func TestVerifyAt_ExitCodes(t *testing.T) {
 	ec := newEpochChain(t, 1, 1)
 	if out, err := runVerifyForTest(t, ec, verifyOptions{offline: true}); err != nil {
 		t.Fatalf("now-mode --offline no longer exits 0: %v\n%s", err, out)
+	}
+}
+
+// The certificate file is read once. Swapping it after that read (here
+// through a test-only hook, in life by a race on the path) must not let
+// one certificate supply the Rekor time and another the chain, identity
+// and epoch: the verdict is computed on the bytes first read.
+func TestVerifyAt_CertSwappedAfterReadIsIgnored(t *testing.T) {
+	a := newAtChainCN(t, 1, beforeRevocation, "original-signer")
+	b := newAtChainCN(t, 1, beforeRevocation, "swapped-in")
+	log := newTestLog(t)
+	srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-revoked"))
+	opts := atOpts(srv, log, a.signAt(t, log, []byte("a"), beforeRevocation))
+
+	swapped, err := os.ReadFile(b.leafPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	verifyAfterCertRead = func() {
+		called = true
+		if err := os.WriteFile(a.leafPath, swapped, 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { verifyAfterCertRead = nil })
+
+	out, err := runVerifyAt(t, a, opts)
+	if !called {
+		t.Fatal("the cert-read hook never ran")
+	}
+	if strings.Contains(out, "swapped-in") {
+		t.Fatalf("the verdict used the certificate swapped in after the first read:\n%s", out)
+	}
+	if err != nil || !strings.Contains(out, "original-signer") {
+		t.Fatalf("verification of the original bytes: %v\n%s", err, out)
 	}
 }

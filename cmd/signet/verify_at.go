@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -32,6 +31,11 @@ import (
 // T never comes from the local clock or from the signer. --at exists for an
 // auditor who holds a timestamp signet cannot verify, and only together with
 // --untrusted-time; the output then says the time is unverified.
+
+// verifyAfterCertRead, when set, runs right after the certificate file is
+// read. It is a test seam for swapping the file mid-verification; nil in
+// production.
+var verifyAfterCertRead func()
 
 // epochsPath is where a notme-style authority serves its signed history.
 const epochsPath = "/.well-known/epochs.json"
@@ -90,9 +94,10 @@ const (
 	exitReducedAssurance = 3 // valid, but with reduced assurance
 )
 
-// defaultHistoryMaxAge bounds the epoch history's age in strict mode:
-// notme's own bundle conformance bound (BUNDLE_MAX_AGE_MS), five minutes.
-const defaultHistoryMaxAge = 300 * time.Second
+// defaultHistoryMaxAge bounds the epoch history's age in strict mode. It is
+// the CA bundle's bound, verifyMaxBundleAge: notme's own conformance bound
+// (BUNDLE_MAX_AGE_MS), five minutes.
+const defaultHistoryMaxAge = verifyMaxBundleAge
 
 // reducedAssuranceError is returned for a certificate that verified, but
 // with a check skipped or a time nobody vouches for. It exits 3, so a script
@@ -139,14 +144,11 @@ func reducedAssurance(vt verifyTime, opts verifyOptions) error {
 	return &reducedAssuranceError{reasons: reasons}
 }
 
-// resolveSigningTime establishes T from --bundle (verified) or --at.
-func resolveSigningTime(certPath string, opts verifyOptions) (verifyTime, error) {
+// resolveSigningTime establishes T from --bundle (verified) or --at, for
+// leaf, parsed from the same bytes the chain is verified on.
+func resolveSigningTime(leaf *x509.Certificate, opts verifyOptions) (verifyTime, error) {
 	if opts.bundlePath == "" {
 		return verifyTime{source: timeUntrusted, at: opts.claimedAt.UTC()}, nil
-	}
-	leaf, err := readLeafCert(certPath)
-	if err != nil {
-		return verifyTime{}, err
 	}
 	raw, err := readBounded(opts.bundlePath, rekor.MaxBundleSize)
 	if err != nil {
@@ -169,28 +171,6 @@ func resolveSigningTime(certPath string, opts verifyOptions) (verifyTime, error)
 		return verifyTime{}, fmt.Errorf("%s: %w", opts.bundlePath, err)
 	}
 	return verifyTime{source: timeRekor, at: res.IntegratedTime, logIndex: res.LogIndex, artifactChecked: res.ArtifactChecked}, nil
-}
-
-// readLeafCert returns the first certificate in a PEM file.
-func readLeafCert(path string) (*x509.Certificate, error) {
-	data, err := os.ReadFile(path) // #nosec G304 - operator-supplied certificate path
-	if err != nil {
-		return nil, fmt.Errorf("read cert: %w", err)
-	}
-	for rest := data; ; {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			return nil, errors.New("failed to decode cert PEM")
-		}
-		if block.Type == "CERTIFICATE" {
-			c, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("parse cert: %w", err)
-			}
-			return c, nil
-		}
-	}
 }
 
 // readBounded reads at most limit bytes of a file, refusing a larger one.
