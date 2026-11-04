@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"os"
@@ -186,7 +187,7 @@ func TestVerifyBundle_FakeLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Unix(1767225000, 0)
-	opts := Options{Logs: []crypto.PublicKey{log.PublicKey()}}
+	opts := Options{Logs: trust(log)}
 	for _, ec := range []bool{false, true} {
 		leaf, signer := newLeaf(t, at, ec)
 		raw := fakeBundle(t, log, leaf, signer, []byte("artifact"), at)
@@ -237,7 +238,7 @@ func TestVerifyBundle_ForgedSETRefused(t *testing.T) {
 	var tb map[string]any
 	_ = json.Unmarshal(trustedRaw, &tb)
 	raw = edit(t, raw, func(b map[string]any) { tlog(b)["logId"] = tlog(tb)["logId"] })
-	if _, err := VerifyBundle(raw, leaf, Options{Logs: []crypto.PublicKey{trusted.PublicKey()}}); err == nil {
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: trust(trusted)}); err == nil {
 		t.Fatal("SET signed by another key verified")
 	}
 }
@@ -290,7 +291,7 @@ func TestVerifyBundle_BadSignatureRefused(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := VerifyBundle(raw, leaf, Options{Logs: []crypto.PublicKey{log.PublicKey()}}); err == nil {
+		if _, err := VerifyBundle(raw, leaf, Options{Logs: trust(log)}); err == nil {
 			t.Fatalf("ecdsa=%v: bad signature verified", ec)
 		}
 	}
@@ -306,7 +307,221 @@ func TestVerifyBundle_EntryForOtherCertRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyBundle(raw, leaf, Options{Logs: []crypto.PublicKey{log.PublicKey()}}); !errors.Is(err, ErrCertMismatch) {
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: trust(log)}); !errors.Is(err, ErrCertMismatch) {
 		t.Fatalf("entry naming another certificate: %v", err)
 	}
+}
+
+// trust returns a fake log as a trusted log, valid from long before any
+// test's integrated time.
+func trust(l *rekortest.Log) []Log {
+	return []Log{{Key: l.PublicKey(), ValidFrom: time.Unix(1, 0)}}
+}
+
+// L2: an entry is believed only inside its log key's validity window, as a
+// trusted root's validFor; a retired key vouches for no later time.
+func TestVerifyBundle_LogValidityWindow(t *testing.T) {
+	raw := readRelease(t)
+	leaf := bundleLeaf(t, raw)
+	pg := PublicGoodLog()
+	if !pg.ValidFrom.Equal(time.Date(2021, 1, 12, 11, 53, 27, 0, time.UTC)) {
+		t.Fatalf("public-good validFrom %v", pg.ValidFrom)
+	}
+	retired := pg
+	retired.ValidUntil = time.Unix(releaseIntegratedTime-1, 0)
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: []Log{retired}}); !errors.Is(err, ErrOutsideLogValidity) {
+		t.Fatalf("entry after the key's end accepted: %v", err)
+	}
+	late := pg
+	late.ValidFrom = time.Unix(releaseIntegratedTime+1, 0)
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: []Log{late}}); !errors.Is(err, ErrOutsideLogValidity) {
+		t.Fatalf("entry before the key's start accepted: %v", err)
+	}
+	noStart := pg
+	noStart.ValidFrom = time.Time{}
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: []Log{noStart}}); !errors.Is(err, ErrOutsideLogValidity) {
+		t.Fatalf("log with no validity start accepted: %v", err)
+	}
+	edge := pg
+	edge.ValidUntil = time.Unix(releaseIntegratedTime, 0)
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: []Log{edge}}); err != nil {
+		t.Fatalf("entry at the key's last second refused: %v", err)
+	}
+}
+
+// A second real vector, for the ECDSA leaf path: sigstore-python's test
+// asset, logged in the staging Rekor (an ECDSA P-384 Fulcio leaf, a sha256
+// hashedrekord, a v0.1 bundle with a certificate chain, and a checkpoint
+// with an extension line). See testdata/SOURCE.
+func TestVerifyBundle_RealECDSAVector(t *testing.T) {
+	raw, err := os.ReadFile("testdata/sigstore-python-bundle.txt.sigstore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM, err := os.ReadFile("testdata/rekor-sigstage-dev.pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(keyPEM)
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b struct {
+		VerificationMaterial struct {
+			Chain struct {
+				Certificates []struct {
+					RawBytes []byte `json:"rawBytes"`
+				} `json:"certificates"`
+			} `json:"x509CertificateChain"`
+		} `json:"verificationMaterial"`
+	}
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(b.VerificationMaterial.Chain.Certificates[0].RawBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := leaf.PublicKey.(*ecdsa.PublicKey); !ok {
+		t.Fatalf("vector leaf is %T, want ECDSA", leaf.PublicKey)
+	}
+	artifact, err := os.ReadFile("testdata/sigstore-python-bundle.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging := []Log{{Key: key, ValidFrom: time.Date(2021, 1, 12, 11, 53, 27, 0, time.UTC)}}
+	res, err := VerifyBundle(raw, leaf, Options{Logs: staging, Artifact: bytes.NewReader(artifact)})
+	if err != nil {
+		t.Fatalf("real ECDSA vector refused: %v", err)
+	}
+	if res.IntegratedTime.Unix() != 1682468469 || !res.ArtifactChecked {
+		t.Fatalf("got %v, artifact checked %v", res.IntegratedTime, res.ArtifactChecked)
+	}
+	// Not trusted by default: it is the staging log.
+	if _, err := VerifyBundle(raw, leaf, Options{}); !errors.Is(err, ErrNoTrustedEntry) {
+		t.Fatalf("staging entry accepted under the public-good log: %v", err)
+	}
+	tampered := bytes.Replace(artifact, []byte("!"), []byte("?"), 1)
+	if _, err := VerifyBundle(raw, leaf, Options{Logs: staging, Artifact: bytes.NewReader(tampered)}); !errors.Is(err, ErrArtifactMismatch) {
+		t.Fatalf("tampered artifact: %v", err)
+	}
+}
+
+// Reference RFC 6962 §2.1 MTH and PATH, written from the RFC's recursive
+// definitions, independent of rootFromInclusionProof's bit arithmetic.
+func refMTH(leaves [][]byte) []byte {
+	n := len(leaves)
+	if n == 1 {
+		return hashLeaf(leaves[0])
+	}
+	k := 1
+	for k*2 < n {
+		k *= 2
+	}
+	return hashChildren(refMTH(leaves[:k]), refMTH(leaves[k:]))
+}
+
+func refPath(m int, leaves [][]byte) [][]byte {
+	n := len(leaves)
+	if n == 1 {
+		return nil
+	}
+	k := 1
+	for k*2 < n {
+		k *= 2
+	}
+	if m < k {
+		return append(refPath(m, leaves[:k]), refMTH(leaves[k:]))
+	}
+	return append(refPath(m-k, leaves[k:]), refMTH(leaves[:k]))
+}
+
+// TestMerkleExhaustive checks every tree size 1..70 and every index
+// against the reference: the proof reaches the root, no other index does,
+// and a short or long proof is refused.
+func TestMerkleExhaustive(t *testing.T) {
+	for n := 1; n <= 70; n++ {
+		leaves := make([][]byte, n)
+		for i := range leaves {
+			leaves[i] = []byte{byte(i), byte(n)}
+		}
+		root := refMTH(leaves)
+		for m := 0; m < n; m++ {
+			p := refPath(m, leaves)
+			got, err := rootFromInclusionProof(uint64(m), uint64(n), hashLeaf(leaves[m]), p)
+			if err != nil || !bytes.Equal(got, root) {
+				t.Fatalf("n=%d m=%d: %v", n, m, err)
+			}
+			for w := 0; w < n; w++ {
+				if w == m {
+					continue
+				}
+				if g, err := rootFromInclusionProof(uint64(w), uint64(n), hashLeaf(leaves[m]), p); err == nil && bytes.Equal(g, root) {
+					t.Fatalf("index swap n=%d m=%d w=%d reached the root", n, m, w)
+				}
+			}
+			if len(p) > 0 {
+				if _, err := rootFromInclusionProof(uint64(m), uint64(n), hashLeaf(leaves[m]), p[:len(p)-1]); err == nil {
+					t.Fatalf("n=%d m=%d: short proof accepted", n, m)
+				}
+			}
+			long := append(append([][]byte{}, p...), make([]byte, 32))
+			if _, err := rootFromInclusionProof(uint64(m), uint64(n), hashLeaf(leaves[m]), long); err == nil {
+				t.Fatalf("n=%d m=%d: long proof accepted", n, m)
+			}
+		}
+	}
+	// Extreme values must not panic.
+	_, _ = rootFromInclusionProof(1<<63, ^uint64(0), make([]byte, 32), nil)
+	_, _ = rootFromInclusionProof(^uint64(0)-1, ^uint64(0), make([]byte, 32), nil)
+}
+
+func FuzzVerifyBundle(f *testing.F) {
+	raw, err := os.ReadFile(releaseBundle)
+	if err != nil {
+		f.Fatal(err)
+	}
+	ec, err := os.ReadFile("testdata/sigstore-python-bundle.txt.sigstore")
+	if err != nil {
+		f.Fatal(err)
+	}
+	var b bundle
+	if err := json.Unmarshal(raw, &b); err != nil {
+		f.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(b.VerificationMaterial.Certificate.RawBytes)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(raw)
+	f.Add(ec)
+	f.Add([]byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, in []byte) {
+		// Must never panic; and anything it accepts must be for this leaf.
+		if res, err := VerifyBundle(in, leaf, Options{}); err == nil && res.IntegratedTime.IsZero() {
+			t.Fatal("accepted with no integrated time")
+		}
+	})
+}
+
+func FuzzVerifyCheckpoint(f *testing.F) {
+	var b bundle
+	raw, err := os.ReadFile(releaseBundle)
+	if err != nil {
+		f.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &b); err != nil {
+		f.Fatal(err)
+	}
+	p := b.VerificationMaterial.TlogEntries[0].InclusionProof
+	f.Add(p.Checkpoint.Envelope, uint64(*p.TreeSize))
+	f.Add("a\n1\nAAAA\n\n\u2014 a wNI9ajBE\n", uint64(1))
+	f.Add("", uint64(0))
+	pg := PublicGoodLog()
+	id, _ := keyID(pg.Key)
+	f.Fuzz(func(t *testing.T, env string, size uint64) {
+		_ = verifyCheckpoint(env, pg.Key, id, size, p.RootHash)
+	})
 }

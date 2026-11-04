@@ -72,8 +72,26 @@ kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
 -----END PUBLIC KEY-----
 `
 
-// PublicGoodLog returns the public-good Rekor log key.
-func PublicGoodLog() crypto.PublicKey {
+// publicGoodValidFrom is the start of the public-good key's validFor in the
+// Sigstore TUF trusted_root.json. It has no end there; when Sigstore retires
+// the key, set publicGoodValidUntil to the end the trusted root publishes.
+var (
+	publicGoodValidFrom  = time.Date(2021, 1, 12, 11, 53, 27, 0, time.UTC)
+	publicGoodValidUntil time.Time
+)
+
+// Log is a trusted transparency log: its key, and the window in which an
+// entry's integrated time may fall (a trusted root's validFor). An entry
+// outside the window is refused, so a retired (or compromised and retired)
+// key cannot vouch for a later time.
+type Log struct {
+	Key        crypto.PublicKey
+	ValidFrom  time.Time // required: a log with no start is refused
+	ValidUntil time.Time // zero: no end
+}
+
+// PublicGoodLog returns the public-good Rekor log, with its validity window.
+func PublicGoodLog() Log {
 	block, _ := pem.Decode([]byte(publicGoodRekorKey))
 	if block == nil {
 		panic("rekor: embedded public-good key is not PEM")
@@ -82,13 +100,17 @@ func PublicGoodLog() crypto.PublicKey {
 	if err != nil {
 		panic("rekor: embedded public-good key: " + err.Error())
 	}
-	return k
+	return Log{Key: k, ValidFrom: publicGoodValidFrom, ValidUntil: publicGoodValidUntil}
 }
+
+// ErrOutsideLogValidity means the entry's integrated time is outside the
+// window in which its log's key is trusted.
+var ErrOutsideLogValidity = errors.New("the Rekor entry's integrated time is outside its log key's validity window")
 
 // Options configures VerifyBundle.
 type Options struct {
-	// Logs are the trusted log keys. Empty means the public-good Rekor.
-	Logs []crypto.PublicKey
+	// Logs are the trusted logs. Empty means the public-good Rekor.
+	Logs []Log
 	// Artifact, when set, is read and checked against the logged digest.
 	Artifact io.Reader
 }
@@ -227,12 +249,22 @@ func VerifyBundle(raw []byte, leaf *x509.Certificate, opts Options) (*Result, er
 		return nil, errors.New("rekor: the bundle has no message signature (DSSE bundles are not supported)")
 	}
 
-	entry, logKey, logID, err := pickEntry(b.VerificationMaterial.TlogEntries, opts.Logs)
+	entry, log, logID, err := pickEntry(b.VerificationMaterial.TlogEntries, opts.Logs)
 	if err != nil {
 		return nil, err
 	}
-	if err := verifyEntryLogged(entry, logKey, logID); err != nil {
+	if err := verifyEntryLogged(entry, log.Key, logID); err != nil {
 		return nil, err
+	}
+	// The SET has verified, so the integrated time is the log's own claim.
+	// It counts only inside the window the log's key is trusted for.
+	integrated := time.Unix(int64(*entry.IntegratedTime), 0).UTC()
+	if log.ValidFrom.IsZero() {
+		return nil, fmt.Errorf("%w: the trusted log has no validity start", ErrOutsideLogValidity)
+	}
+	if integrated.Before(log.ValidFrom) || (!log.ValidUntil.IsZero() && integrated.After(log.ValidUntil)) {
+		return nil, fmt.Errorf("%w: %s is not within %s to %s", ErrOutsideLogValidity,
+			integrated.Format(time.RFC3339), log.ValidFrom.UTC().Format(time.RFC3339), windowEnd(log.ValidUntil))
 	}
 
 	// The entry: a hashedrekord of this cert, this signature, this digest.
@@ -270,7 +302,7 @@ func VerifyBundle(raw []byte, leaf *x509.Certificate, opts Options) (*Result, er
 	}
 
 	res := &Result{
-		IntegratedTime: time.Unix(int64(*entry.IntegratedTime), 0).UTC(),
+		IntegratedTime: integrated,
 		LogIndex:       int64(*entry.LogIndex),
 		LogID:          hex.EncodeToString(logID),
 	}
@@ -287,26 +319,33 @@ func VerifyBundle(raw []byte, leaf *x509.Certificate, opts Options) (*Result, er
 	return res, nil
 }
 
-// pickEntry returns the first entry from a trusted log, with its key and id.
-func pickEntry(entries []tlogEntry, logs []crypto.PublicKey) (*tlogEntry, crypto.PublicKey, []byte, error) {
+func windowEnd(t time.Time) string {
+	if t.IsZero() {
+		return "no end"
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// pickEntry returns the first entry from a trusted log, with its log and id.
+func pickEntry(entries []tlogEntry, logs []Log) (*tlogEntry, Log, []byte, error) {
 	if len(entries) == 0 {
-		return nil, nil, nil, ErrNoTlogEntry
+		return nil, Log{}, nil, ErrNoTlogEntry
 	}
 	if len(logs) == 0 {
-		logs = []crypto.PublicKey{PublicGoodLog()}
+		logs = []Log{PublicGoodLog()}
 	}
 	for i := range entries {
-		for _, k := range logs {
-			id, err := keyID(k)
+		for _, l := range logs {
+			id, err := keyID(l.Key)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, Log{}, nil, err
 			}
 			if bytes.Equal(id, entries[i].LogID.KeyID) {
-				return &entries[i], k, id, nil
+				return &entries[i], l, id, nil
 			}
 		}
 	}
-	return nil, nil, nil, ErrNoTrustedEntry
+	return nil, Log{}, nil, ErrNoTrustedEntry
 }
 
 // verifyEntryLogged checks the SET and the inclusion proof with its
