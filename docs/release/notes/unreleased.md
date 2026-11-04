@@ -65,6 +65,60 @@
 
 ## Added
 
+- **`signet verify --bundle <sigstore.json>`** verifies a certificate as of
+  the time it signed (signet-677e94). Until now an expired certificate, such
+  as a five-minute release certificate checked at install time, was refused
+  before revocation was ever checked. The signing time is the Rekor
+  integrated time of the bundle's entry. Signet verifies it under the
+  public-good Rekor key it pins, by checking the signed entry timestamp, the
+  inclusion proof and the signed checkpoint. The entry must be this
+  certificate's signature. The chain is then verified at that time.
+  Revocation is checked against the authority's signed epoch history at
+  `<authority>/.well-known/epochs.json` (notme ADR-019 D7). A certificate
+  passes if its epoch was not revoked at or before the signing time. An
+  epoch that ended with no revocation record is refused. The history's
+  signature and rollback state (seqno gaps are accepted) are checked, and
+  its `issuedAt` and age are printed. Freshness is not required, because any
+  history issued after the signing time carries every earlier revocation.
+  The Rekor time must fall inside the pinned log key's validity window.
+  Related flags:
+
+  - `--artifact FILE` is required with `--bundle`, and is checked against
+    the logged digest. `--no-artifact` skips it; the header then says
+    `artifact NOT checked`.
+  - `--strict-revocation` refuses any revoked epoch, whatever the signing
+    time. It requires a history at most 300 s old, and
+    `--history-max-age` overrides that limit. An older history could predate
+    a revocation and hide it.
+  - `--at RFC3339` takes the time from you instead, only together with
+    `--untrusted-time`. The output then marks the time `UNVERIFIED`.
+
+  A bundle with no Rekor entry is refused, with the message that revocation
+  can only be checked as of now. An authority that serves the older,
+  unsigned `epochs.json` is refused, with the message that it does not
+  publish a signed epoch history yet. As of this writing that includes
+  `https://auth.notme.bot`, until notme deploys notme-6a4f23. `--offline`
+  still verifies the chain at the signing time.
+
+  Exit status 3 is new. It means the certificate is valid with reduced
+  assurance: `--untrusted-time`, `--no-artifact`, or `--offline` together
+  with `--bundle`. Exits 0 and 1 are unchanged, and `--offline` without
+  `--bundle` still exits 0. No script in this repository runs
+  `signet verify`.
+
+- When `signet verify` refuses an expired certificate, its output now says
+  that revocation can only be checked as of now without a trusted
+  timestamp. The online revocation line now ends `, as of now`.
+
+- `pkg/rekor`, which verifies a Sigstore bundle's Rekor entry and returns its
+  integrated time (trusted logs are `rekor.Log` values: a key and its
+  validity window), with `pkg/rekor/rekortest` for tests. It uses only the
+  standard library, and adds no dependency.
+
+- `pkg/revocation/epochhistory`, which parses and verifies notme's signed
+  epoch history and applies the ADR-019 D7 rule. It is tested against
+  notme's golden fixtures, which are vendored with their signatures.
+
 - **Optional SCT enforcement for `sign-artifact`** (signet-c0d32e), off by
   default. The `sigstore-kms-signet sign-artifact` flags `--ct-log-url`,
   `--ct-log-public-key` and `--ct-log-start-time`, or the Action inputs of

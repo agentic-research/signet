@@ -1,0 +1,11 @@
+# Real Rekor v1 vectors.
+signet-v0.3.1-linux-amd64.sigstore.json
+  https://github.com/agentic-research/signet/releases/download/v0.3.1/signet-linux-amd64.sigstore.json
+  public-good Rekor; Ed25519 leaf, sha512 hashedrekord (Ed25519ph).
+sigstore-python-bundle.txt, sigstore-python-bundle.txt.sigstore
+  https://raw.githubusercontent.com/sigstore/sigstore-python/main/test/assets/bundle.txt{,.sigstore}
+  staging Rekor (rekor.sigstage.dev); ECDSA P-384 Fulcio leaf, sha256 hashedrekord;
+  bundle v0.1 with x509CertificateChain; checkpoint with a Timestamp extension line.
+rekor-sigstage-dev.pub
+  the staging log key, from the sigstage trusted_root.json vendored by sigstore-python
+  (sigstore/_store/https%3A%2F%2Ftuf-repo-cdn.sigstage.dev/trusted_root.json), validFor start 2021-01-12T11:53:27Z.
