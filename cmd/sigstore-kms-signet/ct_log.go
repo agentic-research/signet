@@ -100,5 +100,5 @@ func (c *ctLogConfig) cosignSpec(dir string) (string, error) {
 	}
 	return "--ctfe=url=" + c.URL +
 		",public-key=" + keyPath +
-		",start-time=" + c.StartTime.Format(time.RFC3339), nil
+		",start-time=" + c.StartTime.Format(time.RFC3339Nano), nil
 }

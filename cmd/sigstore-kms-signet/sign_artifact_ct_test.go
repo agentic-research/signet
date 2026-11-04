@@ -361,3 +361,19 @@ func TestSignArtifactCommand_CTLogFlagsReachCosign(t *testing.T) {
 		})
 	}
 }
+
+// A start time with fractional seconds must reach cosign unchanged: truncating
+// it to whole seconds moves the boundary earlier, so cosign would accept SCTs
+// from before the log's real start.
+func TestCTLogCosignSpec_PreservesFractionalStartTime(t *testing.T) {
+	keyB64, _ := testCTLogKey(t)
+	config, err := parseCTLogConfig(testCTLogURL, keyB64, "2026-07-01T00:00:00.9Z")
+	require.NoError(t, err)
+	spec, err := config.cosignSpec(t.TempDir())
+	require.NoError(t, err)
+	_, start, found := strings.Cut(spec, ",start-time=")
+	require.True(t, found)
+	parsed, err := time.Parse(time.RFC3339Nano, start)
+	require.NoError(t, err)
+	require.True(t, parsed.Equal(config.StartTime), "start-time %q lost precision", start)
+}
