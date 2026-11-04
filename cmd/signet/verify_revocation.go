@@ -235,7 +235,7 @@ func openSeqnoStorage(dir string) (*cabundle.FileStorage, error) {
 		return nil, fmt.Errorf("create revocation state dir: %w", err)
 	}
 	keyPath := filepath.Join(dir, "seqno-hmac.key")
-	key, err := os.ReadFile(keyPath)
+	key, err := os.ReadFile(keyPath) // #nosec G304 - fixed name under the operator's signet home, not untrusted input
 	if errors.Is(err, os.ErrNotExist) {
 		key, err = createStateKey(keyPath)
 	}
@@ -253,9 +253,9 @@ func createStateKey(path string) ([]byte, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 - fixed name under the operator's signet home, not untrusted input
 	if errors.Is(err, os.ErrExist) {
-		return os.ReadFile(path) // another run created it first
+		return os.ReadFile(path) // #nosec G304 - as above; another run created it first
 	}
 	if err != nil {
 		return nil, err
