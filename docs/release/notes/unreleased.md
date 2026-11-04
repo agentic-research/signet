@@ -31,8 +31,10 @@
   `prevKeyId`, so the key-rotation check passed vacuously. No issuer in this
   repository sets `Token.KeyID`. A middleware configured
   `WithRevocationChecker` against such a bundle therefore let every token
-  through, and now refuses them all as revoked. Mint tokens with the
-  bundle's key id before upgrading.
+  through, and now refuses them all as revoked. Mint tokens
+  `signet.WithIssuerKey(issuerPub)` (signet-708f30, below) and list that key
+  in the bundle under `signet.IssuerKeyID(issuerPub)` before upgrading.
+  Tokens minted before that carry no key id and stay refused.
 
 - **`signet verify` enforces notme's criteria extension** (signet-be49b9).
   notme task certificates name the criteria they were minted under (OID
@@ -116,6 +118,19 @@
 - `pkg/revocation/epochhistory`, which parses and verifies notme's signed
   epoch history and applies the ADR-019 D7 rule. It is tested against
   notme's golden fixtures, which are vendored with their signatures.
+
+- **Tokens can name their issuing key** (signet-708f30).
+  `signet.NewToken` takes options, and `signet.WithIssuerKey(pub)` sets
+  `Token.KeyID` (CBOR key 10, already in the format) to
+  `signet.IssuerKeyID(pub)`: the ADR-012 canonical key id,
+  `lowercasehex(SHA-256(SPKI DER)[:16])`, 32 hex characters. A bundle
+  publisher keys its bundle (`keys`, `keyId`, `prevKeyId`) with the same
+  function, so a `CABundleChecker` behind `WithRevocationChecker` accepts the
+  token while its key is the bundle's current or previous key, and refuses it
+  once the key rotates out. The two `demo/http-auth` servers now mint with
+  it. Existing calls to `NewToken` compile unchanged, and tokens without key
+  10 still decode. `sigid.CanonicalKeyID` now calls `signet.IssuerKeyID`, so
+  the two cannot disagree.
 
 - `signet verify --legacy-cutoff ISO-DATE`, or `NOTME_LEGACY_CUTOFF`. A
   legacy notme task certificate has no criteria and was issued under a tier

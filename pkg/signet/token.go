@@ -53,8 +53,12 @@ type Token struct {
 
 // NewToken creates a new Signet token with sensible defaults derived from the
 // provided cryptographic context. Additional fields can be set by mutating the
-// returned Token before marshaling.
-func NewToken(issuerID string, confirmationID []byte, ephemeralKeyID []byte, nonce []byte, validityDuration time.Duration) (*Token, error) {
+// returned Token before marshaling, or by passing options such as
+// WithIssuerKey.
+//
+// A token meant for a middleware with a revocation checker must be built
+// WithIssuerKey: without a key id, revocation.CABundleChecker refuses it.
+func NewToken(issuerID string, confirmationID []byte, ephemeralKeyID []byte, nonce []byte, validityDuration time.Duration, opts ...TokenOption) (*Token, error) {
 	if len(confirmationID) != confirmationIDSize {
 		return nil, fmt.Errorf("new token: confirmation id must be %d bytes, got %d", confirmationIDSize, len(confirmationID))
 	}
@@ -105,6 +109,12 @@ func NewToken(issuerID string, confirmationID []byte, ephemeralKeyID []byte, non
 	}
 
 	token.Nonce = cloneBytes(nonce)
+
+	for _, opt := range opts {
+		if err := opt(token); err != nil {
+			return nil, fmt.Errorf("new token: %w", err)
+		}
+	}
 
 	if err := token.validate(); err != nil {
 		return nil, err
