@@ -102,45 +102,97 @@ func (s *FileStorage) GetLastSeenSeqno(ctx context.Context, issuerID string) (ui
 // SetLastSeenSeqnoIfGreater stores the last seen sequence number for a given issuer ID
 // ONLY if the new sequence number is greater than the currently stored one.
 // The seqno is protected with an HMAC to prevent tampering.
+//
+// The read-compare-write runs under an exclusive OS file lock on a per-issuer
+// lock file, not just this instance's mutex: separate FileStorage instances
+// -- in practice separate `signet verify` processes -- share only the
+// directory, and without it two could both read 10 and then persist 12 and
+// then 11, a regression that still carries a valid HMAC. The new value is
+// written to a unique temp file, fsynced, then renamed into place, so a
+// reader sees the old file or the new one, never a partial one.
 func (s *FileStorage) SetLastSeenSeqnoIfGreater(ctx context.Context, issuerID string, seqno uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Read current value to ensure monotonicity
+	filePath := s.seqnoPath(issuerID)
+	unlock, err := lockPath(filePath + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock seqno file: %w", err)
+	}
+	defer unlock()
+
+	// Read current value under the lock to ensure monotonicity
 	current, err := s.readSeqnoInternal(issuerID)
 	if err != nil {
 		return err
 	}
 
-	// Atomic check: only update if new seqno is greater
+	// Only update if new seqno is greater: the stored value is the max of
+	// everything offered, never a regression.
 	if seqno <= current {
 		return nil // Already seen a higher or equal seqno
 	}
-
-	filePath := s.seqnoPath(issuerID)
 
 	// Encode seqno as big-endian uint64
 	seqnoBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(seqnoBytes, seqno)
 
-	// Compute HMAC
-	mac := s.computeHMAC(seqnoBytes, issuerID)
-
 	// Combine seqno + HMAC
-	data := append(seqnoBytes, mac...)
+	data := append(seqnoBytes, s.computeHMAC(seqnoBytes, issuerID)...)
 
-	// Write atomically: write to temp file, then rename
-	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+	if err := writeFileAtomic(filePath, data); err != nil {
 		return fmt.Errorf("failed to write seqno file: %w", err)
 	}
-
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		_ = os.Remove(tmpPath) // Clean up temp file on error
-		return fmt.Errorf("failed to rename seqno file: %w", err)
-	}
-
 	return nil
+}
+
+// writeFileAtomic writes data to a unique temp file in path's directory,
+// fsyncs it, and renames it over path.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	ok = true
+	return nil
+}
+
+// lockPath takes an exclusive OS-level lock on path (created if missing)
+// and returns the function that releases it.
+func lockPath(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) // #nosec G304 - lock file beside the storage's own seqno file
+	if err != nil {
+		return nil, err
+	}
+	if err := lockFile(f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return func() {
+		_ = unlockFile(f)
+		_ = f.Close()
+	}, nil
 }
 
 // Path returns the file that holds issuerID's last-seen sequence number, so
