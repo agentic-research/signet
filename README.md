@@ -327,10 +327,14 @@ signet verify signet-$PLATFORM.signet.crt.pem --ca trusted-notme-ca.pem \
 - **The signing time T** is the Rekor integrated time of the bundle's log
   entry. Signet verifies it under the public-good Rekor key it pins: the
   signed entry timestamp, the inclusion proof, and the signed checkpoint.
-  The entry must name this certificate and carry the bundle's signature, and
-  that signature must verify under the certificate's key. `--artifact FILE`
-  also checks the artifact against the logged digest. T never comes from
-  your clock or from the signer.
+  T must fall inside that key's validity window, which starts 2021-01-12,
+  as in Sigstore's trusted root. The entry must name this certificate and
+  carry the bundle's signature, and that signature must verify under the
+  certificate's key. T never comes from your clock or from the signer.
+- **The artifact.** `--artifact FILE` is required with `--bundle`, and is
+  checked against the logged digest. `--no-artifact` verifies only the
+  certificate. The header then says `artifact NOT checked` and signet exits
+  3\.
 - **The chain** and the criteria are verified at T.
 - **Revocation** is checked against the authority's signed epoch history at
   `<authority>/.well-known/epochs.json` (notme ADR-019 D7). Its signature
@@ -339,9 +343,19 @@ signet verify signet-$PLATFORM.signet.crt.pem --ca trusted-notme-ca.pem \
   separately from the bundle's. The history must be issued after T. Each
   certificate's epoch must not have been revoked at or before T. An epoch
   that ended with no revocation record is refused, because the history
-  cannot say when it ended. The history does not need to be fresh.
+  cannot say when it ended. The output prints the history's `issuedAt` and
+  age.
+- **Freshness is not required here, on one assumption.** Any history issued
+  after T must already list a revocation made at or before T, and one issued
+  before T is refused. That holds only if the authority includes every
+  revocation in every later history it signs. notme does: it reads every
+  record and takes `issuedAt` in one run (ADR-019 D7).
 - **`--strict-revocation`** refuses any revoked epoch, even for a signature
-  made before the revocation.
+  made before the revocation. Strict mode does need a fresh history: a
+  genuine history issued after T but before a later revocation would hide
+  that revocation, and a machine with no rollback state cannot tell. The
+  history must be at most 300 s old by default (notme's bound). Override it
+  with `--history-max-age`.
 
 A bundle with no Rekor entry has no trusted time. Signet says so, and
 revocation can then only be checked as of now. `--at RFC3339` takes T from
@@ -349,10 +363,15 @@ you instead. It works only together with `--untrusted-time`, and the output
 marks the time `UNVERIFIED`. Use it only for a timestamp you have verified
 some other way.
 
+Exit status: `0` means valid and verified in full. `1` means invalid, or an
+error. `3` means valid with reduced assurance: `--untrusted-time`,
+`--no-artifact`, or `--offline` together with `--bundle`. `--offline`
+without `--bundle` still exits `0`, as before.
+
 An authority that serves only the older, unsigned `epochs.json` cannot be
 checked this way. `signet verify` says that the authority does not publish a
 signed epoch history yet, and fails. `--offline` then verifies the chain at
-the Rekor time and reports `revocation NOT checked`. As of 2026-11-04 this is
+the Rekor time, reports `revocation NOT checked`, and exits 3. As of 2026-11-04 this is
 the case for `https://auth.notme.bot`.
 
 ## Core Libraries

@@ -43,6 +43,11 @@ func initConfig() {
 // Execute runs the root command
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		// signet verify: a valid result with reduced assurance exits 3.
+		if code := exitCodeOf(err); code == exitReducedAssurance {
+			fmt.Fprintf(os.Stderr, "! %v\n", err)
+			os.Exit(code)
+		}
 		fmt.Fprintf(os.Stderr, styles.Error.Render("✗")+" %v\n", err)
 		os.Exit(1)
 	}

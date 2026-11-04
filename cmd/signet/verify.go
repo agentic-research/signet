@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
@@ -19,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/agentic-research/signet/pkg/cli/styles"
+	"github.com/agentic-research/signet/pkg/rekor"
 	"github.com/agentic-research/signet/pkg/sigid"
 	"github.com/spf13/cobra"
 )
@@ -37,6 +37,8 @@ var (
 	verifyAtFlag           string
 	verifyUntrustedTime    bool
 	verifyStrictRevocation bool
+	verifyNoArtifact       bool
+	verifyHistoryMaxAge    time.Duration
 )
 
 var verifyCmd = &cobra.Command{
@@ -102,10 +104,12 @@ it before reaching revocation. --bundle <artifact.sigstore.json> verifies it
 as of the moment it signed instead:
   - the signing time T is the Rekor integrated time of the bundle's entry,
     verified: the log's signed entry timestamp, the inclusion proof and its
-    signed checkpoint, under the public-good Rekor key signet pins; the
-    entry must name this certificate and carry the bundle's signature,
-    which must verify under the certificate's key. --artifact FILE also
-    checks the artifact against the logged digest;
+    signed checkpoint, under the public-good Rekor key signet pins (and only
+    inside that key's validity window); the entry must name this
+    certificate and carry the bundle's signature, which must verify under
+    the certificate's key. --artifact FILE, the file the bundle signs, is
+    required and checked against the logged digest; --no-artifact skips it
+    and the header then says "artifact NOT checked";
   - the chain, and the criteria, are verified at T;
   - revocation is checked against the authority's SIGNED epoch history at
     <authority>/.well-known/epochs.json (notme ADR-019 D7): its signature
@@ -113,15 +117,27 @@ as of the moment it signed instead:
     fine; kept beside the bundle's in <signet home>/revocation), it must be
     issued after T, and each certificate's epoch must not have been revoked
     at or before T. An epoch that ended with no revocation record is
-    refused: the history cannot say when it ended. --strict-revocation
-    refuses any revoked epoch, even for a signature made before the
-    revocation. The history need not be fresh.
+    refused: the history cannot say when it ended. The history need not be
+    fresh: any history issued after T must already carry a revocation at
+    or before T (this relies on the authority including every revocation
+    in every later history).
+    --strict-revocation refuses any revoked epoch, even for a signature made
+    before the revocation. It does need a fresh history, at most 300s old
+    by default (--history-max-age): an older genuine history could predate
+    a revocation and hide it.
 An authority that serves only the older, unsigned epochs.json cannot be
 checked this way; the command says so and fails (or pass --offline).
 T never comes from your clock or from the signer. A bundle with no Rekor
 entry has no trusted time: revocation can then only be checked as of now.
 --at RFC3339 takes T from you instead, only with --untrusted-time, and the
 output marks it UNVERIFIED.
+
+Exit status:
+  0  valid, verified in full
+  1  invalid, or an error
+  3  valid with reduced assurance: --untrusted-time, --no-artifact, or
+     --offline together with --bundle. (--offline without --bundle keeps
+     exit 0, as before; its output says revocation NOT checked.)
 
 A certificate with no epoch extension (for example one from signet's own Go
 authority) is refused: its authority does not publish revocation state for
@@ -150,7 +166,9 @@ func init() {
 	verifyCmd.Flags().StringVar(&verifyArtifactPath, "artifact", "", "With --bundle: also check this artifact against the logged digest")
 	verifyCmd.Flags().StringVar(&verifyAtFlag, "at", "", "Verify as of this RFC3339 time; needs --untrusted-time, and the output marks the time UNVERIFIED")
 	verifyCmd.Flags().BoolVar(&verifyUntrustedTime, "untrusted-time", false, "Accept --at, a time no trusted timestamp vouches for")
-	verifyCmd.Flags().BoolVar(&verifyStrictRevocation, "strict-revocation", false, "With --bundle or --at: refuse any revoked epoch, even for a signature made before the revocation")
+	verifyCmd.Flags().BoolVar(&verifyStrictRevocation, "strict-revocation", false, "With --bundle or --at: refuse any revoked epoch, even for a signature made before the revocation; needs a fresh epoch history (--history-max-age)")
+	verifyCmd.Flags().BoolVar(&verifyNoArtifact, "no-artifact", false, "With --bundle: verify the certificate without the artifact (header says \"artifact NOT checked\", exit 3)")
+	verifyCmd.Flags().DurationVar(&verifyHistoryMaxAge, "history-max-age", defaultHistoryMaxAge, "With --strict-revocation: the oldest epoch history accepted")
 	verifyCmd.Flags().StringVar(&verifyLegacyCutoffFlag, "legacy-cutoff", "", "Refuse legacy (pre-criteria) notme task certs after this ISO date (default: $NOTME_LEGACY_CUTOFF; unset accepts them)")
 	rootCmd.AddCommand(verifyCmd)
 }
@@ -173,6 +191,9 @@ type VerifyResult struct {
 	Criteria   CriteriaResult
 	// Time is what the chain and revocation were judged at (signet-677e94).
 	Time verifyTime
+
+	// noArtifact is --no-artifact: the header says the artifact was not checked.
+	noArtifact bool
 
 	// expired is set when the chain failed only because a certificate is
 	// outside its validity window at the verification time.
@@ -201,10 +222,12 @@ type RevocationResult struct {
 
 	// As of the signing time (signet-677e94): judged against the signed
 	// epoch history rather than the live bundle.
-	AsOfSigning  bool
-	CurrentEpoch uint64 // the history's currentEpoch
-	HistorySeqno uint64
-	Strict       bool
+	AsOfSigning     bool
+	CurrentEpoch    uint64 // the history's currentEpoch
+	HistorySeqno    uint64
+	HistoryIssuedAt time.Time
+	HistoryAge      time.Duration // at check time
+	Strict          bool
 }
 
 // verifyOptions carries everything a verification run needs, so tests can
@@ -227,7 +250,12 @@ type verifyOptions struct {
 	claimedAt        time.Time
 	untrustedTime    bool
 	strictRevocation bool
-	rekorLogs        []crypto.PublicKey
+	noArtifact       bool          // --no-artifact: --bundle without checking the artifact
+	historyMaxAge    time.Duration // --history-max-age (strict only); 0 means the default
+	rekorLogs        []rekor.Log   // trusted logs; nil means the public-good Rekor
+	// clock is "now" for the epoch history's age and skew; zero means
+	// time.Now(). Tests pin it so fixture histories can be fresh.
+	clock time.Time
 }
 
 func runVerify(cmd *cobra.Command, args []string) error {
@@ -248,6 +276,10 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	var historyMaxAge time.Duration
+	if f := cmd.Flags().Lookup("history-max-age"); f != nil && f.Changed {
+		historyMaxAge = verifyHistoryMaxAge
+	}
 	var claimedAt time.Time
 	if verifyAtFlag != "" {
 		claimedAt, err = time.Parse(time.RFC3339, verifyAtFlag)
@@ -256,7 +288,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return verifyAndReport(cmd.Context(), os.Stderr, certPath, verifyOptions{
+	err = verifyAndReport(cmd.Context(), os.Stderr, certPath, verifyOptions{
 		caPath:           verifyCAPath,
 		authority:        verifyAuthority,
 		offline:          verifyOffline,
@@ -268,7 +300,17 @@ func runVerify(cmd *cobra.Command, args []string) error {
 		claimedAt:        claimedAt,
 		untrustedTime:    verifyUntrustedTime,
 		strictRevocation: verifyStrictRevocation,
+		noArtifact:       verifyNoArtifact,
+		historyMaxAge:    historyMaxAge,
 	})
+	var reduced *reducedAssuranceError
+	if errors.As(err, &reduced) {
+		// Valid, at reduced assurance: not a usage error. Execute prints
+		// the notice and exits 3.
+		cmd.SilenceUsage = true
+		cmd.SilenceErrors = true
+	}
+	return err
 }
 
 // verifyAndReport verifies the chain, then (unless offline) revocation, and
@@ -321,12 +363,13 @@ func verifyAndReport(ctx context.Context, w io.Writer, certPath string, opts ver
 		}
 	}
 
+	result.noArtifact = opts.noArtifact
 	renderVerifyResult(w, result, opts.offline)
 
 	if !result.Valid {
 		return fmt.Errorf("certificate verification failed: %s", result.Reason)
 	}
-	return nil
+	return reducedAssurance(vt, opts)
 }
 
 func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
@@ -340,6 +383,9 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 		asOf = " as of its signing time, " + vt.at.Format(time.RFC3339) + " (Rekor)"
 	case timeUntrusted:
 		asOf = " as of " + vt.at.Format(time.RFC3339) + ", an UNVERIFIED time (--untrusted-time)"
+	}
+	if result.noArtifact {
+		asOf += " (artifact NOT checked)"
 	}
 	switch {
 	case result.Valid && offline:
@@ -355,7 +401,7 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 		if vt.artifactChecked {
 			p("  Artifact:  matches the logged digest\n")
 		} else {
-			p("  Artifact:  not checked (pass --artifact FILE to check it against the logged digest)\n")
+			p("  Artifact:  NOT checked (--no-artifact): this says nothing about any file you hold\n")
 		}
 	case timeUntrusted:
 		p("  Time:      %s UNVERIFIED: supplied with --at, not a trusted timestamp; whoever chose it could have picked any time\n", vt.at.Format(time.RFC3339))
@@ -404,8 +450,8 @@ func renderVerifyResult(w io.Writer, result *VerifyResult, offline bool) {
 		if vt.source == timeUntrusted {
 			unverified = " (an UNVERIFIED time)"
 		}
-		p("  Revocation: checked as of the signing time%s: epoch %d not revoked at or before it (signed epoch history seqno %d, current epoch %d%s, %s)\n",
-			unverified, r.Epoch, r.HistorySeqno, r.CurrentEpoch, strict, r.Authority)
+		p("  Revocation: checked as of the signing time%s: epoch %d not revoked at or before it (signed epoch history seqno %d, history issued %s, age %s, current epoch %d%s, %s)\n",
+			unverified, r.Epoch, r.HistorySeqno, r.HistoryIssuedAt.UTC().Format(time.RFC3339), r.HistoryAge.Round(time.Second), r.CurrentEpoch, strict, r.Authority)
 	case r.Checked:
 		p("  Revocation: checked (epoch %d, bundle age %ds, %s), as of now\n",
 			r.Epoch, int64(r.BundleAge.Seconds()), r.Authority)

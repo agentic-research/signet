@@ -3,12 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentic-research/signet/pkg/rekor"
 	"github.com/agentic-research/signet/pkg/rekor/rekortest"
 )
 
@@ -103,14 +104,16 @@ func newAtChain(t *testing.T, epoch int64, signedAt time.Time) atChain {
 }
 
 // signAt logs a signature by the chain's leaf over artifact, at signedAt,
-// in log, and writes the bundle.
+// in log, and writes the bundle with the artifact beside it ("artifact").
 func (c atChain) signAt(t *testing.T, log *rekortest.Log, artifact []byte, signedAt time.Time) string {
 	t.Helper()
 	b, err := log.Bundle(rekortest.Entry{Leaf: c.leaf.Raw, Signer: c.leafKey, Artifact: artifact, IntegratedTime: signedAt, LogIndex: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return writeFile(t, t.TempDir(), "artifact.sigstore.json", b)
+	dir := t.TempDir()
+	writeFile(t, dir, "artifact", artifact)
+	return writeFile(t, dir, "artifact.sigstore.json", b)
 }
 
 // historyServer serves an epochs.json body that a test can swap.
@@ -161,14 +164,35 @@ func newTestLog(t *testing.T) *rekortest.Log {
 	return log
 }
 
+// atOpts verifies against bundlePath and the artifact signAt wrote beside
+// it, trusting log, with the history server as the authority.
 func atOpts(srv *historyServer, log *rekortest.Log, bundlePath string) verifyOptions {
 	return verifyOptions{
-		authority:  srv.URL,
-		client:     srv.Client(),
-		bundlePath: bundlePath,
-		rekorLogs:  []crypto.PublicKey{log.PublicKey()},
+		authority:    srv.URL,
+		client:       srv.Client(),
+		bundlePath:   bundlePath,
+		artifactPath: filepath.Join(filepath.Dir(bundlePath), "artifact"),
+		rekorLogs:    trustLog(log),
 	}
 }
+
+func trustLog(log *rekortest.Log) []rekor.Log {
+	return []rekor.Log{{Key: log.PublicKey(), ValidFrom: time.Unix(1, 0)}}
+}
+
+// strictOpts is atOpts in strict mode, with the clock set just after the
+// history fixture was issued, so it is fresh.
+func strictOpts(srv *historyServer, log *rekortest.Log, bundlePath string, issuedAt time.Time) verifyOptions {
+	o := atOpts(srv, log, bundlePath)
+	o.strictRevocation = true
+	o.clock = issuedAt.Add(time.Minute)
+	return o
+}
+
+var (
+	revokedIssuedAt = time.Unix(1767236400, 0).UTC() // epochhistory-revoked
+	basicIssuedAt   = time.Unix(1767225600, 0).UTC() // epochhistory-basic
+)
 
 func runVerifyAt(t *testing.T, c atChain, opts verifyOptions) (string, error) {
 	t.Helper()
@@ -228,8 +252,7 @@ func TestVerifyAt_StrictRefusesAnyRevokedEpoch(t *testing.T) {
 		c := newAtChain(t, 1, at)
 		log := newTestLog(t)
 		srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-revoked"))
-		opts := atOpts(srv, log, c.signAt(t, log, []byte("a"), at))
-		opts.strictRevocation = true
+		opts := strictOpts(srv, log, c.signAt(t, log, []byte("a"), at), revokedIssuedAt)
 		out, err := runVerifyAt(t, c, opts)
 		wantRefused(t, out, err, "epoch_revoked", "strict")
 	}
@@ -237,8 +260,7 @@ func TestVerifyAt_StrictRefusesAnyRevokedEpoch(t *testing.T) {
 	c := newAtChain(t, 2, afterRevocation)
 	log := newTestLog(t)
 	srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-revoked"))
-	opts := atOpts(srv, log, c.signAt(t, log, []byte("a"), afterRevocation))
-	opts.strictRevocation = true
+	opts := strictOpts(srv, log, c.signAt(t, log, []byte("a"), afterRevocation), revokedIssuedAt)
 	if out, err := runVerifyAt(t, c, opts); err != nil {
 		t.Fatalf("strict refused the current, unrevoked epoch: %v\n%s", err, out)
 	}
@@ -339,7 +361,9 @@ func TestVerifyAt_NoRekorEntrySaysAsOfNow(t *testing.T) {
 	_ = json.Unmarshal(raw, &b)
 	delete(b["verificationMaterial"].(map[string]any), "tlogEntries")
 	stripped, _ := json.Marshal(b)
-	out, err := runVerifyAt(t, c, atOpts(srv, log, writeFile(t, t.TempDir(), "b.json", stripped)))
+	dir := t.TempDir()
+	writeFile(t, dir, "artifact", []byte("a"))
+	out, err := runVerifyAt(t, c, atOpts(srv, log, writeFile(t, dir, "b.json", stripped)))
 	wantRefused(t, out, err, "no trusted signing time", "revocation can only be checked as of now")
 }
 
@@ -354,8 +378,12 @@ func TestVerifyAt_UntrustedTimeIsLabelled(t *testing.T) {
 	}
 
 	out, err := runVerifyAt(t, c, verifyOptions{authority: srv.URL, client: srv.Client(), claimedAt: beforeRevocation, untrustedTime: true})
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
+	// Valid, but on a time nobody vouches for: exit 3, not 0 (L3).
+	if !isReducedAssurance(err) {
+		t.Fatalf("untrusted time: want reduced assurance, got %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Certificate valid") {
+		t.Fatalf("untrusted-time run is not reported valid:\n%s", out)
 	}
 	for _, want := range []string{"UNVERIFIED", "not a trusted timestamp"} {
 		if !strings.Contains(out, want) {
@@ -370,10 +398,14 @@ func TestVerifyAt_UntrustedTimeIsLabelled(t *testing.T) {
 func TestVerifyAt_FlagCombinations(t *testing.T) {
 	c := newAtChain(t, 1, beforeRevocation)
 	for name, o := range map[string]verifyOptions{
-		"untrusted-time without --at": {untrustedTime: true},
-		"--bundle and --at":           {bundlePath: "x", claimedAt: beforeRevocation, untrustedTime: true},
-		"--artifact without --bundle": {artifactPath: "x"},
-		"strict without a time":       {strictRevocation: true},
+		"untrusted-time without --at":  {untrustedTime: true},
+		"--bundle and --at":            {bundlePath: "x", claimedAt: beforeRevocation, untrustedTime: true},
+		"--artifact without --bundle":  {artifactPath: "x"},
+		"strict without a time":        {strictRevocation: true},
+		"--bundle without --artifact":  {bundlePath: "x"},
+		"--no-artifact with artifact":  {bundlePath: "x", artifactPath: "y", noArtifact: true},
+		"--no-artifact without bundle": {noArtifact: true},
+		"max age without strict":       {bundlePath: "x", artifactPath: "y", historyMaxAge: time.Hour},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := runVerifyAt(t, c, o); err == nil {
@@ -436,7 +468,9 @@ func TestVerifyAt_ReleaseV031(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := newHistoryServer(t, unsigned)
-	opts := verifyOptions{authority: srv.URL, client: srv.Client(), bundlePath: bundle}
+	// The release binary is not vendored (it is megabytes); the live check
+	// covers --artifact against it.
+	opts := verifyOptions{authority: srv.URL, client: srv.Client(), bundlePath: bundle, noArtifact: true}
 
 	out, err := runVerifyAt(t, c, opts)
 	wantRefused(t, out, err, "does not publish a signed epoch history yet")
@@ -447,10 +481,148 @@ func TestVerifyAt_ReleaseV031(t *testing.T) {
 	// The chain itself verifies at the signing time; only revocation is open.
 	opts.offline = true
 	out, err = runVerifyAt(t, c, opts)
-	if err != nil {
-		t.Fatalf("release chain refused at its signing time: %v\n%s", err, out)
+	if !isReducedAssurance(err) {
+		t.Fatalf("release chain at its signing time, --offline --no-artifact: want reduced assurance, got %v\n%s", err, out)
 	}
 	if !strings.Contains(out, "revocation NOT checked") {
 		t.Fatalf("--offline output does not say revocation NOT checked:\n%s", out)
+	}
+}
+
+func isReducedAssurance(err error) bool {
+	var r *reducedAssuranceError
+	return errors.As(err, &r) && r.ExitCode() == exitReducedAssurance
+}
+
+// M1: strict mode refuses any revoked epoch, so a replayed older history
+// that predates the revocation must not satisfy it. Strict therefore needs
+// a fresh history. epochhistory-basic (issued 00:00Z, epoch 1 current, no
+// revocations) is a genuine signed history issued after T and before any
+// later revocation R: as of now it is stale and refused.
+func TestVerifyAt_StrictRefusesStaleHistory(t *testing.T) {
+	early := basicIssuedAt.Add(-time.Hour)
+	c := newAtChain(t, 1, early)
+	log := newTestLog(t)
+	srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-basic"))
+
+	opts := atOpts(srv, log, c.signAt(t, log, []byte("a"), early))
+	opts.strictRevocation = true // clock: now, ten months after issuedAt
+	out, err := runVerifyAt(t, c, opts)
+	wantRefused(t, out, err, "stale", "--history-max-age")
+
+	// The same history, fresh (one minute old), satisfies strict.
+	opts = strictOpts(srv, log, c.signAt(t, log, []byte("a"), early), basicIssuedAt)
+	if out, err := runVerifyAt(t, c, opts); err != nil {
+		t.Fatalf("fresh history refused in strict mode: %v\n%s", err, out)
+	}
+
+	// The default bound is notme's 300 s: 301 s is stale, 300 s is not.
+	opts.clock = basicIssuedAt.Add(301 * time.Second)
+	if out, err := runVerifyAt(t, c, opts); err == nil {
+		t.Fatalf("301 s old history accepted in strict mode:\n%s", out)
+	}
+	opts.clock = basicIssuedAt.Add(300 * time.Second)
+	if out, err := runVerifyAt(t, c, opts); err != nil {
+		t.Fatalf("300 s old history refused: %v\n%s", err, out)
+	}
+
+	// --history-max-age overrides it.
+	opts.clock = basicIssuedAt.Add(2 * time.Hour)
+	opts.historyMaxAge = 3 * time.Hour
+	if out, err := runVerifyAt(t, c, opts); err != nil {
+		t.Fatalf("--history-max-age 3h refused a 2h old history: %v\n%s", err, out)
+	}
+
+	// Non-strict needs no freshness: a stale history issued after T is sound
+	// (every later history must carry any revocation at or before T).
+	opts = atOpts(srv, log, c.signAt(t, log, []byte("a"), early))
+	if out, err := runVerifyAt(t, c, opts); err != nil {
+		t.Fatalf("non-strict refused a stale history: %v\n%s", err, out)
+	}
+}
+
+// Every mode prints the history's issuedAt and age.
+func TestVerifyAt_HistoryIssuedAtPrinted(t *testing.T) {
+	c := newAtChain(t, 1, beforeRevocation)
+	log := newTestLog(t)
+	srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-revoked"))
+	for _, strict := range []bool{false, true} {
+		chain, opts := c, atOpts(srv, log, c.signAt(t, log, []byte("a"), beforeRevocation))
+		if strict {
+			// Epoch 2 was never revoked, so strict accepts it.
+			chain = newAtChain(t, 2, beforeRevocation)
+			opts = strictOpts(srv, log, chain.signAt(t, log, []byte("a"), beforeRevocation), revokedIssuedAt)
+		}
+		out, err := runVerifyAt(t, chain, opts)
+		if err != nil {
+			t.Fatalf("strict=%v: %v\n%s", strict, err, out)
+		}
+		if !strings.Contains(out, "history issued 2026-01-01T03:00:00Z, age ") {
+			t.Errorf("strict=%v: output lacks the history issuedAt and age:\n%s", strict, out)
+		}
+	}
+}
+
+// L1: --bundle needs the artifact, or an explicit --no-artifact, which
+// marks the header and exits 3.
+func TestVerifyAt_NoArtifactIsMarked(t *testing.T) {
+	c := newAtChain(t, 1, beforeRevocation)
+	log := newTestLog(t)
+	srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-revoked"))
+	opts := atOpts(srv, log, c.signAt(t, log, []byte("a"), beforeRevocation))
+
+	opts.artifactPath = ""
+	if _, err := runVerifyAt(t, c, opts); err == nil || !strings.Contains(err.Error(), "--no-artifact") {
+		t.Fatalf("--bundle without --artifact: %v", err)
+	}
+
+	opts.noArtifact = true
+	out, err := runVerifyAt(t, c, opts)
+	if !isReducedAssurance(err) {
+		t.Fatalf("--no-artifact: want reduced assurance, got %v\n%s", err, out)
+	}
+	header := strings.SplitN(strings.TrimSpace(out), "\n", 2)[0]
+	if !strings.Contains(header, "Certificate valid") || !strings.Contains(header, "artifact NOT checked") {
+		t.Fatalf("header does not say artifact NOT checked: %q", header)
+	}
+}
+
+// L3: exit codes. 0: verified in full. 1: refused. 3: valid with reduced
+// assurance (--untrusted-time, --no-artifact, or --offline with --bundle).
+// --offline as of now keeps its exit 0.
+func TestVerifyAt_ExitCodes(t *testing.T) {
+	c := newAtChain(t, 1, beforeRevocation)
+	log := newTestLog(t)
+	srv := newHistoryServer(t, fixtureHistory(t, "epochhistory-revoked"))
+	bundle := c.signAt(t, log, []byte("a"), beforeRevocation)
+
+	if _, err := runVerifyAt(t, c, atOpts(srv, log, bundle)); err != nil {
+		t.Fatalf("full verification: %v", err)
+	}
+	off := atOpts(srv, log, bundle)
+	off.offline = true
+	if _, err := runVerifyAt(t, c, off); !isReducedAssurance(err) {
+		t.Fatalf("--bundle --offline: %v", err)
+	}
+	if code := exitCodeOf(nil); code != 0 {
+		t.Fatalf("nil error exits %d", code)
+	}
+	if code := exitCodeOf(errors.New("refused")); code != 1 {
+		t.Fatalf("refusal exits %d", code)
+	}
+	if code := exitCodeOf(&reducedAssuranceError{reasons: []string{"x"}}); code != 3 {
+		t.Fatalf("reduced assurance exits %d", code)
+	}
+	// A refusal is never reduced assurance, even with --offline set.
+	after := newAtChain(t, 1, afterRevocation)
+	r := atOpts(srv, log, after.signAt(t, log, []byte("a"), afterRevocation))
+	if _, err := runVerifyAt(t, after, r); err == nil || isReducedAssurance(err) {
+		t.Fatalf("revoked: %v", err)
+	}
+
+	// Now mode, --offline: unchanged, exit 0.
+	ec := newEpochChain(t, 1, 1)
+	if out, err := runVerifyForTest(t, ec, verifyOptions{offline: true}); err != nil {
+		t.Fatalf("now-mode --offline no longer exits 0: %v\n%s", err, out)
 	}
 }

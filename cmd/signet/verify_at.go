@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/agentic-research/signet/pkg/rekor"
@@ -68,8 +69,74 @@ func checkTimeFlags(opts verifyOptions) error {
 		return errors.New("--artifact is checked against a bundle's Rekor entry; it needs --bundle")
 	case opts.strictRevocation && opts.bundlePath == "" && opts.claimedAt.IsZero():
 		return errors.New("--strict-revocation applies to a check as of a signing time (--bundle); a check as of now already refuses every revoked epoch")
+	case opts.noArtifact && opts.bundlePath == "":
+		return errors.New("--no-artifact applies only with --bundle")
+	case opts.noArtifact && opts.artifactPath != "":
+		return errors.New("use --artifact or --no-artifact, not both")
+	case opts.bundlePath != "" && opts.artifactPath == "" && !opts.noArtifact:
+		return errors.New("--bundle needs --artifact FILE, the file the bundle signs; without it nothing ties the result to the file you hold. Pass --no-artifact to verify only the certificate (the output then says artifact NOT checked, and signet exits 3)")
+	case opts.historyMaxAge < 0:
+		return errors.New("--history-max-age must not be negative")
+	case opts.historyMaxAge != 0 && !opts.strictRevocation:
+		return errors.New("--history-max-age applies only with --strict-revocation: a check that is not strict needs no fresh history")
 	}
 	return nil
+}
+
+// Exit codes of `signet verify`.
+const (
+	exitVerified         = 0 // valid, verified in full
+	exitRefused          = 1 // invalid, or an error
+	exitReducedAssurance = 3 // valid, but with reduced assurance
+)
+
+// defaultHistoryMaxAge bounds the epoch history's age in strict mode:
+// notme's own bundle conformance bound (BUNDLE_MAX_AGE_MS), five minutes.
+const defaultHistoryMaxAge = 300 * time.Second
+
+// reducedAssuranceError is returned for a certificate that verified, but
+// with a check skipped or a time nobody vouches for. It exits 3, so a script
+// keyed on the exit code cannot mistake it for a full verification.
+type reducedAssuranceError struct{ reasons []string }
+
+func (e *reducedAssuranceError) Error() string {
+	return "certificate valid with reduced assurance: " + strings.Join(e.reasons, "; ")
+}
+
+// ExitCode is the process exit status for this result.
+func (e *reducedAssuranceError) ExitCode() int { return exitReducedAssurance }
+
+// exitCodeOf maps verifyAndReport's result to the exit status.
+func exitCodeOf(err error) int {
+	var r *reducedAssuranceError
+	switch {
+	case err == nil:
+		return exitVerified
+	case errors.As(err, &r):
+		return r.ExitCode()
+	default:
+		return exitRefused
+	}
+}
+
+// reducedAssurance names what a valid result did not establish, or nil.
+// --offline as of now keeps its exit 0 (the existing contract); as of a
+// signing time it is reduced.
+func reducedAssurance(vt verifyTime, opts verifyOptions) error {
+	var reasons []string
+	if vt.source == timeUntrusted {
+		reasons = append(reasons, "the time is UNVERIFIED (--untrusted-time)")
+	}
+	if opts.noArtifact {
+		reasons = append(reasons, "artifact NOT checked (--no-artifact)")
+	}
+	if opts.offline && vt.asOfSigning() {
+		reasons = append(reasons, "revocation NOT checked (--offline)")
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return &reducedAssuranceError{reasons: reasons}
 }
 
 // resolveSigningTime establishes T from --bundle (verified) or --at.
@@ -199,8 +266,30 @@ func checkRevocationAt(ctx context.Context, result *VerifyResult, opts verifyOpt
 	if err := epochhistory.VerifySignature(h, root.PublicKey); err != nil {
 		return fmt.Errorf("epoch history from %s: %w. The authority's root may have rotated: re-fetch the root and re-pin --ca from a trusted channel", url, err)
 	}
-	if issued := time.Unix(h.IssuedAt, 0); time.Until(issued) > verifyMaxFutureSkew {
-		return fmt.Errorf("epoch history from %s is dated %s, more than %s in the future", url, issued.UTC().Format(time.RFC3339), verifyMaxFutureSkew)
+	now := opts.clock
+	if now.IsZero() {
+		now = time.Now()
+	}
+	issued := time.Unix(h.IssuedAt, 0).UTC()
+	age := now.Sub(issued)
+	if -age > verifyMaxFutureSkew {
+		return fmt.Errorf("epoch history from %s is dated %s, more than %s in the future", url, issued.Format(time.RFC3339), verifyMaxFutureSkew)
+	}
+	// Strict refuses any revoked epoch, so it must see every revocation
+	// made so far. A genuine but older history, issued after T and before a
+	// revocation, would hide it, and a verifier with no rollback state (a new
+	// machine, a CI runner) cannot tell. So strict needs a fresh history.
+	// Non-strict does not: any history issued after T must already carry a
+	// revocation at or before T.
+	if opts.strictRevocation {
+		maxAge := opts.historyMaxAge
+		if maxAge == 0 {
+			maxAge = defaultHistoryMaxAge
+		}
+		if age > maxAge {
+			return fmt.Errorf("epoch history from %s is stale for --strict-revocation: issued %s, %s old, over the %s limit (--history-max-age). Strict mode refuses any revoked epoch, so it needs a history recent enough to carry every revocation; an older one could be replayed from before a revocation",
+				url, issued.Format(time.RFC3339), age.Round(time.Second), maxAge)
+		}
 	}
 
 	last, err := storage.GetLastSeenSeqno(ctx, stateID)
@@ -229,13 +318,15 @@ func checkRevocationAt(ctx context.Context, result *VerifyResult, opts verifyOpt
 	}
 
 	result.Revocation = RevocationResult{
-		Checked:      true,
-		AsOfSigning:  true,
-		Authority:    authority,
-		Epoch:        leafEpoch,
-		CurrentEpoch: h.CurrentEpoch,
-		HistorySeqno: h.Seqno,
-		Strict:       opts.strictRevocation,
+		Checked:         true,
+		AsOfSigning:     true,
+		Authority:       authority,
+		Epoch:           leafEpoch,
+		CurrentEpoch:    h.CurrentEpoch,
+		HistorySeqno:    h.Seqno,
+		HistoryIssuedAt: issued,
+		HistoryAge:      age,
+		Strict:          opts.strictRevocation,
 	}
 	return nil
 }
